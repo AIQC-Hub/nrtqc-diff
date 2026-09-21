@@ -26,6 +26,7 @@ site/
 
 ```bash
 bash scripts/serve.sh      # quarto preview with live reload
+bash scripts/serve.sh --static   # render once, serve with range requests
 quarto render site         # one-shot render into site/_site
 ```
 
@@ -78,6 +79,23 @@ product totals and the summary table without touching the site.
 [stratum-duckdb](https://github.com/stratum-toolkit/stratum-duckdb): DuckDB
 compiled to WebAssembly, querying parquet in the browser.
 
+It reads the two kinds of file differently, on purpose:
+
+- **`profiles.parquet` is fetched whole**, once, when the page opens. Every
+  query over it sorts or sums across all of its rows, so reading it in pieces
+  would fetch the same bytes in more round trips. It is 8 MB for the real
+  batch, and it is the one download the reader waits for.
+- **`obs/{id}.parquet` are registered as remote views**, so DuckDB reads them
+  with HTTP range requests and fetches only the row groups a query needs.
+  These files run to 126 MB; opening one profile costs about 2 MB of them.
+  The build makes that possible by writing them in platform order, which
+  `docs/DATA_MODEL.md` explains.
+
+This needs a server that answers range requests. GitHub Pages does.
+`quarto preview` does not, so against real data use
+`bash scripts/serve.sh --static`, which renders once and serves the result
+with a server that does.
+
 Swapping in
 [stratum-sqlite](https://github.com/stratum-toolkit/stratum-sqlite) means
 rewriting `db.js` and the build's writers, and nothing else, as long as
@@ -95,10 +113,11 @@ the seam, so here is the trade-off recorded while it is fresh:
 DuckDB wins here because observation-level data grows quickly, because the
 per-dataset split lets a reader pay only for what they open, and because the
 QC item breakdown is an `UNPIVOT` over a column set discovered at runtime.
-Reconsider if the published data settles below roughly 20 MB in total and the
-7 MB engine starts to dominate, or if the site has to work with no network at
-all: DuckDB always fetches its main module from jsDelivr, even when the binary
-companions are self-hosted.
+The real batch settles the first two: 430 MB of observations, read a couple
+of megabytes at a time. Reconsider if a deployment's published data settles
+below roughly 20 MB in total and the 7 MB engine starts to dominate, or if
+the site has to work with no network at all: DuckDB always fetches its main
+module from jsDelivr, even when the binary companions are self-hosted.
 
 ## Plotting
 

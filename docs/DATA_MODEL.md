@@ -40,8 +40,8 @@ build time in `src/nrtqc_diff/flags.py` and stored as `{variable}_status`.
 | `agree_bad` | in `bad_flag_values` | above 1 | Both sources flag it |
 | `original_only` | in `bad_flag_values` | 1 | Only the input flags it |
 | `aiqclib_only` | good or missing | above 1 | Only aiqclib flags it |
-| `agree_good` | present, not bad | 1 | Neither flags it |
-| `no_input_flag` | missing or unreadable | 1 | Nothing to compare |
+| `no_input_flag` | in `missing_flag_values`, or unreadable | 1 | Nothing to compare |
+| `agree_good` | anything else | 1 | Neither flags it |
 
 The order of the table is the order of the test. The flagged cases are
 decided before the missing-flag case, so an observation aiqclib flagged is
@@ -49,10 +49,26 @@ always visible as flagged, whatever the input said. That is why
 `aiqclib_only` covers both "the input called it good" and "the input said
 nothing".
 
-Which input values count as bad is per variable (`bad_flag_values`), because
-datasets differ in how they use the upper values of the scheme. The computed
-flag always follows the IOC/Argo scheme, where anything above 1 is an anomaly,
-so it needs no list.
+Two per-variable lists decide the rest, because datasets differ in how they
+use the scheme:
+
+- **`bad_flag_values`** are the values that call the observation an anomaly.
+- **`missing_flag_values`** are the values that say nothing about it at all:
+  0 (no QC performed) and 9 (missing value) by default. These are reported as
+  `no_input_flag` rather than as agreement, which matters more than it looks:
+  a real NRT file uses the whole scale, and counting every 9 as "both sources
+  agree this is good" would overstate agreement on exactly the observations
+  nobody checked. A flag that will not parse at all, an empty string say,
+  lands here too.
+
+Anything not in either list is a judgement that the observation is usable:
+1 (good), 2 (probably good), 5 (value changed) and 8 (interpolated) all count
+as good. The computed flag always follows the IOC/Argo scheme, where anything
+above 1 is an anomaly, so it needs no list.
+
+`src/nrtqc_diff/flags.py` writes the rule once, as `status_predicates`, and
+derives both the published `{variable}_status` column and the per-profile
+counts from it.
 
 ## `catalog.json`
 
@@ -64,7 +80,8 @@ so it needs no list.
     {
       "name": "temp", "label": "Temperature", "unit": "degC",
       "flag": "temp_qc", "nrt_flag": "temp_nrt_flag",
-      "status_column": "temp_status", "bad_flag_values": [3, 4, 6, 7]
+      "status_column": "temp_status",
+      "bad_flag_values": [3, 4, 6, 7], "missing_flag_values": [0, 9]
     }
   ],
   "statuses": [ { "key": "agree_bad", "label": "Both flagged", "color": "#3f6fb5" } ],
@@ -133,11 +150,46 @@ The item columns are copied through rather than being selected by name, so a
 dataset built with a different set of QC items needs no change here or in the
 site: `site/assets/js/queries.js` discovers them with `DESCRIBE`.
 
+Rows keep the order the input had. See "Row order" below: the site depends on
+it.
+
+## Row order, and why it matters
+
+`obs/{dataset_id}.parquet` is written in the order the input had, which the
+build requires to be non-decreasing in `platform_code`. Nothing is sorted:
+sorting is the one step whose memory grows with the data, and on the largest
+input here it costs 11 GB against 2.4 GB for the whole build.
+
+The order is not cosmetic. The site reads these files over HTTP range
+requests, and a parquet row group records the smallest and largest value of
+each of its columns. Because the rows arrive grouped by platform, a row group
+covers a narrow range of `profile_id`, so `WHERE profile_id = ...` can skip
+almost every row group in the file. Measured on the largest dataset: 126 MB
+in 255 row groups, and the average profile is served by 2.4 of them, so
+opening one costs about 2 MB rather than 126 MB.
+
+Shuffle the input and the file still builds correct answers, but every query
+reads everything. That is why the build refuses it instead.
+
 ## Sizes
 
 The demo (120 profiles, three datasets) produces about 55 KB of parquet.
 Parquet with zstd compresses flag columns very well, since they are mostly
-runs of `1`. As a rule of thumb, expect 3 to 6 KB per published profile.
+runs of `1`.
+
+The `test_nrt` batch is the realistic measure: 8 datasets, 330 million
+observations in, 430 MB out.
+
+| File | Size | Rule of thumb |
+| --- | --- | --- |
+| `catalog.json` | 6 KB | Grows with the number of datasets, not their size |
+| `profiles.parquet` | 8.3 MB for 357,445 profiles | About 23 bytes per published profile |
+| `obs/` | 421 MB for 87.7 M observations | About 5 bytes per published observation |
+
+`profiles.parquet` is fetched whole at startup, so it is the one file whose
+size the reader waits for. The observation files are not: they are read by
+range request, so what matters about them is the per-profile cost above, not
+the total.
 
 DuckDB WASM itself is the large download: about 7 MB gzipped, cached by the
 browser after the first visit. That is the price of running SQL client side,

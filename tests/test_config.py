@@ -106,3 +106,53 @@ def test_variable_lookup(tmp_path):
     assert config.variable("temp").flag == "temp_qc"
     with pytest.raises(KeyError):
         config.variable("psal")
+
+
+def test_missing_flag_values_default_to_the_unjudged_values(tmp_path):
+    """0 is "no QC performed" and 9 is "missing value"; neither means good."""
+    config = read_config(str(write_config(tmp_path)))
+    assert config.variables[0].missing_flag_values == [0, 9]
+
+
+def test_missing_flag_values_can_be_set(tmp_path):
+    path = write_config(
+        tmp_path,
+        variables=[
+            {
+                "name": "temp",
+                "flag": "temp_qc",
+                "nrt_flag": "temp_nrt_flag",
+                "missing_flag_values": [9],
+            }
+        ],
+    )
+    assert read_config(str(path)).variables[0].missing_flag_values == [9]
+
+
+def test_a_flag_value_cannot_be_both_bad_and_missing(tmp_path):
+    path = write_config(
+        tmp_path,
+        variables=[
+            {
+                "name": "temp",
+                "flag": "temp_qc",
+                "nrt_flag": "temp_nrt_flag",
+                "bad_flag_values": [4, 9],
+                "missing_flag_values": [0, 9],
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="cannot be both"):
+        read_config(str(path))
+
+
+def test_row_group_size_defaults_and_is_configurable(tmp_path):
+    assert read_config(str(write_config(tmp_path))).row_group_size == 100_000
+    path = write_config(tmp_path, site={"data_dir": "out", "row_group_size": 25000})
+    assert read_config(str(path)).row_group_size == 25000
+
+
+def test_a_row_group_size_of_zero_is_rejected(tmp_path):
+    path = write_config(tmp_path, site={"data_dir": "out", "row_group_size": 0})
+    with pytest.raises(ValueError, match="row_group_size"):
+        read_config(str(path))
