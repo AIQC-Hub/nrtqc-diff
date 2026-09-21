@@ -34,7 +34,9 @@ products of very different sizes can be compared.
 
 The profile plots put the measurement on the x axis and pressure on the y
 axis, increasing downwards, with every point coloured by which source flagged
-it: both, the input only, `aiqclib` only, or neither. They pan and zoom.
+it: both, the input only, `aiqclib` only, or neither. They pan and zoom, and
+stop at the edge of the profile's own data rather than drifting off into
+empty space.
 
 ## Quick start
 
