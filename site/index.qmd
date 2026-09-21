@@ -52,8 +52,6 @@ viewof row_limit = Inputs.select([100, 500, 2000], {
 
 ## Column {width="46%"}
 
-### Row
-
 ```{ojs}
 //| title: Profiles
 
@@ -91,32 +89,6 @@ viewof profile_row = {
     sortKey: "n_disagree",
     autoSelect: true,
     empty: "No profiles were published for this product."
-  });
-}
-```
-
-### Row {height="34%"}
-
-```{ojs}
-//| title: Product totals
-{
-  const totals = await app.productTotals(selection.datasets, variables, statuses);
-  const byVariable = variables.map((variable) => {
-    const row = { variable: variable.label };
-    for (const status of statuses) {
-      const match = totals.find(
-        (t) => t.variable === variable.name && t.status === status.key
-      );
-      row[status.key] = match ? Number(match.n) : 0;
-    }
-    return row;
-  });
-  return app.tableView(byVariable, {
-    columns: [
-      { key: "variable", label: "Variable", align: "left", format: (v) => v },
-      ...statuses.map((status) => ({ key: status.key, label: status.label }))
-    ],
-    rowKey: "variable"
   });
 }
 ```

@@ -10,6 +10,8 @@ from nrtqc_diff.flags import (
     AIQCLIB_ONLY,
     NO_INPUT_FLAG,
     ORIGINAL_ONLY,
+    STATUSES,
+    is_anomaly,
     item_columns,
     status_expression,
 )
@@ -103,6 +105,41 @@ class TestStatusExpression:
         assert self.status("9", missing_flag_values=[], bad_flag_values=[9]) == (
             ORIGINAL_ONLY
         )
+
+
+class TestFlaggedMarker:
+    """
+    The ``flagged`` marker in :data:`STATUSES`, against the rule it describes.
+
+    The build publishes the marker in ``catalog.json`` so the summary page can
+    pick out the categories where a source flagged something without naming
+    them. That is only safe while the marker says the same thing as
+    :func:`is_anomaly`, which is the rule the trimming actually applies.
+    """
+
+    #: An ``(input flag, computed flag)`` pair landing in each category.
+    CASES = {
+        AGREE_BAD: ("4", 4),
+        ORIGINAL_ONLY: ("4", 1),
+        AIQCLIB_ONLY: ("1", 4),
+        AGREE_GOOD: ("1", 1),
+        NO_INPUT_FLAG: ("9", 1),
+    }
+
+    def test_every_category_is_covered(self):
+        """A new category must be given a case here, not silently skipped."""
+        assert {status["key"] for status in STATUSES} == set(self.CASES)
+
+    @pytest.mark.parametrize("status", STATUSES, ids=lambda s: s["key"])
+    def test_the_marker_matches_the_rule(self, status):
+        flag, computed = self.CASES[status["key"]]
+        variable = VariableSpec("temp", "Temperature", "temp_qc", "temp_nrt_flag")
+        frame = pl.DataFrame(
+            {"temp_qc": [flag], "temp_nrt_flag": [computed]},
+            schema={"temp_qc": pl.Utf8, "temp_nrt_flag": pl.Int64},
+        )
+        assert frame.select(status_expression(variable)).item() == status["key"]
+        assert frame.select(is_anomaly(variable)).item() == status["flagged"]
 
 
 def test_per_variable_and_profile_items_are_both_found():

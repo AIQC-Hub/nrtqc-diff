@@ -2,6 +2,10 @@
 # `data` is a symlink to the aiqclib output tree, so match it without a
 # trailing slash (a trailing slash would only match a real directory).
 data
+# Written by scripts/make_demo_data.py. It sits beside `data` rather than
+# inside it because `data` is that symlink, and writing the synthetic inputs
+# into it would mean writing into the real aiqclib output tree.
+demo-data/
 site/data/
 site/libs/
 site/_site/

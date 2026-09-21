@@ -36,18 +36,18 @@ datasets:
     product: CORA NRT
     label: Baltic CORA NRT 2021
     description: Demo dataset. Replace the path with a real NRT QC output.
-    path: ../data/demo/bal_cora_nrt.parquet
+    path: ../demo-data/bal_cora_nrt.parquet
 
   - id: bal_cora_dm
     region: Baltic Sea
     product: CORA delayed mode
     label: Baltic CORA delayed mode 2021
     description: Demo dataset showing a second product under the same region.
-    path: ../data/demo/bal_cora_dm.parquet
+    path: ../demo-data/bal_cora_dm.parquet
 
   - id: arc_cora_nrt
     region: Arctic Ocean
     product: CORA NRT
     label: Arctic CORA NRT 2021
     description: Demo dataset showing a second region.
-    path: ../data/demo/arc_cora_nrt.parquet
+    path: ../demo-data/arc_cora_nrt.parquet

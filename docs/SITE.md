@@ -1,18 +1,20 @@
 # The site
 
-`site/` is an ordinary Quarto website with one dashboard page. There is no
+`site/` is an ordinary Quarto website with two pages of data and one of
+prose. There is no
 build step for the JavaScript: `site/assets/js/` holds plain ES modules that
 the browser loads directly.
 
 ```
 site/
 ├── _quarto.yml           project, navbar, which folders are copied verbatim
-├── index.qmd             the dashboard
+├── index.qmd             the dashboard: one product, one profile at a time
+├── summary.qmd           every region and product at once
 ├── about.qmd             what the comparison means
 ├── assets/
 │   ├── dashboard.css     styling for the nq- widgets
 │   └── js/
-│       ├── app.js        the single module index.qmd imports
+│       ├── app.js        the single module the pages import
 │       ├── db.js         data access; the only file that knows about DuckDB
 │       ├── queries.js    every SQL statement
 │       ├── views.js      tree, tables, contingency, legend
@@ -34,9 +36,24 @@ quarto render site         # one-shot render into site/_site
 says which command to run. Both are generated, so a fresh clone needs
 `nrtqc-diff build` and `fetch_assets.sh` before it can render anything useful.
 
-## The three levels
+## The two pages
 
-The dashboard is one page holding one drill-down, driven by two selections.
+**`summary.qmd` is the way in.** One row per region and product, over every
+published profile: how much of each source dataset survived the trimming, and
+how the two flag sources line up across what did. It answers "which product is
+worth opening" before the reader has to guess, and it is the only page that
+compares products against each other. Everything on it comes from
+`profiles.parquet`, which carries `region` and `product` as columns, so a
+product built from several datasets aggregates in SQL rather than in the page;
+the totals the trimming was measured against come from `catalog.json`.
+
+The counts there cover published profiles only. That is why "neither flagged"
+is the largest column on the page, and why the last column is a rate per 1,000
+published observations: it is the only figure on the row that compares fairly
+between a product of 800 observations and one of 25 million.
+
+**`index.qmd` is the drill-down**, one page holding three levels, driven by
+two selections.
 
 1. **Product**, from the sidebar tree (`treeView`). Selecting one sets
    `selection = {region, product, datasets}`. The first product selects itself
@@ -60,7 +77,7 @@ that emits an `input` event when it changes, which is the contract Quarto's
 rows and gets a node back.
 
 **Imports.** Observable cells can only load plain JavaScript through dynamic
-`import()`, so `index.qmd` imports `app.js` once and everything else hangs off
+`import()`, so each page imports `app.js` once and everything else hangs off
 it. The specifier is resolved against `document.baseURI` so the page works
 under a GitHub Pages project subfolder as well as at a domain root. Inside the
 modules, paths are resolved from `import.meta.url` for the same reason.
@@ -70,8 +87,11 @@ Values interpolated into SQL go through `literal()` even when they came from
 our own catalog.
 
 **Colours and categories** are read from `catalog.json`, never hard coded.
-Adding a category in `flags.py` makes it appear in the legend, the plots, the
-product totals and the summary table without touching the site.
+Adding a category in `flags.py` makes it appear in the legend, the plots and
+both summary tables without touching the site. That extends to which
+categories mean a source flagged something: the build publishes a `flagged`
+marker on each category, and `summary.qmd` filters on it rather than naming
+`agree_bad`, `original_only` and `aiqclib_only`.
 
 ## The data access seam
 
@@ -136,8 +156,9 @@ the file is missing.
 The site has no test runner. After a change:
 
 1. `quarto render site` must exit 0.
-2. Open the rendered page and walk the three levels: pick each product, pick a
-   profile with disagreements, confirm both plots draw and the contingency
-   table's totals match the summary row.
+2. Open the rendered pages. On the dashboard, walk the three levels: pick each
+   product, pick a profile with disagreements, confirm both plots draw and the
+   contingency table's totals match the summary row. On the summary page,
+   switch the variable and confirm the counts change with it.
 3. The browser console must be clean. DuckDB's own logger is chatty at info
    level; anything at error level is a real problem.

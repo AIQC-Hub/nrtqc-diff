@@ -14,6 +14,8 @@ website:
     left:
       - href: index.qmd
         text: Dashboard
+      - href: summary.qmd
+        text: Regions and products
       - href: about.qmd
         text: About
 

@@ -15,7 +15,12 @@ Two halves:
 
 ## What the site shows
 
-The layout is a three-level drill-down, all on one page:
+**Regions and products** is the overview: one row per region and product, how
+much of each source dataset survived the trimming, and how the two flag
+sources line up across what did, with a rate per 1,000 observations so
+products of very different sizes can be compared.
+
+**The dashboard** is the drill-down, a three-level one, all on one page:
 
 ```
  sidebar                     main panel

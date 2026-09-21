@@ -84,7 +84,10 @@ counts from it.
       "bad_flag_values": [3, 4, 6, 7], "missing_flag_values": [0, 9]
     }
   ],
-  "statuses": [ { "key": "agree_bad", "label": "Both flagged", "color": "#3f6fb5" } ],
+  "statuses": [
+    { "key": "agree_bad", "label": "Both flagged",
+      "color": "#3f6fb5", "flagged": true }
+  ],
   "regions": [
     {
       "name": "Baltic Sea",
@@ -112,6 +115,11 @@ The regions and products are derived from the dataset entries rather than
 configured separately, so the tree cannot disagree with what was built. The
 colour key lives here too: the legend, the tables and the plots all read
 `statuses`, so they cannot drift apart.
+
+`flagged` on a status says whether at least one of the two sources flagged the
+observation, which is the rule the trimming applies. It is published so a page
+can select those categories without naming them, and `flags.py` builds
+`is_anomaly` from the same marker, so the two cannot disagree.
 
 ## `profiles.parquet`
 

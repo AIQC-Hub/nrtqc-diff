@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A **Regions and products** page, between the dashboard and About. One row per
+  region and product: how much of each source dataset survived the trimming,
+  how the two flag sources line up across what did, and a rate per 1,000
+  published observations so products of very different sizes can be compared.
+- A `flagged` marker on each agreement category in `catalog.json`, saying
+  whether at least one source flagged the observation. `is_anomaly` is now
+  built from it, so the rule that decides which profiles are published and
+  what the site is told about that rule cannot drift apart.
 - `config/test_nrt.yaml`, building the real `aiqclib` `test_nrt` batch: 8
   datasets arranged as a region by product tree, 330 million observations in,
   430 MB out in about two minutes.
@@ -24,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The **Product totals** panel is gone from the dashboard. It answered a
+  question about the selected product only, which the new page now answers for
+  every product at once, side by side.
+- The demo inputs are written to `demo-data/` rather than `data/demo/`, and
+  the generator sorts them by platform. `data` is a symlink to an `aiqclib`
+  output tree in a working checkout, so the old path wrote into the real data;
+  the sort is what the streaming build now requires of any input.
 - The build streams. It reads each dataset twice under polars' streaming
   engine instead of loading it, which takes the largest dataset here from
   about 90 GB of memory (it could not run) to 2.4 GB.

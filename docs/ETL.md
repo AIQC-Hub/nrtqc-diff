@@ -120,7 +120,7 @@ different set of QC items needs no change to the configuration.
 uv run python scripts/make_demo_data.py
 ```
 
-writes three synthetic datasets under `data/demo/`, in exactly the schema an
+writes three synthetic datasets under `demo-data/`, in exactly the schema an
 `aiqclib` run produces, seeded so that every agreement category and both
 region and product levels have something to show. No real observation is
 involved. This is what `config/datasets.yaml` points at as shipped, and it is
@@ -130,13 +130,15 @@ the fastest way to see the site working before wiring up your own files.
 
 | Change | Where |
 | --- | --- |
-| A new agreement category | `flags.py`: add to `STATUSES` and to `status_predicates` |
+| A new agreement category | `flags.py`: add to `STATUSES`, with its `flagged` marker, and to `status_predicates` |
 | A new per-profile statistic | `build.py`: `_profile_frame` and its column list |
 | A new published column | `build.py`: `_observation_frame` |
 | A new catalog field | `build.py`: `_catalog` |
 
 Adding to `STATUSES` is enough to make a category appear in the legend, the
-plots, the product totals and the summary table: all four read the list from
-`catalog.json` rather than hard coding it. Document the new column in
+plots and both summary tables: they all read the list from `catalog.json`
+rather than hard coding it. Set its `flagged` marker honestly while you are
+there: `is_anomaly` is built from the marked categories, so it decides which
+profiles are published, not just how the summary page draws its bars. Document the new column in
 `DATA_MODEL.md` in the same commit; that file is the contract the site reads
 against.
