@@ -1,0 +1,53 @@
+# Build configuration for the static site.
+#
+# Paths are resolved relative to this file, so the whole project can be moved
+# without editing them. Run `python scripts/make_demo_data.py` once to create
+# the demo inputs this file points at, or replace the `path` entries with your
+# own aiqclib NRT QC output and leave everything else alone.
+
+site:
+  title: NRT QC flag differences
+  data_dir: ../site/data
+
+# The variables whose two flag columns are compared. `flag` is the flag that
+# came with the input data, `nrt_flag` is the one aiqclib computed.
+# `bad_flag_values` says which values of `flag` count as an anomaly; the
+# computed flag always follows the IOC/Argo scheme, where anything above 1 is
+# an anomaly, so it needs no list.
+variables:
+  - name: temp
+    label: Temperature
+    unit: degC
+    flag: temp_qc
+    nrt_flag: temp_nrt_flag
+    bad_flag_values: [3, 4, 6, 7]
+  - name: psal
+    label: Salinity
+    unit: PSU
+    flag: psal_qc
+    nrt_flag: psal_nrt_flag
+    bad_flag_values: [3, 4, 6, 7]
+
+# One entry per published dataset. `region` and `product` build the tree in
+# the site's sidebar; datasets sharing a region and product sit together.
+datasets:
+  - id: bal_cora_nrt
+    region: Baltic Sea
+    product: CORA NRT
+    label: Baltic CORA NRT 2021
+    description: Demo dataset. Replace the path with a real NRT QC output.
+    path: ../data/demo/bal_cora_nrt.parquet
+
+  - id: bal_cora_dm
+    region: Baltic Sea
+    product: CORA delayed mode
+    label: Baltic CORA delayed mode 2021
+    description: Demo dataset showing a second product under the same region.
+    path: ../data/demo/bal_cora_dm.parquet
+
+  - id: arc_cora_nrt
+    region: Arctic Ocean
+    product: CORA NRT
+    label: Arctic CORA NRT 2021
+    description: Demo dataset showing a second region.
+    path: ../data/demo/arc_cora_nrt.parquet

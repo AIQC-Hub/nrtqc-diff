@@ -1,0 +1,151 @@
+/**
+ * The profile plots: measurement on the x axis, pressure down the y axis.
+ *
+ * Plotly is used for one reason: pan, box zoom, scroll zoom and reset come
+ * with it, and a QC reader spends most of the time zooming into a few
+ * decibars around a flagged point. It is vendored locally by
+ * scripts/fetch_assets.sh; see docs/SITE.md for the alternatives considered.
+ */
+
+import { LIB_ROOT } from "./db.js";
+
+let plotlyPromise = null;
+
+/**
+ * Load Plotly once per page, from the vendored copy.
+ *
+ * @returns {Promise<object>} the Plotly namespace.
+ */
+export function loadPlotly() {
+  if (plotlyPromise === null) {
+    plotlyPromise = new Promise((resolve, reject) => {
+      if (window.Plotly) {
+        resolve(window.Plotly);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = LIB_ROOT + "plotly/plotly.min.js";
+      script.onload = () => resolve(window.Plotly);
+      script.onerror = () =>
+        reject(
+          new Error(
+            "Could not load libs/plotly/plotly.min.js. Run: bash scripts/fetch_assets.sh"
+          )
+        );
+      document.head.appendChild(script);
+    });
+  }
+  return plotlyPromise;
+}
+
+/**
+ * Draw one variable of one profile.
+ *
+ * Every observation is drawn twice: once as a thin grey line giving the shape
+ * of the cast, and once as a marker coloured by which source flagged it. The
+ * line is what makes a single flagged point readable as a spike rather than
+ * as a dot in space.
+ *
+ * @param {Array<object>} rows the profile's observations, any order.
+ * @param {object} options
+ * @param {object} options.variable a `variables` entry from catalog.json.
+ * @param {Array<object>} options.statuses the `statuses` array of catalog.json.
+ * @param {number} [options.height=440] the plot height in pixels.
+ * @returns {Promise<HTMLElement>} the plot node.
+ */
+export async function profilePlot(rows, options) {
+  const { variable, statuses, height = 440 } = options;
+  const node = document.createElement("div");
+  node.className = "nq-plot";
+
+  const measured = rows.filter(
+    (row) => row[variable.name] !== null && row[variable.name] !== undefined
+  );
+  if (measured.length === 0) {
+    node.textContent = `No ${variable.label.toLowerCase()} measurements in this profile.`;
+    node.classList.add("nq-empty");
+    return node;
+  }
+
+  const Plotly = await loadPlotly();
+  const ordered = [...measured].sort((a, b) => a.pres - b.pres);
+
+  const traces = [
+    {
+      x: ordered.map((row) => row[variable.name]),
+      y: ordered.map((row) => row.pres),
+      mode: "lines",
+      type: "scatter",
+      line: { color: "#cfd6dd", width: 1 },
+      hoverinfo: "skip",
+      showlegend: false,
+      name: "profile",
+    },
+  ];
+
+  for (const status of statuses) {
+    const subset = ordered.filter(
+      (row) => row[variable.status_column] === status.key
+    );
+    if (subset.length === 0) continue;
+    traces.push({
+      x: subset.map((row) => row[variable.name]),
+      y: subset.map((row) => row.pres),
+      customdata: subset.map((row) => [
+        row.observation_no,
+        row[variable.flag],
+        row[variable.nrt_flag],
+      ]),
+      mode: "markers",
+      type: "scatter",
+      name: status.label,
+      marker: {
+        color: status.color,
+        size: status.key === "agree_good" ? 5 : 9,
+        line: { color: "#33383d", width: status.key === "agree_good" ? 0 : 0.8 },
+      },
+      hovertemplate:
+        `<b>%{x:.3f}</b> ${variable.unit}<br>` +
+        "pressure %{y:.1f} db<br>" +
+        "observation %{customdata[0]}<br>" +
+        `${variable.flag} = %{customdata[1]}, ` +
+        `${variable.nrt_flag} = %{customdata[2]}` +
+        "<extra>" + status.label + "</extra>",
+    });
+  }
+
+  const layout = {
+    height,
+    margin: { l: 58, r: 16, t: 34, b: 44 },
+    title: {
+      text: variable.label,
+      font: { size: 14 },
+      x: 0,
+      xanchor: "left",
+    },
+    xaxis: {
+      title: { text: variable.unit ? `${variable.label} (${variable.unit})` : variable.label },
+      zeroline: false,
+      gridcolor: "#eceff2",
+    },
+    yaxis: {
+      title: { text: "Pressure (db)" },
+      autorange: "reversed",
+      gridcolor: "#eceff2",
+    },
+    showlegend: false,
+    plot_bgcolor: "#ffffff",
+    paper_bgcolor: "#ffffff",
+    hovermode: "closest",
+  };
+
+  const config = {
+    responsive: true,
+    scrollZoom: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ["select2d", "lasso2d", "toggleSpikelines"],
+  };
+
+  await Plotly.newPlot(node, traces, layout, config);
+  return node;
+}

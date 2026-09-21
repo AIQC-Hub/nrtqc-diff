@@ -1,0 +1,205 @@
+---
+title: "NRT QC flag differences"
+format:
+  dashboard:
+    orientation: columns
+    scrolling: false
+    css: assets/dashboard.css
+---
+
+```{ojs}
+//| output: false
+// Everything the page needs is behind one module, because Observable cells
+// can only load plain JavaScript through dynamic import(). Resolving the
+// specifier against document.baseURI keeps it working under any deployment
+// path, including a GitHub Pages project subfolder.
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+
+catalog = app.loadCatalog()
+variables = catalog.variables
+statuses = catalog.statuses
+
+// The selected profile row names its dataset; the plots need the catalog
+// entry to know which observations file to register.
+datasets_by_id = new Map(
+  catalog.regions.flatMap((region) =>
+    region.products.flatMap((product) =>
+      product.datasets.map((entry) => [entry.id, entry])
+    )
+  )
+)
+```
+
+## {.sidebar width="260px"}
+
+```{ojs}
+//| title: Regions and products
+viewof selection = app.treeView(catalog)
+```
+
+```{ojs}
+//| title: Colour key
+app.statusLegend(statuses)
+```
+
+```{ojs}
+//| title: Rows
+viewof row_limit = Inputs.select([100, 500, 2000], {
+  label: "Profiles shown",
+  value: 500
+})
+```
+
+## Column {width="46%"}
+
+### Row
+
+```{ojs}
+//| title: Profiles
+
+// One row per published profile of the selected product, worst disagreement
+// first. Only profiles where at least one source flagged something were
+// published, so every row here is worth a look.
+viewof profile_row = {
+  const rows = await app.profileSummary(selection.datasets, row_limit);
+  const columns = [
+    { key: "profile_id", label: "Profile", align: "left", format: (v) => v },
+    { key: "profile_timestamp", label: "Time", align: "left", format: app.formatTime },
+    { key: "n_obs", label: "Obs", title: "Observations in the profile" },
+    { key: "n_disagree", label: "Disagree", title: "Observations the two sources disagree on" }
+  ];
+  for (const variable of variables) {
+    columns.push({
+      key: `${variable.name}_n_agree_bad`,
+      label: `${variable.name} both`,
+      title: `${variable.label}: flagged by both sources`
+    });
+    columns.push({
+      key: `${variable.name}_n_original_only`,
+      label: `${variable.name} input`,
+      title: `${variable.label}: flagged by the input data only`
+    });
+    columns.push({
+      key: `${variable.name}_n_aiqclib_only`,
+      label: `${variable.name} aiqclib`,
+      title: `${variable.label}: flagged by aiqclib only`
+    });
+  }
+  return app.tableView(rows, {
+    columns,
+    rowKey: "profile_id",
+    sortKey: "n_disagree",
+    autoSelect: true,
+    empty: "No profiles were published for this product."
+  });
+}
+```
+
+### Row {height="34%"}
+
+```{ojs}
+//| title: Product totals
+{
+  const totals = await app.productTotals(selection.datasets, variables, statuses);
+  const byVariable = variables.map((variable) => {
+    const row = { variable: variable.label };
+    for (const status of statuses) {
+      const match = totals.find(
+        (t) => t.variable === variable.name && t.status === status.key
+      );
+      row[status.key] = match ? Number(match.n) : 0;
+    }
+    return row;
+  });
+  return app.tableView(byVariable, {
+    columns: [
+      { key: "variable", label: "Variable", align: "left", format: (v) => v },
+      ...statuses.map((status) => ({ key: status.key, label: status.label }))
+    ],
+    rowKey: "variable"
+  });
+}
+```
+
+## Column {width="54%"}
+
+### Row {height="26%"}
+
+```{ojs}
+//| title: Contingency
+
+// The cross-tabulation the whole project is about: how the input's flag value
+// and the value aiqclib computed line up, for this profile alone.
+{
+  const box = document.createElement("div");
+  if (!profile_row) {
+    box.className = "nq-empty";
+    box.textContent = "Select a profile in the table on the left.";
+    return box;
+  }
+  const entry = datasets_by_id.get(profile_row.dataset_id);
+  box.appendChild(
+    htl.html`<p class="nq-meta"><strong>${profile_row.profile_id}</strong>
+      ${entry.label} &middot; ${profile_row.n_obs} observations</p>`
+  );
+  for (const variable of variables) {
+    const rows = await app.profileContingency(entry, profile_row.profile_id, variable);
+    box.appendChild(htl.html`<p class="nq-meta">${variable.label}</p>`);
+    box.appendChild(
+      app.contingencyTable(rows, {
+        rowLabel: variable.flag,
+        columnLabel: variable.nrt_flag,
+        badValues: variable.bad_flag_values
+      })
+    );
+  }
+  return box;
+}
+```
+
+### Row
+
+```{ojs}
+//| title: Profile
+
+// Measurement on the x axis, pressure down the y axis, one marker per
+// observation coloured by which source flagged it. Scroll or drag to zoom;
+// double click to reset.
+{
+  const box = document.createElement("div");
+  if (!profile_row) {
+    box.className = "nq-empty";
+    box.textContent = "Select a profile in the table on the left.";
+    return box;
+  }
+  const entry = datasets_by_id.get(profile_row.dataset_id);
+  const observations = await app.profileObservations(entry, profile_row.profile_id);
+  for (const variable of variables) {
+    box.appendChild(await app.profilePlot(observations, { variable, statuses }));
+  }
+  return box;
+}
+```
+
+### Row {height="24%"}
+
+```{ojs}
+//| title: QC items that fired
+{
+  if (!profile_row) {
+    return htl.html`<p class="nq-empty">Select a profile in the table on the left.</p>`;
+  }
+  const entry = datasets_by_id.get(profile_row.dataset_id);
+  const rows = await app.profileItemBreakdown(entry, profile_row.profile_id);
+  return app.tableView(rows, {
+    columns: [
+      { key: "item", label: "QC item", align: "left", format: (v) => v },
+      { key: "flag", label: "Flag" },
+      { key: "n", label: "Observations" }
+    ],
+    rowKey: "item",
+    sortKey: "n",
+    empty: "No aiqclib QC item flagged anything in this profile."
+  });
+}
+```

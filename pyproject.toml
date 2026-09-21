@@ -1,0 +1,41 @@
+[project]
+name = "nrtqc-diff"
+version = "0.1.0"
+description = "Static dashboard comparing existing NRT QC flags with the ones aiqclib computes"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICEN[CS]E.*"]
+authors = [
+    { name = "Takaya Saito", email = "takaya.saito@outlook.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "polars>=1.30.0",
+    "pyarrow>=19.0.0",
+    "pyyaml>=6.0.2",
+]
+
+[project.scripts]
+nrtqc-diff = "nrtqc_diff.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+    "ruff>=0.14.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nrtqc_diff"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,55 @@
+---
+title: "About this site"
+---
+
+This site compares two sets of near-real-time quality control flags over the
+same ocean profile observations:
+
+- the flags that **came with the input data**, written by whoever produced it, and
+- the flags **[`aiqclib`](https://github.com/AIQC-Hub/aiqclib) computed** by
+  running the automated Argo/CTD real-time tests (RTQC2 to RTQC14) over the
+  same measurements.
+
+Every observation falls into one of four cases, and those four cases are the
+colours used throughout:
+
+| Case | Meaning |
+| --- | --- |
+| Both flagged | The two sources agree that the observation is bad. |
+| Input only | The input data flags it; `aiqclib` does not. |
+| aiqclib only | `aiqclib` flags it; the input data does not. |
+| Neither flagged | The two sources agree that the observation is good. |
+
+A fifth case, "no input flag", covers observations whose input flag is missing
+or unreadable **and** which `aiqclib` did not flag either: there is nothing to
+compare, and they are kept visible rather than folded into "neither flagged".
+An observation with no input flag that `aiqclib` *did* flag counts as "aiqclib
+only", because hiding a computed flag on the grounds that the input said
+nothing would defeat the point of the comparison.
+
+## What is published here
+
+Only profiles in which **at least one source flagged at least one
+observation** are published. Profiles both sources call entirely good carry no
+comparison, and leaving them out keeps the site small enough to run in the
+browser. The trimming is by profile, not by observation: once a profile
+qualifies, all of its observations are published, because a flagged point is
+only readable next to the unflagged ones above and below it.
+
+The dashboard counts on each product's summary therefore describe the
+published profiles, not the source dataset. The number of profiles that were
+considered is recorded in `data/catalog.json` as `n_profiles_total`.
+
+## How it runs
+
+Everything is static. The page holds no server-side code: it fetches parquet
+files and runs SQL against them in your browser with DuckDB compiled to
+WebAssembly. Nothing you click is sent anywhere.
+
+## Flag values
+
+Both flag columns use the IOC/Argo scheme, where 1 means good, 3 means
+probably bad and 4 means bad. The computed flag always follows it. Which
+values of the *input* flag count as an anomaly is a per-variable setting of
+the build, listed as `bad_flag_values` in `data/catalog.json`, because input
+datasets differ in how they use the upper values.

@@ -1,0 +1,23 @@
+# Generated data and vendored browser libraries: never in git.
+data/
+site/data/
+site/libs/
+site/_site/
+site/.quarto/
+_site/
+.quarto/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store

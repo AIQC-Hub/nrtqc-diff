@@ -1,0 +1,64 @@
+name: Build and publish the site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; queued runs replace each other rather than racing.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.9.38
+
+      - name: Check the environment
+        run: |
+          uv sync
+          uv run ruff check src tests scripts
+          uv run pytest -q
+
+      # As shipped this builds the synthetic demo, which keeps the published
+      # site reproducible from a clean checkout. Replace this step with one
+      # that fetches the real inputs; see docs/RELEASING.md.
+      - name: Build the data
+        run: |
+          uv run python scripts/make_demo_data.py
+          uv run nrtqc-diff build -c config/datasets.yaml
+
+      - name: Vendor the browser libraries
+        run: bash scripts/fetch_assets.sh
+
+      - name: Render
+        run: quarto render site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

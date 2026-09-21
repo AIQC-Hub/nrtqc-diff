@@ -1,0 +1,197 @@
+/*
+ * Styling for the dashboard's own widgets.
+ *
+ * Quarto's theme handles the page chrome; everything here is scoped to the
+ * `nq-` prefix used by assets/js/views.js and assets/js/plots.js.
+ */
+
+:root {
+  --nq-border: #dde2e7;
+  --nq-muted: #667079;
+  --nq-accent: #1f4e79;
+  --nq-accent-soft: #e8f0f8;
+  --nq-bad: #cc3355;
+}
+
+/* ---------------------------------------------------------------- tree --- */
+
+.nq-tree {
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.nq-region {
+  margin-bottom: 0.4rem;
+}
+
+.nq-region-name {
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0.2rem 0;
+}
+
+.nq-products {
+  list-style: none;
+  margin: 0.15rem 0 0.35rem 0.55rem;
+  padding: 0;
+  border-left: 1px solid var(--nq-border);
+}
+
+.nq-product-button {
+  align-items: baseline;
+  background: none;
+  border: 0;
+  border-radius: 0 3px 3px 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  padding: 0.24rem 0.5rem;
+  text-align: left;
+  width: 100%;
+}
+
+.nq-product-button:hover {
+  background: var(--nq-accent-soft);
+}
+
+.nq-product-button.is-selected {
+  background: var(--nq-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.nq-product-count {
+  font-size: 0.76rem;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------- tables --- */
+
+.nq-table-wrap {
+  max-height: 100%;
+  overflow: auto;
+}
+
+.nq-table {
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+}
+
+.nq-table th,
+.nq-table td {
+  border-bottom: 1px solid var(--nq-border);
+  padding: 0.22rem 0.45rem;
+  white-space: nowrap;
+}
+
+.nq-table thead th {
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.nq-sort {
+  background: none;
+  border: 0;
+  color: var(--nq-muted);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+}
+
+.nq-sort:hover {
+  color: var(--nq-accent);
+}
+
+.nq-row {
+  cursor: pointer;
+}
+
+.nq-row:hover {
+  background: var(--nq-accent-soft);
+}
+
+.nq-row.is-selected {
+  background: var(--nq-accent);
+  color: #fff;
+}
+
+.nq-align-left {
+  text-align: left;
+}
+
+.nq-align-right {
+  text-align: right;
+}
+
+.nq-align-center {
+  text-align: center;
+}
+
+.nq-total,
+.nq-total-row {
+  font-weight: 600;
+}
+
+.nq-contingency th.is-bad {
+  color: var(--nq-bad);
+}
+
+.nq-empty {
+  color: var(--nq-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0.6rem 0;
+}
+
+/* --------------------------------------------------------- legend, meta --- */
+
+.nq-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.9rem;
+  font-size: 0.78rem;
+  margin: 0.3rem 0;
+}
+
+.nq-legend-item {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.nq-swatch {
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+  display: inline-block;
+  height: 0.62rem;
+  width: 0.62rem;
+}
+
+.nq-meta {
+  color: var(--nq-muted);
+  font-size: 0.8rem;
+  margin: 0.15rem 0 0.4rem;
+}
+
+.nq-meta strong {
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------- plots --- */
+
+.nq-plot {
+  width: 100%;
+}
+
+.nq-plot.nq-empty {
+  padding: 1rem 0;
+}
