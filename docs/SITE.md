@@ -64,7 +64,7 @@ two selections.
 3. **Observations**, shown as contingency tables, the QC items that fired, and
    one plot per variable: measurement on the x axis, pressure down the y axis,
    markers coloured by agreement category, with pan, box zoom, scroll zoom and
-   double click to reset.
+   double click to reset. Zooming and panning stop at the data: see Plotting.
 
 Everything downstream of a selection is an Observable cell, so a click
 re-evaluates exactly the cells that depend on it and nothing else.
@@ -150,6 +150,28 @@ It is vendored locally by `scripts/fetch_assets.sh` and loaded through a
 script tag rather than `import()`, because the distributed bundle is UMD.
 `loadPlotly()` does this once per page and fails with the command to run when
 the file is missing.
+
+### Zoom limits
+
+Out of the box Plotly lets you zoom and pan without end, and one scroll too
+many leaves the reader looking at an empty frame with the cast a speck in the
+corner. Both axes are therefore bounded to the profile's own data plus a 5%
+margin, through `minallowed` and `maxallowed` (Plotly 2.27 and later, so mind
+the pinned version in `fetch_assets.sh` if it is ever moved backwards). The
+margin matters: with the limits set exactly at the data, the initial autorange
+is clamped to it and the deepest marker is drawn on the axis.
+
+Plotly applies those limits one edge at a time, which is fine for zooming and
+wrong for panning: drag past a limit and the edge against it is held while the
+far edge keeps coming, so the pan quietly becomes a zoom and an axis already
+showing everything creeps inwards on every drag. `holdSpanWhileDragging` in
+`plots.js` defends the span, which is the thing a pan must not change. It
+watches drags of the pan tool only, because a box zoom is a drag that narrows
+the range deliberately, and a scroll wheel arrives with no button down.
+
+The limits are derived per profile rather than configured. A plausible-range
+setting per variable would be a different feature: this one is about not
+losing the cast off the edge of the frame.
 
 ## Checking a change
 

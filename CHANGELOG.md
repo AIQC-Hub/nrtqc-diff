@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The profile plots no longer zoom or pan past their data. Both axes are
+  bounded to the profile's values plus a 5% margin, so scrolling out stops at
+  the cast instead of shrinking it to a speck in an empty frame. Panning holds
+  its span at the limits rather than squeezing against them, which is what
+  Plotly's own edge-by-edge clamping does.
 - The **Product totals** panel is gone from the dashboard. It answered a
   question about the selected product only, which the new page now answers for
   every product at once, side by side.
