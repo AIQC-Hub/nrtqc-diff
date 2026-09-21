@@ -1,9 +1,13 @@
 # Generated data and vendored browser libraries: never in git.
-data/
+# `data` is a symlink to the aiqclib output tree, so match it without a
+# trailing slash (a trailing slash would only match a real directory).
+data
 site/data/
 site/libs/
 site/_site/
 site/.quarto/
+# Written by `quarto render`; the paths in it are already covered above.
+site/.gitignore
 _site/
 .quarto/
 

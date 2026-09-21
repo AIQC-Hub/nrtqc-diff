@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `config/test_nrt.yaml`, building the real `aiqclib` `test_nrt` batch: 8
+  datasets arranged as a region by product tree, 330 million observations in,
+  430 MB out in about two minutes.
+- `missing_flag_values` per variable, defaulting to `[0, 9]`. Values of the
+  input flag that carry no judgement (no QC performed, missing value) are now
+  reported as `no_input_flag` instead of being counted as the two sources
+  agreeing the observation is good.
+- `site.row_group_size`, the rows per parquet row group in the observation
+  files, which is what one profile lookup costs the reader.
+- `scripts/serve_static.py` and `scripts/serve.sh --static`, serving a
+  rendered site with HTTP range requests. `quarto preview` does not answer
+  them, so it cannot show what the deployed site really fetches.
+
+### Changed
+
+- The build streams. It reads each dataset twice under polars' streaming
+  engine instead of loading it, which takes the largest dataset here from
+  about 90 GB of memory (it could not run) to 2.4 GB.
+- Observation files keep the input's row order rather than being sorted, and
+  the build now requires the input to be ordered by `platform_code` and stops
+  if it is not. Sorting is what memory use scales with; the order is what
+  lets the site find a profile by reading one row group.
+- The site reads observation files as remote views over HTTP range requests
+  rather than downloading them whole. Opening a profile in the largest
+  dataset costs about 2 MB instead of 126 MB. `profiles.parquet` is still
+  fetched whole, because every query over it reads all of it anyway.
+- `flags.py` states the agreement rule once as `status_predicates`, and
+  derives both the published status column and the per-profile counts from
+  it.
+
 ## [0.1.0] - 2026-09-21
 
 ### Added

@@ -8,18 +8,26 @@ import pytest
 import yaml
 
 #: One profile per agreement case, so every branch of the build has a row.
-#: ``(platform, temp_qc, temp_nrt_flag)`` per observation.
+#: ``(platform, temp_qc, temp_nrt_flag)`` per observation. The keys are in
+#: alphabetical order because the build requires its input to be ordered by
+#: platform, the way an ``aiqclib`` NRT QC output is.
 PROFILE_CASES: Dict[str, List[tuple]] = {
     # Both sources call observation 2 bad.
     "AGREE": [(1, 1, 1), (2, 4, 4), (3, 1, 1)],
-    # Only the input flags anything.
-    "INPUT": [(1, 4, 1), (2, 1, 1), (3, 1, 1)],
     # Only aiqclib flags anything.
     "AIQC": [(1, 1, 1), (2, 1, 3), (3, 1, 1)],
     # Nothing is flagged, so this profile must not reach the site.
     "CLEAN": [(1, 1, 1), (2, 1, 1), (3, 1, 1)],
+    # Only the input flags anything.
+    "INPUT": [(1, 4, 1), (2, 1, 1), (3, 1, 1)],
+    # Flag 9 means the value is missing, which is not the same as good. On
+    # its own it cannot qualify a profile, but here aiqclib flags one too.
+    "MISSING": [(1, 9, 1), (2, 9, 4), (3, 1, 1)],
     # The input flag is missing, which is its own category.
     "NOFLAG": [(1, None, 1), (2, None, 4), (3, 1, 1)],
+    # Flag 0 means no QC was performed. Nothing else is flagged, so this
+    # profile must not reach the site either.
+    "NOQC": [(1, 0, 1), (2, 0, 1), (3, 1, 1)],
 }
 
 

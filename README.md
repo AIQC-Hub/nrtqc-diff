@@ -41,7 +41,10 @@ bash scripts/fetch_assets.sh              # DuckDB WASM and Plotly, once
 bash scripts/serve.sh                     # render and open the site
 ```
 
-To use real data, point the `path` entries of `config/datasets.yaml` at your
+`config/test_nrt.yaml` builds the real `aiqclib` batch from `data/` instead,
+if you have it: 8 datasets, 330 million observations, about two minutes.
+
+To use other data, point the `path` entries of `config/datasets.yaml` at your
 own NRT QC output and rebuild. Nothing else changes.
 
 ## Requirements

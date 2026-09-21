@@ -6,6 +6,12 @@ sources say something worth looking at, and writes three kinds of file into
 ``site/data``: a catalog describing the tree, one row per kept profile with
 its counts, and one observation file per dataset. ``docs/DATA_MODEL.md``
 documents the schemas; this module is the only thing that writes them.
+
+Nothing here ever holds a whole dataset in memory. An input can carry a
+hundred million observations, so each dataset is read twice under the
+streaming engine: once to count every profile and decide which ones qualify,
+and once to copy the qualifying observations straight out to parquet. What is
+collected in between is one row per profile, which is small.
 """
 
 import json
@@ -23,6 +29,7 @@ from nrtqc_diff.flags import (
     item_columns,
     original_flag,
     status_expression,
+    status_predicates,
 )
 
 #: The key identifying a profile everywhere in the site.
@@ -37,6 +44,10 @@ OPTIONAL_PROFILE_COLUMNS: List[str] = [
     "filename",
 ]
 
+#: The per-profile column saying whether the trimming rule keeps it. Internal
+#: to the build: it is dropped before ``profiles.parquet`` is written.
+KEEP_COLUMN: str = "_keep"
+
 
 def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     """
@@ -46,7 +57,8 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
     :param verbose: Whether to print progress per dataset.
     :return: The catalog that was written, as a dictionary.
     :raises FileNotFoundError: If a dataset's input parquet is missing.
-    :raises ValueError: If an input is missing a required or configured column.
+    :raises ValueError: If an input is missing a required or configured
+                        column, or is not ordered by ``platform_code``.
     """
     os.makedirs(os.path.join(config.data_dir, "obs"), exist_ok=True)
 
@@ -57,16 +69,16 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
         if verbose:
             print(f"[nrtqc-diff] {spec.id}: reading {spec.path}")
 
-        frame = _read_dataset(spec, config)
-        total_profiles = frame.select(PROFILE_KEYS).unique().height
+        scan = _scan_dataset(spec, config)
+        _check_input_order(spec, scan)
 
-        kept = _trim_to_anomalous_profiles(frame, config)
-        observations = _observation_frame(kept, spec, config)
+        summary = _profile_summary(scan, config)
+        kept = summary.filter(pl.col(KEEP_COLUMN))
+
         profiles = _profile_frame(kept, spec, config)
-
-        observation_path = os.path.join(config.data_dir, "obs", f"{spec.id}.parquet")
-        observations.write_parquet(observation_path, compression="zstd")
         profile_frames.append(profiles)
+
+        _write_observations(scan, kept, spec, config)
 
         entries.append(
             {
@@ -77,15 +89,17 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
                 "description": spec.description,
                 "observations_file": f"obs/{spec.id}.parquet",
                 "n_profiles": profiles.height,
-                "n_profiles_total": total_profiles,
-                "n_observations": observations.height,
-                "n_observations_total": frame.height,
+                "n_profiles_total": summary.height,
+                "n_observations": int(kept["n_obs"].sum()),
+                "n_observations_total": int(summary["n_obs"].sum()),
             }
         )
         if verbose:
+            entry = entries[-1]
             print(
-                f"[nrtqc-diff] {spec.id}: kept {profiles.height} of "
-                f"{total_profiles} profiles, {observations.height} observations"
+                f"[nrtqc-diff] {spec.id}: kept {entry['n_profiles']} of "
+                f"{entry['n_profiles_total']} profiles, "
+                f"{entry['n_observations']} observations"
             )
 
     profile_path = os.path.join(config.data_dir, "profiles.parquet")
@@ -103,13 +117,19 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
     return catalog
 
 
-def _read_dataset(spec: DatasetSpec, config: BuildConfig) -> pl.DataFrame:
+def _scan_dataset(spec: DatasetSpec, config: BuildConfig) -> pl.LazyFrame:
     """
-    Read one NRT QC output and attach the agreement category per variable.
+    Open one NRT QC output, checking it carries what the build needs.
+
+    The file is scanned rather than read: the column check costs a footer read
+    and nothing is loaded until a later step asks for it. The agreement
+    category is not attached here. Only the observation pass publishes it, and
+    building those strings for every row of an input this size is exactly what
+    the streaming passes are trying to avoid.
 
     :param spec: The dataset to read.
     :param config: The build configuration.
-    :return: The input frame plus one ``{variable}_status`` column per variable.
+    :return: The validated scan.
     :raises FileNotFoundError: If the parquet is missing.
     :raises ValueError: If a required or configured column is absent.
     """
@@ -118,11 +138,9 @@ def _read_dataset(spec: DatasetSpec, config: BuildConfig) -> pl.DataFrame:
             f"Dataset '{spec.id}' points at '{spec.path}', which does not exist."
         )
 
-    frame = pl.read_parquet(spec.path)
-    _check_columns(spec, config, frame.columns)
-    return frame.with_columns(
-        [status_expression(variable) for variable in config.variables]
-    )
+    scan = pl.scan_parquet(spec.path)
+    _check_columns(spec, config, scan.collect_schema().names())
+    return scan
 
 
 def _check_columns(spec: DatasetSpec, config: BuildConfig, columns: List[str]) -> None:
@@ -146,23 +164,105 @@ def _check_columns(spec: DatasetSpec, config: BuildConfig, columns: List[str]) -
         )
 
 
-def _trim_to_anomalous_profiles(
-    frame: pl.DataFrame, config: BuildConfig
-) -> pl.DataFrame:
+def _check_input_order(spec: DatasetSpec, scan: pl.LazyFrame) -> None:
     """
-    Keep whole profiles in which either source flagged anything.
+    Require the input to be grouped by platform, in non-decreasing order.
 
-    Trimming is by profile, not by observation: a flagged point is only
-    readable next to the unflagged ones above and below it, so the profile is
-    published entire or not at all.
+    The build copies observations out in input order rather than sorting them,
+    because sorting a hundred million rows is the one step that would need
+    unbounded memory. That is safe only if the input is already ordered, and
+    the ordering is what the site depends on: it reads the observation files
+    over HTTP range requests, and a profile can be found by reading one row
+    group only because a row group covers a narrow range of profile ids.
 
-    :param frame: The frame produced by :func:`_read_dataset`.
+    :param spec: The dataset being checked.
+    :param scan: The dataset's scan.
+    :raises ValueError: If ``platform_code`` ever decreases.
+    """
+    column = pl.col("platform_code")
+    ordered = (
+        scan.select((column >= column.shift(1)).fill_null(True).all())
+        .collect(engine="streaming")
+        .item()
+    )
+    if not ordered:
+        raise ValueError(
+            f"Dataset '{spec.id}' ({spec.path}) is not ordered by "
+            "'platform_code'. The build publishes observations in input "
+            "order, so sort the NRT QC output by platform_code, profile_no "
+            "and observation_no before building."
+        )
+
+
+def _profile_summary(scan: pl.LazyFrame, config: BuildConfig) -> pl.DataFrame:
+    """
+    One row per profile of the whole input, kept or not.
+
+    This is the pass that reads every observation. It answers three questions
+    at once: how many profiles and observations the input holds, which
+    profiles the trimming rule keeps, and what the summary table's counts are.
+    The result is one row per profile, so collecting it is safe however large
+    the input was.
+
+    :param scan: The scan produced by :func:`_scan_dataset`.
     :param config: The build configuration.
-    :return: The rows of the qualifying profiles.
+    :return: The grouped frame, with a :data:`KEEP_COLUMN` flag.
     """
-    anomaly = pl.any_horizontal([is_anomaly(v) for v in config.variables])
-    qualifying = frame.filter(anomaly).select(PROFILE_KEYS).unique(subset=PROFILE_KEYS)
-    return frame.join(qualifying, on=PROFILE_KEYS, how="semi")
+    present = [
+        name
+        for name in OPTIONAL_PROFILE_COLUMNS
+        if name in scan.collect_schema().names()
+    ]
+
+    aggregations: List[pl.Expr] = [pl.len().alias("n_obs")]
+    aggregations += [pl.col(name).first() for name in present]
+    for variable in config.variables:
+        predicates = status_predicates(variable)
+        for status in STATUSES:
+            aggregations.append(
+                predicates[status["key"]]
+                .sum()
+                .cast(pl.Int32)
+                .alias(f"{variable.name}_n_{status['key']}")
+            )
+    aggregations.append(
+        pl.any_horizontal([is_anomaly(v) for v in config.variables])
+        .any()
+        .alias(KEEP_COLUMN)
+    )
+
+    return scan.group_by(PROFILE_KEYS).agg(aggregations).collect(engine="streaming")
+
+
+def _write_observations(
+    scan: pl.LazyFrame,
+    kept: pl.DataFrame,
+    spec: DatasetSpec,
+    config: BuildConfig,
+) -> None:
+    """
+    Copy the qualifying observations out to ``obs/{dataset_id}.parquet``.
+
+    This is the second and last pass over the input. It streams: the rows go
+    from the scan through the filter to the file without ever being collected,
+    and the only thing held in memory is the list of profiles to keep, which
+    has one row per profile.
+
+    :param scan: The scan produced by :func:`_scan_dataset`.
+    :param kept: The profiles the trimming rule keeps.
+    :param spec: The dataset being built.
+    :param config: The build configuration.
+    """
+    qualifying = kept.select(PROFILE_KEYS).lazy()
+    observations = _observation_frame(
+        scan.join(qualifying, on=PROFILE_KEYS, how="semi"), spec, config
+    )
+    observations.sink_parquet(
+        os.path.join(config.data_dir, "obs", f"{spec.id}.parquet"),
+        compression="zstd",
+        row_group_size=config.row_group_size,
+        engine="streaming",
+    )
 
 
 def _profile_id() -> pl.Expr:
@@ -179,12 +279,18 @@ def _profile_id() -> pl.Expr:
 
 
 def _observation_frame(
-    frame: pl.DataFrame, spec: DatasetSpec, config: BuildConfig
-) -> pl.DataFrame:
+    scan: pl.LazyFrame, spec: DatasetSpec, config: BuildConfig
+) -> pl.LazyFrame:
     """
     One row per published observation, with both flags and the category.
 
-    :param frame: The trimmed frame.
+    The rows keep the order they had in the input, which
+    :func:`_check_input_order` has already required to be by platform. The
+    site orders by ``observation_no`` in SQL when it draws a profile, so
+    nothing here depends on the order for display; the row groups do, for
+    range requests.
+
+    :param scan: The trimmed scan.
     :param spec: The dataset being built.
     :param config: The build configuration.
     :return: The frame written to ``obs/{dataset_id}.parquet``.
@@ -202,17 +308,19 @@ def _observation_frame(
             pl.col(variable.name).cast(pl.Float64),
             original_flag(variable).alias(variable.flag),
             computed_flag(variable).alias(variable.nrt_flag),
-            pl.col(variable.status_column),
+            status_expression(variable),
         ]
 
-    items = item_columns(frame.columns, [v.name for v in config.variables])
+    items = item_columns(
+        scan.collect_schema().names(), [v.name for v in config.variables]
+    )
     columns += [pl.col(name).cast(pl.Int32, strict=False) for name in items]
 
-    return frame.select(columns).sort(["profile_id", "observation_no"])
+    return scan.select(columns)
 
 
 def _profile_frame(
-    frame: pl.DataFrame, spec: DatasetSpec, config: BuildConfig
+    kept: pl.DataFrame, spec: DatasetSpec, config: BuildConfig
 ) -> pl.DataFrame:
     """
     One row per published profile, with the counts the summary table shows.
@@ -221,25 +329,12 @@ def _profile_frame(
     ``{variable}_n_disagree``, and the frame as a whole carries ``n_disagree``
     summed across variables, which is the table's default sort.
 
-    :param frame: The trimmed frame.
+    :param kept: The rows of :func:`_profile_summary` the trimming rule keeps.
     :param spec: The dataset being built.
     :param config: The build configuration.
     :return: The dataset's slice of ``profiles.parquet``.
     """
-    present = [name for name in OPTIONAL_PROFILE_COLUMNS if name in frame.columns]
-
-    aggregations: List[pl.Expr] = [pl.len().alias("n_obs")]
-    aggregations += [pl.col(name).first() for name in present]
-    for variable in config.variables:
-        for status in STATUSES:
-            aggregations.append(
-                (pl.col(variable.status_column) == status["key"])
-                .sum()
-                .cast(pl.Int32)
-                .alias(f"{variable.name}_n_{status['key']}")
-            )
-
-    grouped = frame.group_by(PROFILE_KEYS).agg(aggregations)
+    present = [name for name in OPTIONAL_PROFILE_COLUMNS if name in kept.columns]
 
     disagreement: List[pl.Expr] = []
     for variable in config.variables:
@@ -250,7 +345,7 @@ def _profile_frame(
             per_variable.cast(pl.Int32).alias(f"{variable.name}_n_disagree")
         )
 
-    grouped = grouped.with_columns(disagreement).with_columns(
+    grouped = kept.with_columns(disagreement).with_columns(
         pl.sum_horizontal([pl.col(f"{v.name}_n_disagree") for v in config.variables])
         .cast(pl.Int32)
         .alias("n_disagree")
@@ -332,6 +427,7 @@ def _catalog(config: BuildConfig, entries: List[Dict[str, Any]]) -> Dict[str, An
                 "nrt_flag": variable.nrt_flag,
                 "status_column": variable.status_column,
                 "bad_flag_values": variable.bad_flag_values,
+                "missing_flag_values": variable.missing_flag_values,
             }
             for variable in config.variables
         ],

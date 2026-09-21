@@ -14,6 +14,34 @@ from nrtqc_diff.flags import (
 )
 
 
+def _single_dataset_config(tmp_path, frame, **overrides) -> BuildConfig:
+    """
+    Write ``frame`` to a parquet and build a config publishing just it.
+
+    :param tmp_path: The pytest temporary directory.
+    :param frame: The NRT QC output to publish.
+    :return: The configuration, writing into ``tmp_path / "out"``.
+    """
+    path = tmp_path / "input.parquet"
+    frame.write_parquet(path)
+    settings = {
+        "title": "T",
+        "data_dir": str(tmp_path / "out"),
+        "variables": [
+            VariableSpec(
+                "temp",
+                "Temperature",
+                "temp_qc",
+                "temp_nrt_flag",
+                bad_flag_values=[3, 4],
+            )
+        ],
+        "datasets": [DatasetSpec("one", "R", "P", "One", str(path))],
+    }
+    settings.update(overrides)
+    return BuildConfig(**settings)
+
+
 class TestTrimming:
     """Only profiles one of the two sources flagged reach the site."""
 
@@ -21,12 +49,18 @@ class TestTrimming:
         _, profiles, _ = built
         assert "CLEAN" not in profiles["platform_code"].to_list()
 
+    def test_a_profile_only_flagged_as_unchecked_is_dropped(self, built):
+        """Flag 0 says nothing was checked, which is not a disagreement."""
+        _, profiles, _ = built
+        assert "NOQC" not in profiles["platform_code"].to_list()
+
     def test_flagged_profiles_are_kept(self, built):
         _, profiles, _ = built
         assert sorted(profiles["platform_code"].to_list()) == [
             "AGREE",
             "AIQC",
             "INPUT",
+            "MISSING",
             "NOFLAG",
         ]
 
@@ -48,6 +82,9 @@ class TestStatusCategories:
             ("AIQC", 2, AIQCLIB_ONLY),
             ("NOFLAG", 1, NO_INPUT_FLAG),
             ("NOFLAG", 2, AIQCLIB_ONLY),
+            ("MISSING", 1, NO_INPUT_FLAG),
+            ("MISSING", 2, AIQCLIB_ONLY),
+            ("MISSING", 3, AGREE_GOOD),
         ],
     )
     def test_category(self, built, platform, observation_no, expected):
@@ -120,8 +157,10 @@ class TestCatalog:
     def test_dataset_entry_records_what_was_dropped(self, built):
         catalog, _, _ = built
         entry = catalog["regions"][0]["products"][0]["datasets"][0]
-        assert entry["n_profiles"] == 4
-        assert entry["n_profiles_total"] == 5
+        assert entry["n_profiles"] == 5
+        assert entry["n_profiles_total"] == 7
+        assert entry["n_observations"] == 15
+        assert entry["n_observations_total"] == 21
         assert entry["observations_file"] == "obs/one.parquet"
 
     def test_variables_and_statuses_are_published(self, built):
@@ -133,8 +172,36 @@ class TestCatalog:
         ]
 
 
+class TestObservationFileLayout:
+    """What the site's range requests depend on."""
+
+    def test_observations_keep_the_input_order(self, built):
+        """Sorting is what the build refuses to do, so the input must hold."""
+        _, _, observations = built
+        platforms = observations["platform_code"].to_list()
+        assert platforms == sorted(platforms)
+
+    def test_row_groups_follow_the_configured_size(self, tmp_path, nrt_qc_frame):
+        """A profile costs one row group, so the size is worth pinning."""
+        import pyarrow.parquet as pq
+
+        config = _single_dataset_config(tmp_path, nrt_qc_frame, row_group_size=4)
+        build_site_data(config)
+
+        written = pq.ParquetFile(tmp_path / "out" / "obs" / "one.parquet").metadata
+        assert written.num_rows == 15
+        assert written.num_row_groups == 4
+
+
 class TestInputValidation:
     """Failures the reader can act on."""
+
+    def test_an_unordered_input_is_rejected(self, tmp_path, nrt_qc_frame):
+        """The build copies rows out in input order, so it checks the order."""
+        shuffled = nrt_qc_frame.sort("platform_code", descending=True)
+        config = _single_dataset_config(tmp_path, shuffled)
+        with pytest.raises(ValueError, match="platform_code"):
+            build_site_data(config)
 
     def test_missing_file_names_the_dataset(self, tmp_path):
         config = BuildConfig(
