@@ -1,0 +1,245 @@
+---
+title: "Regions and products"
+# The tables are wide: eight and nine columns, and one column per agreement
+# category means they grow with the configured categories. The default
+# article column would scroll them sideways.
+format:
+  html:
+    page-layout: full
+# This page is a report, not a notebook. The dashboard hides its cells
+# because Quarto's dashboard format does; an ordinary page has to say so.
+execute:
+  echo: false
+---
+
+One row per region and product: how much of each source dataset reached this
+site, and how the two flag sources line up across everything that did. The
+dashboard answers the same question one profile at a time; this page is the
+view from above, and it is the place to start when you do not yet know which
+product is worth opening.
+
+```{ojs}
+//| output: false
+// The same single module the dashboard imports. Resolving the specifier
+// against document.baseURI keeps it working under any deployment path.
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+
+catalog = app.loadCatalog()
+variables = catalog.variables
+statuses = catalog.statuses
+counted = app.regionProductTotals(variables, statuses)
+
+// The catalog lists every region and product; the query only returns the ones
+// that have published profiles. Building the rows from the catalog and
+// looking the counts up keeps a product whose profiles were all trimmed away
+// visible as a zero rather than absent.
+rows = {
+  const bySlot = new Map(
+    counted.map((row) => [`${row.region}|${row.product}`, row])
+  );
+
+  return catalog.regions.flatMap((region) =>
+    region.products.map((product) => {
+      const found = bySlot.get(`${region.name}|${product.name}`) ?? {};
+      const total = (field) =>
+        product.datasets.reduce((sum, entry) => sum + entry[field], 0);
+
+      const row = {
+        key: `${region.name}|${product.name}`,
+        region: region.name,
+        product: product.name,
+        n_datasets: product.datasets.length,
+        n_profiles: Number(found.n_profiles ?? 0),
+        n_profiles_total: total("n_profiles_total"),
+        n_obs: Number(found.n_obs ?? 0),
+        n_obs_total: total("n_observations_total")
+      };
+      for (const variable of variables) {
+        for (const status of statuses) {
+          const field = `${variable.name}_${status.key}`;
+          row[field] = Number(found[field] ?? 0);
+        }
+      }
+      row.profile_share =
+        row.n_profiles_total > 0 ? row.n_profiles / row.n_profiles_total : null;
+      return row;
+    })
+  );
+}
+
+// Totals over every product, for the line under each table.
+grand = {
+  const sum = (field) => rows.reduce((n, row) => n + row[field], 0);
+  const totals = {
+    n_profiles: sum("n_profiles"),
+    n_profiles_total: sum("n_profiles_total"),
+    n_obs: sum("n_obs"),
+    n_obs_total: sum("n_obs_total")
+  };
+  for (const variable of variables) {
+    for (const status of statuses) {
+      totals[`${variable.name}_${status.key}`] = sum(
+        `${variable.name}_${status.key}`
+      );
+    }
+  }
+  return totals;
+}
+
+// Per 1,000 published observations, so products of very different sizes can
+// be compared. Anything derived from a rate is null when there is nothing to
+// divide by, rather than zero, which would read as "no disagreement".
+function rate(count, observations) {
+  return observations > 0 ? (1000 * count) / observations : null;
+}
+
+function share(value) {
+  return value === null || value === undefined ? "" : `${(100 * value).toFixed(1)}%`;
+}
+
+function perThousand(value) {
+  return value === null || value === undefined ? "" : value.toFixed(1);
+}
+
+// The categories where at least one source flagged the observation. The
+// build marks them, so this page never has to name them.
+flagged_statuses = statuses.filter((status) => status.flagged)
+```
+
+## What was published
+
+Only profiles in which at least one source flagged at least one observation
+are published, so the two "source" columns are the size of the dataset the
+build read and the columns beside them are what survived that rule. A low
+share is not a problem: it means the two sources agreed about most of the
+dataset.
+
+```{ojs}
+app.tableView(rows, {
+  columns: [
+    { key: "region", label: "Region", align: "left", format: (value) => value },
+    { key: "product", label: "Product", align: "left", format: (value) => value },
+    { key: "n_datasets", label: "Files", title: "Datasets built into this product" },
+    { key: "n_profiles", label: "Profiles", title: "Profiles published here" },
+    {
+      key: "n_profiles_total",
+      label: "Source profiles",
+      title: "Profiles in the source dataset"
+    },
+    {
+      key: "profile_share",
+      label: "Share",
+      format: share,
+      title: "Published profiles as a share of the source dataset"
+    },
+    { key: "n_obs", label: "Observations", title: "Observations published here" },
+    {
+      key: "n_obs_total",
+      label: "Source observations",
+      title: "Observations in the source dataset"
+    }
+  ],
+  rowKey: "key",
+  sortKey: "n_profiles",
+  selectable: false,
+  empty: "No products are published. Run the build step."
+})
+```
+
+```{ojs}
+htl.html`<p class="nq-meta">All products:
+  <strong>${app.formatCount(grand.n_profiles)}</strong> of
+  ${app.formatCount(grand.n_profiles_total)} profiles published
+  (${share(grand.n_profiles_total > 0 ? grand.n_profiles / grand.n_profiles_total : null)}),
+  <strong>${app.formatCount(grand.n_obs)}</strong> of
+  ${app.formatCount(grand.n_obs_total)} observations.</p>`
+```
+
+## How the two sources compare
+
+Counts below cover the published profiles only, which is why "neither flagged"
+is large: a published profile carries all of its observations, most of which
+both sources call good. The rate in the last column is what makes products of
+different sizes comparable.
+
+```{ojs}
+viewof summary_variable = Inputs.select(variables, {
+  label: "Variable",
+  format: (variable) => variable.label
+})
+```
+
+```{ojs}
+app.statusLegend(statuses)
+```
+
+```{ojs}
+{
+  const flagged = flagged_statuses;
+  const name = summary_variable.name;
+
+  // The bar is over the flagged categories alone. Drawn over all five it
+  // would be a single grey block on every row, because a published profile is
+  // mostly observations both sources call good.
+  const shaped = rows.map((row) => {
+    const n_flagged = flagged.reduce((sum, s) => sum + row[`${name}_${s.key}`], 0);
+    const n_disagree =
+      row[`${name}_original_only`] + row[`${name}_aiqclib_only`];
+    return {
+      ...row,
+      n_flagged,
+      disagree_rate: rate(n_disagree, row.n_obs)
+    };
+  });
+
+  return app.tableView(shaped, {
+    columns: [
+      { key: "region", label: "Region", align: "left", format: (value) => value },
+      { key: "product", label: "Product", align: "left", format: (value) => value },
+      {
+        key: "n_flagged",
+        label: "Flagged mix",
+        align: "left",
+        title: "How the flagged observations split between the cases",
+        render: (value, row) =>
+          app.compositionBar(
+            flagged.map((status) => ({
+              label: status.label,
+              value: row[`${name}_${status.key}`],
+              color: status.color
+            })),
+            { empty: "nothing flagged in this product" }
+          )
+      },
+      ...statuses.map((status) => ({
+        key: `${name}_${status.key}`,
+        label: status.label,
+        title: `${summary_variable.label}: ${status.label.toLowerCase()}`
+      })),
+      {
+        key: "disagree_rate",
+        label: "Disagree per 1,000",
+        format: perThousand,
+        title:
+          "Observations the two sources disagree on, per 1,000 published observations"
+      }
+    ],
+    rowKey: "key",
+    sortKey: "disagree_rate",
+    selectable: false,
+    empty: "No products are published. Run the build step."
+  });
+}
+```
+
+```{ojs}
+{
+  const name = summary_variable.name;
+  const n_disagree =
+    grand[`${name}_original_only`] + grand[`${name}_aiqclib_only`];
+  return htl.html`<p class="nq-meta">All products, ${summary_variable.label.toLowerCase()}:
+    <strong>${app.formatCount(n_disagree)}</strong> observations the two
+    sources disagree on, ${perThousand(rate(n_disagree, grand.n_obs))} per
+    1,000 published observations.</p>`;
+}
+```

@@ -40,12 +40,39 @@ NO_INPUT_FLAG: str = "no_input_flag"
 #: The categories in the order they are listed and drawn, with the label and
 #: colour the site uses. Kept here so the legend, the table and the plots
 #: cannot drift apart; the build copies it into ``catalog.json``.
-STATUSES: List[Dict[str, str]] = [
-    {"key": AGREE_BAD, "label": "Both flagged", "color": "#3f6fb5"},
-    {"key": ORIGINAL_ONLY, "label": "Original only", "color": "#e07b39"},
-    {"key": AIQCLIB_ONLY, "label": "aiqclib only", "color": "#cc3355"},
-    {"key": AGREE_GOOD, "label": "Neither flagged", "color": "#b8c0c8"},
-    {"key": NO_INPUT_FLAG, "label": "No input flag", "color": "#8e8e8e"},
+#:
+#: ``flagged`` says whether at least one of the two sources flagged the
+#: observation, which is the same rule :func:`is_anomaly` applies. It is
+#: published so a page can pick out those categories without naming them:
+#: the summary page draws its composition bar over the flagged categories
+#: alone, because a published profile is mostly observations both sources
+#: call good and drawing all five would make every bar the same grey block.
+STATUSES: List[Dict[str, object]] = [
+    {"key": AGREE_BAD, "label": "Both flagged", "color": "#3f6fb5", "flagged": True},
+    {
+        "key": ORIGINAL_ONLY,
+        "label": "Original only",
+        "color": "#e07b39",
+        "flagged": True,
+    },
+    {
+        "key": AIQCLIB_ONLY,
+        "label": "aiqclib only",
+        "color": "#cc3355",
+        "flagged": True,
+    },
+    {
+        "key": AGREE_GOOD,
+        "label": "Neither flagged",
+        "color": "#b8c0c8",
+        "flagged": False,
+    },
+    {
+        "key": NO_INPUT_FLAG,
+        "label": "No input flag",
+        "color": "#8e8e8e",
+        "flagged": False,
+    },
 ]
 
 #: The categories that mean the two sources disagree.
@@ -177,7 +204,13 @@ def is_anomaly(variable: VariableSpec) -> pl.Expr:
     :return: A boolean expression, never null.
     """
     predicates = status_predicates(variable)
-    return predicates[AGREE_BAD] | predicates[ORIGINAL_ONLY] | predicates[AIQCLIB_ONLY]
+    # Read off the ``flagged`` marker rather than listing the three keys
+    # again, so the rule and what the site is told about it cannot disagree.
+    keys = [status["key"] for status in STATUSES if status["flagged"]]
+    expression = predicates[keys[0]]
+    for key in keys[1:]:
+        expression = expression | predicates[key]
+    return expression
 
 
 def item_columns(columns: List[str], variable_names: List[str]) -> List[str]:
