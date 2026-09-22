@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The demo generator writes every QC check the About page lists, rather than
+  nine of them, and each one fires in at least one profile: the published site
+  runs on this data, so a check it never wrote was a check no reader could see
+  working. It also derives the rolled-up `temp_nrt_flag` and `psal_nrt_flag`
+  from the item columns instead of from a second list.
+- The About page counts the checks it lists correctly (twelve, eleven of them
+  real-time tests) and says plainly that a check listed there can be absent
+  from a product whose `aiqclib` run left it out.
+
 ## [0.3.2] - 2026-09-22
 
 ### Changed

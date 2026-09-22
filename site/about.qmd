@@ -58,8 +58,8 @@ datasets differ in how they use the upper values.
 
 ## The checks `aiqclib` runs
 
-The computed flag is not one test but eleven. Ten of them implement the
-Argo/CTD real-time tests, and the eleventh is a propagation rule. Each writes
+The computed flag is not one test but twelve. Eleven of them implement the
+Argo/CTD real-time tests, and the twelfth is a propagation rule. Each writes
 a flag of its own, and `temp_nrt_flag` and `psal_nrt_flag`, the values
 compared on this site, are the most severe flag among the checks that apply to
 that variable.
@@ -92,9 +92,11 @@ which is why a spike or a density inversion shows up as a few marked points in
 the plots rather than a whole cast.
 
 Which checks ran is a setting of the `aiqclib` run, not a fixed list, so the
-columns present in the data are the checks that were switched on for it. The
-**QC checks that flagged** panel on the dashboard names them for the selected
-profile, by these column names. Their default thresholds and the settings that
-change them are in the [`aiqclib` NRT QC
+columns present in the data are the checks that were switched on for it: a
+check listed above can be missing from a product whose run left it out, and
+nothing here will claim otherwise, because the columns are what this site
+reads. The **QC checks that flagged** panel on the dashboard names them for
+the selected profile, by these column names. Their default thresholds and the
+settings that change them are in the [`aiqclib` NRT QC
 guide](https://aiqclib.readthedocs.io/en/latest/how-to/nrt_qc.html), which is
 the source this table summarises.

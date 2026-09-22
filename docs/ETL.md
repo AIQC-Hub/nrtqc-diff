@@ -122,8 +122,11 @@ uv run python scripts/make_demo_data.py
 
 writes three synthetic datasets under `demo-data/`, in exactly the schema an
 `aiqclib` run produces, seeded so that every agreement category and both
-region and product levels have something to show. No real observation is
-involved. This is what `config/datasets.yaml` points at as shipped, and it is
+region and product levels have something to show. It writes the item set of
+the `test_nrt` batch plus `qc_position_on_land`, and every one of those checks
+fires in at least one profile, so the QC check panel and the item discovery
+behind it are exercised by the demo rather than only by real data. No real
+observation is involved. This is what `config/datasets.yaml` points at as shipped, and it is
 the fastest way to see the site working before wiring up your own files.
 
 ## Extending the build
