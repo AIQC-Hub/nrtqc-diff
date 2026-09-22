@@ -80,9 +80,9 @@ viewof profile_row = app.tableView(profile_rows, {
 })
 ```
 
-# Plots
+# Plots {orientation="rows"}
 
-## Column
+## Row
 
 ```{ojs}
 //| title: Profile
@@ -98,15 +98,23 @@ viewof profile_row = app.tableView(profile_rows, {
   const observations = await app.profileObservations(entry, profile_row.profile_id);
 
   const box = document.createElement("div");
+  box.className = "nq-profile";
   box.appendChild(
     htl.html`<p class="nq-meta"><strong>${profile_row.profile_id}</strong>
       ${entry.label} &middot; ${profile_row.n_obs} observations</p>`
+  );
+  // The colour key rides at the top of this panel, above the markers it
+  // explains and inside the same card, so it is on screen whatever the plots
+  // do below it. Five categories take one row on a wide window and two on a
+  // narrow one.
+  box.appendChild(
+    htl.html`<div class="nq-plot-legend">${app.statusLegend(statuses)}</div>`
   );
   const plots = document.createElement("div");
   plots.className = "nq-plots";
   for (const variable of variables) {
     plots.appendChild(
-      await app.profilePlot(observations, { variable, statuses, height: 700 })
+      await app.profilePlot(observations, { variable, statuses })
     );
   }
   box.appendChild(plots);
@@ -114,16 +122,35 @@ viewof profile_row = app.tableView(profile_rows, {
 }
 ```
 
-## Column {width="220px"}
+## Row {height="210px"}
 
 ```{ojs}
-//| title: Colour key
+//| title: QC checks that flagged
 
-// Beside the markers it explains rather than at the foot of the sidebar,
-// where a short window pushed it below the fold. The wrapper stacks it into
-// one column; the same legend stays in a row on the summary page, which has
-// the width for it.
-htl.html`<div class="nq-legend-panel">${app.statusLegend(statuses)}</div>`
+// Under the plots, because it answers the question they raise: when aiqclib
+// marked something the input did not, which of its checks was it? "Fired" is
+// what the code calls it; this is the same thing said plainly.
+{
+  if (!profile_row) {
+    return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
+  }
+  const entry = datasets_by_id.get(profile_row.dataset_id);
+  const rows = await app.profileItemBreakdown(entry, profile_row.profile_id);
+  const table = app.tableView(rows, {
+    columns: [
+      { key: "item", label: "QC check", align: "left", format: (v) => v },
+      { key: "flag", label: "Flag" },
+      { key: "n", label: "Observations" }
+    ],
+    rowKey: "item",
+    sortKey: "n",
+    selectable: false,
+    empty: "No aiqclib QC check flagged anything in this profile."
+  });
+  // Three narrow columns across the full width of the page leave the counts a
+  // long way from the name they belong to, so the table keeps its own width.
+  return htl.html`<div class="nq-qc-items">${table}</div>`;
+}
 ```
 
 # Tables {orientation="rows"}
@@ -180,8 +207,6 @@ app.markRow(profiles_table, profile_row ? profile_row.profile_id : null)
 
 ## Row {height="48%"}
 
-### Column {width="58%"}
-
 ```{ojs}
 //| title: Contingency
 
@@ -211,29 +236,5 @@ app.markRow(profiles_table, profile_row ? profile_row.profile_id : null)
     );
   }
   return box;
-}
-```
-
-### Column {width="42%"}
-
-```{ojs}
-//| title: QC items that fired
-{
-  if (!profile_row) {
-    return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
-  }
-  const entry = datasets_by_id.get(profile_row.dataset_id);
-  const rows = await app.profileItemBreakdown(entry, profile_row.profile_id);
-  return app.tableView(rows, {
-    columns: [
-      { key: "item", label: "QC item", align: "left", format: (v) => v },
-      { key: "flag", label: "Flag" },
-      { key: "n", label: "Observations" }
-    ],
-    rowKey: "item",
-    sortKey: "n",
-    selectable: false,
-    empty: "No aiqclib QC item flagged anything in this profile."
-  });
 }
 ```

@@ -9,9 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- The colour key beside the plots is one column unconditionally. It already
-  drew as one, at every window size measured; the wrap it inherited could only
-  have split it if the panel ever bounded its own height.
+- The colour key heads the plot panel, above the markers it explains, rather
+  than standing in a column of its own. The width that column took goes back
+  to the plots. (The unreleased rule that forced the key into one column goes
+  with the panel it was written for.)
+- The QC checks a profile tripped move from the Tables tab to their own panel
+  under the plots, where the question they answer is asked.
+- That panel is titled `QC checks that flagged` rather than `QC items that
+  fired`, and its first column is `QC check`. Firing is what the code calls
+  it; this is the same thing in words that assume nothing.
+- The plots are the height of the panel holding them rather than a fixed 700
+  pixels, so a tall window gives tall plots and a short one still fits both
+  rows. Under 200 pixels the box scrolls instead of flattening a cast.
+- The contingency tables, which now have the lower half of the Tables tab to
+  themselves, are held to a readable width rather than stretched across it.
 
 ## [0.2.1] - 2026-09-22
 
