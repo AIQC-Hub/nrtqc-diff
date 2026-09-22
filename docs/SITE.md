@@ -108,6 +108,14 @@ sidebar does: the sidebar is the product's profile list, and listing every
 profile here as well spent the top of the page on rows the reader had not
 asked about while pushing their own profile's counts out to the edge.
 
+The **colour key** sits down the right of the summary panel. The bar is the
+only thing on this page that says anything in colour, and its key was a tab
+away. It is beside the table rather than above it because what a table of two
+rows leaves spare is width at its side, not height over it, and it is a
+column rather than a row for the same reason. The two do not wrap: a narrow
+window takes the width out of the table, which scrolls sideways in the box it
+already has, rather than dropping the key under a panel too short to show it.
+
 Everything downstream of a selection is an Observable cell, so a click
 re-evaluates exactly the cells that depend on it and nothing else. Both pages
 are in the DOM at once and the tabs only show and hide them, so a cell on the
