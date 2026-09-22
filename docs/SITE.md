@@ -1,14 +1,13 @@
 # The site
 
 `site/` is an ordinary Quarto website with two pages of data and one of
-prose. There is no
-build step for the JavaScript: `site/assets/js/` holds plain ES modules that
+prose. There is no build step for the JavaScript: `site/assets/js/` holds plain ES modules that
 the browser loads directly.
 
 ```
 site/
 ├── _quarto.yml           project, navbar, which folders are copied verbatim
-├── index.qmd             the dashboard: one product, one profile at a time
+├── index.qmd             the dashboard: sidebar, then Plots and Tables
 ├── summary.qmd           every region and product at once
 ├── about.qmd             what the comparison means
 ├── assets/
@@ -17,7 +16,7 @@ site/
 │       ├── app.js        the single module the pages import
 │       ├── db.js         data access; the only file that knows about DuckDB
 │       ├── queries.js    every SQL statement
-│       ├── views.js      tree, tables, contingency, legend
+│       ├── views.js      tree, tables, contingency, legend, bars
 │       └── plots.js      the profile plots
 ├── data/                 written by the build step  (gitignored)
 ├── libs/                 vendored by scripts/fetch_assets.sh  (gitignored)
@@ -52,22 +51,46 @@ is the largest column on the page, and why the last column is a rate per 1,000
 published observations: it is the only figure on the row that compares fairly
 between a product of 800 observations and one of 25 million.
 
-**`index.qmd` is the drill-down**, one page holding three levels, driven by
-two selections.
+**`index.qmd` is the drill-down.** It is a Quarto dashboard with two pages of
+its own, `Plots` and `Tables`, declared as level 1 headings and drawn as tabs
+in the dashboard's own navbar, under the site navbar. A third level 1 heading,
+`# {.sidebar}`, makes the sidebar global, so it is the same sidebar on both
+pages rather than one per page.
 
-1. **Product**, from the sidebar tree (`treeView`). Selecting one sets
+**The sidebar is the whole selection**, all three levels of it:
+
+1. **Product**, from the tree (`treeView`). Selecting one sets
    `selection = {region, product, datasets}`. The first product selects itself
    on load, because opening on an empty panel reads as a broken page.
-2. **Profile**, from the summary table (`tableView` with `autoSelect: true`).
-   One row per published profile of the selected product, worst disagreement
-   first.
-3. **Observations**, shown as contingency tables, the QC items that fired, and
-   one plot per variable: measurement on the x axis, pressure down the y axis,
-   markers coloured by agreement category, with pan, box zoom, scroll zoom and
-   double click to reset. Zooming and panning stop at the data: see Plotting.
+2. **How many profiles** to fetch, and then **the profile** itself
+   (`tableView` with `autoSelect: true`), three columns wide because the
+   sidebar is narrow.
+3. The colour key, which both pages use.
+
+Putting the profile list there rather than on one of the pages is what lets a
+reader switch between the plots and the tables without losing their place, and
+pick a different profile from either one. The cost is that the sidebar is
+380px rather than 260px, and that the full per-variable breakdown does not fit
+in it; that lives on the Tables page instead.
+
+**`Plots`** shows one plot per variable for the selected profile, side by
+side: measurement on the x axis, pressure down the y axis, markers coloured by
+agreement category, with pan, box zoom, scroll zoom and double click to reset.
+Zooming and panning stop at the data: see Plotting. Side by side rather than
+stacked because a cast is tall and narrow, so two plots fit the page where two
+stacked ones do not. Past two or three variables they wrap and the box
+scrolls.
+
+**`Tables`** shows the same profile as numbers: every published profile of the
+product with the full per-variable breakdown, then the contingency tables and
+the QC items that fired. That first table does not select, because the sidebar
+does. It follows the sidebar through `markRow` rather than by being rebuilt,
+so picking a profile does not throw away the column the reader sorted it by.
 
 Everything downstream of a selection is an Observable cell, so a click
-re-evaluates exactly the cells that depend on it and nothing else.
+re-evaluates exactly the cells that depend on it and nothing else. Both pages
+are in the DOM at once and the tabs only show and hide them, so a cell on the
+hidden page still updates.
 
 ## Conventions
 
@@ -179,8 +202,9 @@ The site has no test runner. After a change:
 
 1. `quarto render site` must exit 0.
 2. Open the rendered pages. On the dashboard, walk the three levels: pick each
-   product, pick a profile with disagreements, confirm both plots draw and the
-   contingency table's totals match the summary row. On the summary page,
+   product, pick a profile with disagreements, confirm both plots draw on
+   `Plots` and that `Tables` shows the same profile, with its row marked in
+   the table and the contingency totals matching it. On the summary page,
    switch the variable and confirm the counts change with it.
 3. The browser console must be clean. DuckDB's own logger is chatty at info
    level; anything at error level is a real problem.

@@ -29,3 +29,9 @@ build/
 .idea/
 .vscode/
 .DS_Store
+
+# Appended by `quarto render` itself, which maintains these entries. The
+# first is already covered above; the second is the notebook it writes while
+# executing a page.
+/.quarto/
+**/*.quarto_ipynb
