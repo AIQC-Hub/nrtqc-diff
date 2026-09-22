@@ -72,7 +72,7 @@ Putting the profile list there rather than on one of the pages is what lets a
 reader switch between the plots and the tables without losing their place, and
 pick a different profile from either one. The cost is that the sidebar is
 380px rather than 260px, and that the full per-variable breakdown does not fit
-in it; that lives on the Tables page instead.
+in it; that lives on the Tables page instead, for the selected profile.
 
 **`Plots`** is two rows. The upper one shows one plot per variable for the
 selected profile, side by side: measurement on the x axis, pressure down the y
@@ -100,10 +100,13 @@ observations. It answers the question the plots raise, which is why it sits
 under them rather than with the tables. The code calls this an item firing;
 the panel says it in words a reader who has never seen the code can follow.
 
-**`Tables`** shows the same profile as numbers: every published profile of the
-product with the full per-variable breakdown, then the contingency tables.
-That first table does not select, because the sidebar does. It follows the sidebar through `markRow` rather than by being rebuilt,
-so picking a profile does not throw away the column the reader sorted it by.
+**`Tables`** shows the same profile as numbers: a summary of the selected
+profile, then the contingency tables. The summary is one row per variable and
+one column per agreement category, over that profile alone, with the flagged
+categories also drawn as a bar. Neither table selects anything, because the
+sidebar does: the sidebar is the product's profile list, and listing every
+profile here as well spent the top of the page on rows the reader had not
+asked about while pushing their own profile's counts out to the edge.
 
 Everything downstream of a selection is an Observable cell, so a click
 re-evaluates exactly the cells that depend on it and nothing else. Both pages
