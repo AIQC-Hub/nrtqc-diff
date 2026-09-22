@@ -80,12 +80,9 @@ viewof profile_row = app.tableView(profile_rows, {
 })
 ```
 
-```{ojs}
-//| title: Colour key
-app.statusLegend(statuses)
-```
-
 # Plots
+
+## Column
 
 ```{ojs}
 //| title: Profile
@@ -115,6 +112,18 @@ app.statusLegend(statuses)
   box.appendChild(plots);
   return box;
 }
+```
+
+## Column {width="220px"}
+
+```{ojs}
+//| title: Colour key
+
+// Beside the markers it explains rather than at the foot of the sidebar,
+// where a short window pushed it below the fold. The wrapper stacks it into
+// one column; the same legend stays in a row on the summary page, which has
+// the width for it.
+htl.html`<div class="nq-legend-panel">${app.statusLegend(statuses)}</div>`
 ```
 
 # Tables {orientation="rows"}

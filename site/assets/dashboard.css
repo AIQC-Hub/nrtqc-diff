@@ -236,8 +236,8 @@
 }
 
 .nq-plot {
-  flex: 1 1 360px;
-  min-width: 360px;
+  flex: 1 1 280px;
+  min-width: 280px;
 }
 
 .nq-plot.nq-empty {
@@ -246,9 +246,16 @@
 
 /* ------------------------------------------------------------- sidebar --- */
 
-/* The profile list is as long as the product is, and the colour key sits
-   under it. Cap it here so the list scrolls inside its own card and the rest
-   of the sidebar stays on screen. */
+/* The profile list is as long as the product is. Cap it so it scrolls inside
+   its own card and the tree above it stays on screen. The cap is looser than
+   it was, because the colour key no longer sits under the list. */
 .sidebar .nq-table-wrap {
-  max-height: 46vh;
+  max-height: 54vh;
+}
+
+/* The colour key reads as a row on the summary page, which is full width, and
+   as a column in its panel beside the plots, which is not. */
+.nq-legend-panel .nq-legend {
+  flex-direction: column;
+  gap: 0.5rem;
 }
