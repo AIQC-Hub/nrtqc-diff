@@ -193,7 +193,9 @@ viewof profile_row = app.tableView(profile_rows, {
       &middot; ${app.formatCount(profile_row.n_obs)} observations,
       ${app.formatCount(profile_row.n_disagree)} of them disagreements</p>`
   );
-  box.appendChild(
+  const row = document.createElement("div");
+  row.className = "nq-summary-row";
+  row.appendChild(
     app.tableView(rows, {
       columns: [
         {
@@ -232,6 +234,13 @@ viewof profile_row = app.tableView(profile_rows, {
       empty: "No variables are published for this product."
     })
   );
+  // The bar is the only thing on this page that says anything in colour, so
+  // its key belongs beside it rather than one tab away. A column rather than
+  // a row: the space left over next to a table this narrow is tall, not wide.
+  row.appendChild(
+    htl.html`<aside class="nq-summary-key">${app.statusLegend(statuses)}</aside>`
+  );
+  box.appendChild(row);
   return box;
 }
 ```

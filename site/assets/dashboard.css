@@ -143,9 +143,46 @@
 
 /* One row per variable, and the categories are narrow counts. Stretched
    across the page they would sit a long way from the variable they belong to,
-   so the table keeps its own width. */
-.nq-profile-summary .nq-table {
-  max-width: 52rem;
+   so the table stops at the width its own columns need. The cap is on the box
+   rather than on the table, so the key beside it starts where the counts end
+   instead of across a gap.
+
+   The basis is small and the box grows into what is there, up to the width
+   its columns want. A basis of `auto` is what the table would rather be, and
+   a row that wide leaves no space for the key on a 1280px window, so the key
+   is pushed underneath and out of a panel this short. Narrower than the
+   columns want, the table scrolls sideways in its own box; that is the cost,
+   and it is the cheaper one. */
+.nq-profile-summary .nq-table-wrap {
+  flex: 1 1 20rem;
+  max-width: 44rem;
+  min-width: 0;
+}
+
+/* Table on the left, colour key on the right, and they stay that way. Let
+   them wrap and a narrow window puts the key under the table, where a panel
+   this short cuts it off entirely; the table giving up width instead costs a
+   sideways scroll in a box that already scrolls. */
+.nq-summary-row {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.6rem 1.1rem;
+}
+
+/* The key is the one in the plot panel turned on its side: a column, because
+   what is free beside a table of two rows is height. The rule separates it
+   from the counts without spending a card on it. */
+.nq-summary-key {
+  border-left: 1px solid var(--nq-border);
+  flex: 0 0 auto;
+  padding-left: 1rem;
+}
+
+.nq-summary-key .nq-legend {
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
 }
 
 /* A cross-tabulation of a handful of flag values, given the whole row to
