@@ -32,11 +32,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The dashboard is split into two tabs, **Plots** and **Tables**, in the
+  dashboard's own navbar under the site navbar. Plots draws one profile plot
+  per variable, side by side and full width; Tables carries every published
+  profile of the product with the full per-variable breakdown, the contingency
+  tables and the QC items that fired.
+- The profile list moves into the sidebar, which is now the whole drill-down:
+  region, product, profile. Both tabs show the selected profile, so switching
+  between them keeps your place and either one can be read against the other.
+  The table on the Tables page follows that selection without being rebuilt,
+  so picking a profile no longer resets the column it was sorted by.
 - The profile plots no longer zoom or pan past their data. Both axes are
   bounded to the profile's values plus a 5% margin, so scrolling out stops at
   the cast instead of shrinking it to a speck in an empty frame. Panning holds
   its span at the limits rather than squeezing against them, which is what
-  Plotly's own edge-by-edge clamping does.
+  Plotly's own edge-by-edge clamping does. Axis ranges are set outright rather
+  than left to autorange, which with the limits in place drew the salinity
+  axis backwards.
 - The **Product totals** panel is gone from the dashboard. It answered a
   question about the selected product only, which the new page now answers for
   every product at once, side by side.

@@ -20,17 +20,25 @@ much of each source dataset survived the trimming, and how the two flag
 sources line up across what did, with a rate per 1,000 observations so
 products of very different sizes can be compared.
 
-**The dashboard** is the drill-down, a three-level one, all on one page:
+**The dashboard** is the drill-down. The sidebar carries the whole selection,
+region to product to profile, and two tabs show what is selected:
 
 ```
- sidebar                     main panel
- -----------------------     --------------------------------------------
- Baltic Sea                  1. pick a product  -> profile summary table
-   CORA NRT                     one row per profile, counts per category
-   CORA delayed mode
- Arctic Ocean                2. pick a profile  -> contingency tables plus
-   CORA NRT                     temperature and salinity profile plots
+ sidebar                  Plots                   Tables
+ --------------------     ------------------      --------------------------
+ Baltic Sea               temperature and         every profile of the
+   CORA NRT            26 salinity against        product, counts per
+   CORA delayed mode   20 pressure, side by       category and variable
+ Arctic Ocean              side, coloured by
+   CORA NRT            21 which source flagged    the contingency tables and
+                                                  the QC items that fired,
+ BAL_CORA_NRT04:5  43   4                         for the selected profile
+ BAL_CORA_NRT04:10 35   4
+ ...
 ```
+
+The sidebar is shared, so switching tabs keeps the profile you were looking
+at, and either tab can be read against the other.
 
 The profile plots put the measurement on the x axis and pressure on the y
 axis, increasing downwards, with every point coloured by which source flagged

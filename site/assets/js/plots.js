@@ -76,6 +76,36 @@ export function axisBounds(values, margin = 0.05) {
 }
 
 /**
+ * The axis settings that hold one axis to its data.
+ *
+ * The range is set outright rather than left to autorange. The opening view
+ * is the whole allowed interval either way, and stating it keeps the axis
+ * pointing the right way: with `minallowed` and `maxallowed` in place,
+ * Plotly's autorange sometimes returns the pair the other way round and draws
+ * the axis backwards. Salinity, which falls as pressure rises, came out
+ * running from 7.4 down to 7.0 across the page.
+ *
+ * @param {Array<number>} values the values drawn on the axis.
+ * @param {object} [options]
+ * @param {boolean} [options.reversed=false] whether the axis runs downwards,
+ *                  as the pressure axis does.
+ * @returns {object} settings to merge into the axis, empty but for the
+ *          direction when there is nothing finite to bound.
+ */
+function axisLimits(values, options = {}) {
+  const { reversed = false } = options;
+  const { minallowed, maxallowed } = axisBounds(values);
+  if (minallowed === undefined) {
+    return reversed ? { autorange: "reversed" } : {};
+  }
+  return {
+    minallowed,
+    maxallowed,
+    range: reversed ? [maxallowed, minallowed] : [minallowed, maxallowed],
+  };
+}
+
+/**
  * Keep a drag from squeezing the range against the axis limits.
  *
  * Plotly enforces `minallowed` and `maxallowed` one edge at a time. Drag past
@@ -223,9 +253,9 @@ export async function profilePlot(rows, options) {
     });
   }
 
-  const bounds = {
-    x: axisBounds(ordered.map((row) => row[variable.name])),
-    y: axisBounds(ordered.map((row) => row.pres)),
+  const limits = {
+    x: axisLimits(ordered.map((row) => row[variable.name])),
+    y: axisLimits(ordered.map((row) => row.pres), { reversed: true }),
   };
 
   const layout = {
@@ -241,13 +271,12 @@ export async function profilePlot(rows, options) {
       title: { text: variable.unit ? `${variable.label} (${variable.unit})` : variable.label },
       zeroline: false,
       gridcolor: "#eceff2",
-      ...bounds.x,
+      ...limits.x,
     },
     yaxis: {
       title: { text: "Pressure (db)" },
-      autorange: "reversed",
       gridcolor: "#eceff2",
-      ...bounds.y,
+      ...limits.y,
     },
     showlegend: false,
     plot_bgcolor: "#ffffff",
@@ -263,7 +292,7 @@ export async function profilePlot(rows, options) {
   };
 
   await Plotly.newPlot(node, traces, layout, config);
-  if (bounds.x.minallowed !== undefined || bounds.y.minallowed !== undefined) {
+  if (limits.x.minallowed !== undefined || limits.y.minallowed !== undefined) {
     holdSpanWhileDragging(Plotly, node);
   }
   return node;
