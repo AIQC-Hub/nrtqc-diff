@@ -110,6 +110,14 @@ re-evaluates exactly the cells that depend on it and nothing else. Both pages
 are in the DOM at once and the tabs only show and hide them, so a cell on the
 hidden page still updates.
 
+**`about.qmd` is the prose page**, and carries one thing worth keeping
+current: a table of the `aiqclib` QC checks, one row per check, with the
+column name it writes. Those names are what the `QC checks that flagged`
+panel shows, so the table is how a reader turns `temp_qc_spike` into a
+sentence. It is a summary of the `aiqclib` NRT QC guide it links to; if that
+library adds or renames a check, this table is the place in this repository
+that goes stale.
+
 ## Conventions
 
 **Views.** Everything in `views.js` returns a DOM node with a `value` property

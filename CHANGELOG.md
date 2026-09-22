@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A summary of the `aiqclib` QC checks on the About page: one row per check,
+  with the Argo/CTD real-time test number, the flag column it writes and what
+  it looks for. The column names are the ones the `QC checks that flagged`
+  panel shows, so a reader can turn `temp_qc_spike` into a sentence without
+  leaving the site. It summarises the `aiqclib` NRT QC guide, which it links
+  to for thresholds and settings.
+
 ## [0.2.2] - 2026-09-22
 
 ### Changed
