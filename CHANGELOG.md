@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-22
+
 ### Added
 
 - A summary of the `aiqclib` QC checks on the About page: one row per check,
