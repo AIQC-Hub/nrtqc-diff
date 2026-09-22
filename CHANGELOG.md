@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-22
+
 ### Changed
 
 - The colour key is on the Tables page too, down the right of the profile
