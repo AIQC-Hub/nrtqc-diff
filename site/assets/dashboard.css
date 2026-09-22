@@ -141,6 +141,13 @@
   font-weight: 600;
 }
 
+/* A cross-tabulation of a handful of flag values, given the whole row to
+   itself since the QC checks moved to the plots page. Held to a width the eye
+   can cross, so the counts stay near the values they belong to. */
+.nq-contingency {
+  max-width: 42rem;
+}
+
 .nq-contingency th.is-bad {
   color: var(--nq-bad);
 }
@@ -223,6 +230,24 @@
 
 /* ---------------------------------------------------------------- plots --- */
 
+/* The panel is the colour key, then the plots under it, and the plots take
+   whatever the key leaves. How tall that is depends on the window and on the
+   QC table sharing the page, so it is not a number this file can name.
+
+   Quarto wraps each OJS cell in a block box that is sized by its contents,
+   which stops the card's height reaching the panel inside it. Only this one
+   cell needs the height, so only the box holding it is stretched. */
+.observablehq:has(> .nq-profile) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.nq-profile {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 /* One plot per variable, side by side: a cast is tall and narrow, so this is
    the shape that fits the page and the shape a reader expects temperature and
    salinity in. Past two or three they wrap and the box scrolls, which beats
@@ -230,32 +255,47 @@
 .nq-plots {
   display: flex;
   flex-wrap: wrap;
+  flex: 1 1 auto;
   gap: 0.5rem 1rem;
-  height: 100%;
+  min-height: 0;
   overflow-y: auto;
 }
 
+/* Full height of the row they are in, with a floor: the plots are created
+   responsive, so Plotly reads this box rather than a height passed from the
+   page. Under the floor the box scrolls instead of squashing a cast flat. */
 .nq-plot {
-  flex: 1 1 280px;
-  min-width: 280px;
+  flex: 1 1 320px;
+  height: 100%;
+  min-height: 200px;
+  min-width: 320px;
 }
 
 .nq-plot.nq-empty {
   padding: 1rem 0;
 }
 
+/* The QC check table is three narrow columns: name, flag, count. Left to
+   fill the row it sits in, it would strand the counts at the far edge of the
+   page, so it is held to a width the eye can cross. */
+.nq-qc-items .nq-table {
+  max-width: 34rem;
+}
+
 /* ------------------------------------------------------------- sidebar --- */
 
 /* The profile list is as long as the product is. Cap it so it scrolls inside
-   its own card and the tree above it stays on screen. The cap is looser than
-   it was, because the colour key no longer sits under the list. */
+   its own card and the tree above it stays on screen. */
 .sidebar .nq-table-wrap {
   max-height: 54vh;
 }
 
-/* The colour key reads as a row on the summary page, which is full width, and
-   as a column in its panel beside the plots, which is not. */
-.nq-legend-panel .nq-legend {
-  flex-direction: column;
-  gap: 0.5rem;
+/* The colour key heads the plot panel, above the markers it explains. A rule
+   under it separates the key from the plots without spending a card on it.
+   The base rule already wraps, so the five categories take one row on a wide
+   window and two on a narrow one. */
+.nq-plot-legend {
+  border-bottom: 1px solid var(--nq-border);
+  margin-bottom: 0.45rem;
+  padding-bottom: 0.15rem;
 }

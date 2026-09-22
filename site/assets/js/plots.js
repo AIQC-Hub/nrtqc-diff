@@ -189,11 +189,13 @@ function holdSpanWhileDragging(Plotly, node) {
  * @param {object} options
  * @param {object} options.variable a `variables` entry from catalog.json.
  * @param {Array<object>} options.statuses the `statuses` array of catalog.json.
- * @param {number} [options.height=440] the plot height in pixels.
+ * @param {number} [options.height] the plot height in pixels. Left out, the
+ *   plot fills the box it is put in: it is created responsive, so it follows
+ *   that box for the life of the page.
  * @returns {Promise<HTMLElement>} the plot node.
  */
 export async function profilePlot(rows, options) {
-  const { variable, statuses, height = 440 } = options;
+  const { variable, statuses, height } = options;
   const node = document.createElement("div");
   node.className = "nq-plot";
 
@@ -259,7 +261,7 @@ export async function profilePlot(rows, options) {
   };
 
   const layout = {
-    height,
+    ...(height === undefined ? {} : { height }),
     margin: { l: 58, r: 16, t: 34, b: 44 },
     title: {
       text: variable.label,
@@ -292,8 +294,35 @@ export async function profilePlot(rows, options) {
   };
 
   await Plotly.newPlot(node, traces, layout, config);
+  if (height === undefined) fitToBox(Plotly, node);
   if (limits.x.minallowed !== undefined || limits.y.minallowed !== undefined) {
     holdSpanWhileDragging(Plotly, node);
   }
   return node;
+}
+
+/**
+ * Keep a plot the size of the box it is in.
+ *
+ * A plot is drawn before the page attaches it, so at creation Plotly has
+ * nothing to measure and falls back to its own default height; `responsive`
+ * only corrects that on a window resize. Watching the node catches the
+ * insertion as well as every later change, including a panel that grows
+ * because the window did.
+ *
+ * @param {object} Plotly the loaded Plotly module.
+ * @param {HTMLElement} node the plot node.
+ * @returns {void}
+ */
+function fitToBox(Plotly, node) {
+  let drawn = "";
+  const observer = new ResizeObserver(() => {
+    const box = node.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return;
+    const size = `${Math.round(box.width)}x${Math.round(box.height)}`;
+    if (size === drawn) return;
+    drawn = size;
+    Plotly.Plots.resize(node);
+  });
+  observer.observe(node);
 }
