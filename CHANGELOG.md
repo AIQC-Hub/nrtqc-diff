@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The colour key beside the plots is one column unconditionally. It already
+  drew as one, at every window size measured; the wrap it inherited could only
+  have split it if the panel ever bounded its own height.
+
 ## [0.2.1] - 2026-09-22
 
 ### Changed
