@@ -55,9 +55,11 @@ between a product of 800 observations and one of 25 million.
 its own, `Plots` and `Tables`, declared as level 1 headings and drawn as tabs
 in the dashboard's own navbar, under the site navbar. A third level 1 heading,
 `# {.sidebar}`, makes the sidebar global, so it is the same sidebar on both
-pages rather than one per page.
+pages rather than one per page. Its `title` is `Dashboard`, not the project
+title: that bar sits directly under the site navbar, which already carries the
+project title, so repeating it there said nothing twice.
 
-**The sidebar is the whole selection**, all three levels of it:
+**The sidebar is the whole selection**, and nothing else:
 
 1. **Product**, from the tree (`treeView`). Selecting one sets
    `selection = {region, product, datasets}`. The first product selects itself
@@ -65,7 +67,6 @@ pages rather than one per page.
 2. **How many profiles** to fetch, and then **the profile** itself
    (`tableView` with `autoSelect: true`), three columns wide because the
    sidebar is narrow.
-3. The colour key, which both pages use.
 
 Putting the profile list there rather than on one of the pages is what lets a
 reader switch between the plots and the tables without losing their place, and
@@ -80,6 +81,13 @@ Zooming and panning stop at the data: see Plotting. Side by side rather than
 stacked because a cast is tall and narrow, so two plots fit the page where two
 stacked ones do not. Past two or three variables they wrap and the box
 scrolls.
+
+The **colour key** (`statusLegend`) is the narrow column to their right, next
+to the markers it explains. It is 220px of fixed width rather than a share of
+the page, so widening the window goes to the plots. `.nq-legend-panel` stacks
+it into one column; the same legend stays in a row on the summary page, which
+has the width for it. `.nq-plot` has a 280px minimum, which is what keeps two
+plots side by side once the key has taken its column.
 
 **`Tables`** shows the same profile as numbers: every published profile of the
 product with the full per-variable breakdown, then the contingency tables and
