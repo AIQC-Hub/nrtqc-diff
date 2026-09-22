@@ -9,7 +9,7 @@ involved, and the output is deterministic, so the demo site is reproducible.
 
 Usage:
 
-    python scripts/make_demo_data.py [--out data/demo] [--profiles 40]
+    python scripts/make_demo_data.py [--out demo-data] [--profiles 40]
 """
 
 import argparse
@@ -132,13 +132,17 @@ def build_dataset(name: str, profiles: int, seed: int) -> pl.DataFrame:
     for index in range(profiles):
         platform = f"{name.upper()}{index % 5:02d}"
         rows += build_profile(platform, index + 1, base, rng)
-    return pl.DataFrame(rows)
+    # An aiqclib run writes one contiguous block per platform, and the build
+    # step requires that ordering rather than sorting hundreds of millions of
+    # rows itself. Profiles are generated round robin over five platforms, so
+    # sort here to make the demo input look like the real thing.
+    return pl.DataFrame(rows).sort(["platform_code", "profile_no", "observation_no"])
 
 
 def main() -> None:
     """Write one parquet per demo dataset."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", default="data/demo", help="Output directory.")
+    parser.add_argument("--out", default="demo-data", help="Output directory.")
     parser.add_argument(
         "--profiles", type=int, default=40, help="Profiles per dataset."
     )

@@ -7,6 +7,8 @@ format:
     css: assets/dashboard.css
 ---
 
+# {.sidebar width="380px"}
+
 ```{ojs}
 //| output: false
 // Everything the page needs is behind one module, because Observable cells
@@ -28,18 +30,16 @@ datasets_by_id = new Map(
     )
   )
 )
-```
 
-## {.sidebar width="260px"}
+// One row per published profile of the selected product, worst disagreement
+// first. Both pages read this, so it is fetched once here rather than by
+// whichever page happens to be open.
+profile_rows = app.profileSummary(selection.datasets, row_limit)
+```
 
 ```{ojs}
 //| title: Regions and products
 viewof selection = app.treeView(catalog)
-```
-
-```{ojs}
-//| title: Colour key
-app.statusLegend(statuses)
 ```
 
 ```{ojs}
@@ -50,80 +50,125 @@ viewof row_limit = Inputs.select([100, 500, 2000], {
 })
 ```
 
-## Column {width="46%"}
-
-### Row
-
 ```{ojs}
 //| title: Profiles
 
-// One row per published profile of the selected product, worst disagreement
-// first. Only profiles where at least one source flagged something were
-// published, so every row here is worth a look.
-viewof profile_row = {
-  const rows = await app.profileSummary(selection.datasets, row_limit);
-  const columns = [
-    { key: "profile_id", label: "Profile", align: "left", format: (v) => v },
-    { key: "profile_timestamp", label: "Time", align: "left", format: app.formatTime },
+// The whole drill-down lives in this sidebar: region, then product, then
+// profile. Both pages show what is selected here, so a reader can switch
+// between the plots and the tables without losing their place, and can pick
+// a different profile from either one.
+//
+// Three columns, because the sidebar is narrow. The full breakdown, every
+// category for every variable, is the first table on the Tables page.
+viewof profile_row = app.tableView(profile_rows, {
+  columns: [
+    { key: "profile_id", label: "Profile", align: "left", format: (value) => value },
     { key: "n_obs", label: "Obs", title: "Observations in the profile" },
-    { key: "n_disagree", label: "Disagree", title: "Observations the two sources disagree on" }
-  ];
-  for (const variable of variables) {
-    columns.push({
-      key: `${variable.name}_n_agree_bad`,
-      label: `${variable.name} both`,
-      title: `${variable.label}: flagged by both sources`
-    });
-    columns.push({
-      key: `${variable.name}_n_original_only`,
-      label: `${variable.name} input`,
-      title: `${variable.label}: flagged by the input data only`
-    });
-    columns.push({
-      key: `${variable.name}_n_aiqclib_only`,
-      label: `${variable.name} aiqclib`,
-      title: `${variable.label}: flagged by aiqclib only`
-    });
-  }
-  return app.tableView(rows, {
-    columns,
-    rowKey: "profile_id",
-    sortKey: "n_disagree",
-    autoSelect: true,
-    empty: "No profiles were published for this product."
-  });
-}
+    {
+      key: "n_disagree",
+      label: "Disagree",
+      title: "Observations the two sources disagree on"
+    }
+  ],
+  rowKey: "profile_id",
+  sortKey: "n_disagree",
+  autoSelect: true,
+  empty: "No profiles were published for this product."
+})
 ```
-
-### Row {height="34%"}
 
 ```{ojs}
-//| title: Product totals
+//| title: Colour key
+app.statusLegend(statuses)
+```
+
+# Plots
+
+```{ojs}
+//| title: Profile
+
+// Measurement on the x axis, pressure down the y axis, one marker per
+// observation coloured by which source flagged it. Scroll or drag to zoom;
+// double click to reset. Zooming and panning stop at the edge of the data.
 {
-  const totals = await app.productTotals(selection.datasets, variables, statuses);
-  const byVariable = variables.map((variable) => {
-    const row = { variable: variable.label };
-    for (const status of statuses) {
-      const match = totals.find(
-        (t) => t.variable === variable.name && t.status === status.key
-      );
-      row[status.key] = match ? Number(match.n) : 0;
-    }
-    return row;
-  });
-  return app.tableView(byVariable, {
-    columns: [
-      { key: "variable", label: "Variable", align: "left", format: (v) => v },
-      ...statuses.map((status) => ({ key: status.key, label: status.label }))
-    ],
-    rowKey: "variable"
-  });
+  if (!profile_row) {
+    return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
+  }
+  const entry = datasets_by_id.get(profile_row.dataset_id);
+  const observations = await app.profileObservations(entry, profile_row.profile_id);
+
+  const box = document.createElement("div");
+  box.appendChild(
+    htl.html`<p class="nq-meta"><strong>${profile_row.profile_id}</strong>
+      ${entry.label} &middot; ${profile_row.n_obs} observations</p>`
+  );
+  const plots = document.createElement("div");
+  plots.className = "nq-plots";
+  for (const variable of variables) {
+    plots.appendChild(
+      await app.profilePlot(observations, { variable, statuses, height: 700 })
+    );
+  }
+  box.appendChild(plots);
+  return box;
 }
 ```
 
-## Column {width="54%"}
+# Tables {orientation="rows"}
 
-### Row {height="26%"}
+## Row {height="52%"}
+
+```{ojs}
+//| title: Profiles of this product
+
+// Every published profile of the selected product, with the full breakdown
+// the sidebar has no room for. It does not select: the sidebar does that, and
+// rebuilding this table on every click would throw away the column the reader
+// sorted it by.
+profiles_table = app.tableView(profile_rows, {
+  columns: [
+    { key: "profile_id", label: "Profile", align: "left", format: (value) => value },
+    { key: "profile_timestamp", label: "Time", align: "left", format: app.formatTime },
+    { key: "n_obs", label: "Obs", title: "Observations in the profile" },
+    {
+      key: "n_disagree",
+      label: "Disagree",
+      title: "Observations the two sources disagree on"
+    },
+    ...variables.flatMap((variable) => [
+      {
+        key: `${variable.name}_n_agree_bad`,
+        label: `${variable.name} both`,
+        title: `${variable.label}: flagged by both sources`
+      },
+      {
+        key: `${variable.name}_n_original_only`,
+        label: `${variable.name} input`,
+        title: `${variable.label}: flagged by the input data only`
+      },
+      {
+        key: `${variable.name}_n_aiqclib_only`,
+        label: `${variable.name} aiqclib`,
+        title: `${variable.label}: flagged by aiqclib only`
+      }
+    ])
+  ],
+  rowKey: "profile_id",
+  sortKey: "n_disagree",
+  selectable: false,
+  empty: "No profiles were published for this product."
+})
+```
+
+```{ojs}
+//| output: false
+// Follow the sidebar's selection without rebuilding the table above.
+app.markRow(profiles_table, profile_row ? profile_row.profile_id : null)
+```
+
+## Row {height="48%"}
+
+### Column {width="58%"}
 
 ```{ojs}
 //| title: Contingency
@@ -134,7 +179,7 @@ viewof profile_row = {
   const box = document.createElement("div");
   if (!profile_row) {
     box.className = "nq-empty";
-    box.textContent = "Select a profile in the table on the left.";
+    box.textContent = "Select a profile in the sidebar.";
     return box;
   }
   const entry = datasets_by_id.get(profile_row.dataset_id);
@@ -157,37 +202,13 @@ viewof profile_row = {
 }
 ```
 
-### Row
-
-```{ojs}
-//| title: Profile
-
-// Measurement on the x axis, pressure down the y axis, one marker per
-// observation coloured by which source flagged it. Scroll or drag to zoom;
-// double click to reset.
-{
-  const box = document.createElement("div");
-  if (!profile_row) {
-    box.className = "nq-empty";
-    box.textContent = "Select a profile in the table on the left.";
-    return box;
-  }
-  const entry = datasets_by_id.get(profile_row.dataset_id);
-  const observations = await app.profileObservations(entry, profile_row.profile_id);
-  for (const variable of variables) {
-    box.appendChild(await app.profilePlot(observations, { variable, statuses }));
-  }
-  return box;
-}
-```
-
-### Row {height="24%"}
+### Column {width="42%"}
 
 ```{ojs}
 //| title: QC items that fired
 {
   if (!profile_row) {
-    return htl.html`<p class="nq-empty">Select a profile in the table on the left.</p>`;
+    return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
   }
   const entry = datasets_by_id.get(profile_row.dataset_id);
   const rows = await app.profileItemBreakdown(entry, profile_row.profile_id);
@@ -199,6 +220,7 @@ viewof profile_row = {
     ],
     rowKey: "item",
     sortKey: "n",
+    selectable: false,
     empty: "No aiqclib QC item flagged anything in this profile."
   });
 }

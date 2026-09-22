@@ -27,15 +27,25 @@ build the data, vendor the browser libraries, render, publish to GitHub Pages.
 
 The workflow needs the input data to exist. As shipped it generates the
 synthetic demo, which is what makes the published site reproducible from a
-clean checkout. Publishing real data means one of:
+clean checkout. A GitHub runner cannot reach the real inputs: `data/` is a
+symlink to a local `aiqclib` output tree and is not in git, by design.
 
-- committing the built `site/data/` to a separate branch or repository that
-  the workflow checks out, or
-- uploading the parquet files to a GitHub Release or Zenodo and pointing the
-  site at those URLs, which DuckDB reads with HTTP range requests.
+Publishing real data is therefore still an open decision, and the size is
+what makes it one. `config/test_nrt.yaml` produces 430 MB, of which a single
+observation file is 126 MB. That fits GitHub Pages, whose published sites are
+capped at 1 GB, but not comfortably, and the artifact has to be built
+somewhere with the inputs to hand. The options:
 
-The second scales better and is the reason the data lives in parquet. See the
-`registerRemote` note in `docs/SITE.md`.
+- build the data elsewhere and commit `site/data/` to a separate branch or
+  repository that the workflow checks out, or
+- upload the parquet files to a GitHub Release or Zenodo and point the site
+  at those URLs.
+
+The second scales better and is nearly free to adopt: the site already reads
+observation files by URL through `registerRemote`, so it is a change to what
+`catalog.json` records in `observations_file`, not to the site. It also needs
+CORS on the host, which GitHub Releases and Zenodo both give. See the data
+access seam in `docs/SITE.md`.
 
 ## When the data changes
 

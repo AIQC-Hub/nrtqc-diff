@@ -124,11 +124,15 @@ export function treeView(catalog) {
  *
  * @param {Array<object>} rows
  * @param {object} options
- * @param {Array<object>} options.columns `{key, label, align, format, title}`.
+ * @param {Array<object>} options.columns `{key, label, align, format, title}`,
+ *        or `{key, label, align, render}` for a cell that is a node rather
+ *        than text. A rendered cell still sorts on `row[key]`.
  * @param {string} options.rowKey the column holding a unique row identifier.
  * @param {string} [options.sortKey] the column to sort by initially.
  * @param {boolean} [options.descending=true] the initial sort direction.
  * @param {boolean} [options.autoSelect=false] select the first row on creation.
+ * @param {boolean} [options.selectable=true] whether clicking a row selects
+ *        it. Pass false for a table nothing downstream reads.
  * @param {string} [options.empty] the message shown when there are no rows.
  * @returns {HTMLElement} a view whose value is the selected row, or null.
  */
@@ -138,10 +142,11 @@ export function tableView(rows, options) {
     rowKey,
     sortKey = null,
     descending = true,
+    selectable = true,
     empty = "Nothing to show.",
   } = options;
 
-  const root = el("div", "nq-table-wrap");
+  const root = el("div", `nq-table-wrap${selectable ? "" : " nq-static"}`);
   const setValue = asView(root, null);
 
   if (!rows || rows.length === 0) {
@@ -188,20 +193,29 @@ export function tableView(rows, options) {
     body.replaceChildren();
     for (const row of sorted) {
       const tr = el("tr", "nq-row");
+      // The key is stamped on the row so `markRow` can find it without the
+      // table being rebuilt, which would throw away the reader's sort.
+      tr.dataset.rowKey = String(row[rowKey]);
       if (row[rowKey] === selectedKey) tr.classList.add("is-selected");
       for (const column of columns) {
         const cell = el("td", `nq-align-${column.align ?? "right"}`);
-        const format = column.format ?? formatCount;
-        cell.textContent = format(row[column.key], row);
+        if (column.render) {
+          cell.appendChild(column.render(row[column.key], row));
+        } else {
+          const format = column.format ?? formatCount;
+          cell.textContent = format(row[column.key], row);
+        }
         if (column.cellClass) cell.classList.add(column.cellClass(row));
         tr.appendChild(cell);
       }
-      tr.addEventListener("click", () => {
-        selectedKey = row[rowKey];
-        for (const other of body.children) other.classList.remove("is-selected");
-        tr.classList.add("is-selected");
-        setValue(row);
-      });
+      if (selectable) {
+        tr.addEventListener("click", () => {
+          selectedKey = row[rowKey];
+          for (const other of body.children) other.classList.remove("is-selected");
+          tr.classList.add("is-selected");
+          setValue(row);
+        });
+      }
       body.appendChild(tr);
     }
   }
@@ -226,6 +240,36 @@ export function tableView(rows, options) {
     // Landing on a table with no profile chosen leaves the panels below
     // empty, which reads as a broken page rather than as a waiting one.
     queueMicrotask(() => body.firstChild.click());
+  }
+  return root;
+}
+
+/**
+ * Mark one row of a table as the selected one, from outside the table.
+ *
+ * For a table that shows what is selected without being what selects it. The
+ * alternative, rebuilding the table whenever the selection changes, would
+ * reset the column the reader sorted it by every time they picked a profile.
+ *
+ * @param {HTMLElement} root a node returned by :func:`tableView`.
+ * @param {string|null} key the `rowKey` value of the row to mark, or null to
+ *        clear the marking.
+ * @returns {HTMLElement} `root`, so the call can be the value of a cell.
+ */
+export function markRow(root, key) {
+  for (const row of root.querySelectorAll(".nq-row")) {
+    row.classList.remove("is-selected");
+  }
+  if (key === null || key === undefined) return root;
+
+  const wanted = root.querySelector(
+    `.nq-row[data-row-key="${CSS.escape(String(key))}"]`
+  );
+  if (wanted) {
+    wanted.classList.add("is-selected");
+    // A long list of profiles is mostly off screen, so bring the marked one
+    // into view. "nearest" leaves the page alone when it already is.
+    wanted.scrollIntoView({ block: "nearest" });
   }
   return root;
 }
@@ -322,6 +366,48 @@ export function contingencyTable(rows, options = {}) {
   function label(value) {
     return value === null || value === undefined ? "none" : String(value);
   }
+}
+
+/**
+ * A one-line stacked bar: how a total splits between a few categories.
+ *
+ * Meant for a table cell, beside the counts it summarises. That pairing is
+ * what makes it legible: the bar carries the shape, the numbers next to it
+ * carry the values, so nothing here is encoded by colour alone.
+ *
+ * Segments are separated by a 2px gap in the surface colour rather than by a
+ * border, and a category with any count at all keeps a visible sliver, so a
+ * product with a handful of observations in a category does not read as
+ * having none.
+ *
+ * @param {Array<object>} parts `{label, value, color}`, drawn in order.
+ * @param {object} [options]
+ * @param {string} [options.empty="no observations"] the title used when every
+ *                 part is zero.
+ * @returns {HTMLElement}
+ */
+export function compositionBar(parts, options = {}) {
+  const { empty = "no observations" } = options;
+  const root = el("div", "nq-bar");
+  const total = parts.reduce((sum, part) => sum + Number(part.value || 0), 0);
+
+  if (total === 0) {
+    root.classList.add("is-empty");
+    root.title = empty;
+    return root;
+  }
+
+  for (const part of parts) {
+    const value = Number(part.value || 0);
+    if (value === 0) continue;
+    const share = (100 * value) / total;
+    const segment = el("span", "nq-bar-part");
+    segment.style.backgroundColor = part.color;
+    segment.style.width = `${share}%`;
+    segment.title = `${part.label}: ${formatCount(value)} (${share.toFixed(1)}%)`;
+    root.appendChild(segment);
+  }
+  return root;
 }
 
 /**

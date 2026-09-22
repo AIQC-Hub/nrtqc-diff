@@ -1,0 +1,108 @@
+# Build configuration for the aiqclib `test_nrt` batch.
+#
+# This is the real thing, as opposed to `datasets.yaml`, which points at the
+# synthetic demo so that a clean checkout and the CI workflow keep working.
+# Paths are resolved relative to this file and go through the `data` symlink,
+# which is not in git; see CLAUDE.md.
+#
+#   uv run nrtqc-diff build -c config/test_nrt.yaml
+#
+# Expect a few minutes and roughly 460 MB of output. The inputs hold 330
+# million observations, of which the trimming rule publishes about 88
+# million, in 357,000 profiles.
+
+site:
+  title: NRT QC flag differences
+  data_dir: ../site/data
+  # The site reads the observation files over HTTP range requests, so this is
+  # the unit a profile lookup pays for. See DEFAULT_ROW_GROUP_SIZE in
+  # src/nrtqc_diff/config.py for why the middle of the range is cheapest.
+  row_group_size: 100000
+
+# `bad_flag_values` covers the values the source calls an anomaly: 3 is
+# probably bad, 4 is bad, 6 and 7 are the dataset-specific bad values. The
+# `nrt_qc_config.yaml` of the aiqclib run counted only [4, 6, 7]; 3 is
+# included here because a value the source doubts is worth showing.
+#
+# `missing_flag_values` covers the values that carry no judgement at all: 0 is
+# "no QC performed" and 9 is "missing value". They are reported as "no input
+# flag" rather than being counted as the two sources agreeing. The inputs use
+# the rest of the scheme too: 2 (probably good), 5 (value changed) and 8
+# (interpolated) all mean the observation is usable, so they count as good.
+variables:
+  - name: temp
+    label: Temperature
+    unit: degC
+    flag: temp_qc
+    nrt_flag: temp_nrt_flag
+    bad_flag_values: [3, 4, 6, 7]
+    missing_flag_values: [0, 9]
+  - name: psal
+    label: Salinity
+    unit: PSU
+    flag: psal_qc
+    nrt_flag: psal_nrt_flag
+    bad_flag_values: [3, 4, 6, 7]
+    missing_flag_values: [0, 9]
+
+# The eight datasets of the batch are a region by product grid. `ar`, `bo` and
+# `mo` are the Copernicus codes for the Arctic, the Baltic and the
+# Mediterranean; `gl` is the global product covering the same region, and
+# `cora` is the reprocessed one. The Baltic has no global entry, which the
+# tree handles: products are derived from what was built.
+datasets:
+  - id: ar_ar
+    region: Arctic Ocean
+    product: NRT regional
+    label: Arctic NRT
+    description: Near real time product for the Arctic region.
+    path: ../data/nrt_qc_ar_ar_0001/nrt_qc/nrt_qc_output.parquet
+
+  - id: ar_gl
+    region: Arctic Ocean
+    product: NRT global
+    label: Arctic from the global NRT product
+    description: The global near real time product, Arctic subset.
+    path: ../data/nrt_qc_ar_gl_0001/nrt_qc/nrt_qc_output.parquet
+
+  - id: cora_ar
+    region: Arctic Ocean
+    product: CORA
+    label: Arctic CORA
+    description: The reprocessed CORA product for the Arctic region.
+    path: ../data/nrt_qc_cora_ar_0001/nrt_qc/nrt_qc_output.parquet
+
+  - id: bo_bo
+    region: Baltic Sea
+    product: NRT regional
+    label: Baltic NRT
+    description: Near real time product for the Baltic region.
+    path: ../data/nrt_qc_bo_bo_0001/nrt_qc/nrt_qc_output.parquet
+
+  - id: cora_bo
+    region: Baltic Sea
+    product: CORA
+    label: Baltic CORA
+    description: The reprocessed CORA product for the Baltic region.
+    path: ../data/nrt_qc_cora_bo_0001/nrt_qc/nrt_qc_output.parquet
+
+  - id: mo_mo
+    region: Mediterranean Sea
+    product: NRT regional
+    label: Mediterranean NRT
+    description: Near real time product for the Mediterranean region.
+    path: ../data/nrt_qc_mo_mo_0001/nrt_qc/nrt_qc_output.parquet
+
+  - id: mo_gl
+    region: Mediterranean Sea
+    product: NRT global
+    label: Mediterranean from the global NRT product
+    description: The global near real time product, Mediterranean subset.
+    path: ../data/nrt_qc_mo_gl_0001/nrt_qc/nrt_qc_output.parquet
+
+  - id: cora_mo
+    region: Mediterranean Sea
+    product: CORA
+    label: Mediterranean CORA
+    description: The reprocessed CORA product for the Mediterranean region.
+    path: ../data/nrt_qc_cora_mo_0001/nrt_qc/nrt_qc_output.parquet

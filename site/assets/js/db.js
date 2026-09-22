@@ -35,8 +35,12 @@ export function connect() {
         // so callers pass the paths exactly as catalog.json records them.
         siteRoot: DATA_ROOT,
       });
-      // The profile summary of every dataset lives in one small file, so it
-      // is worth having ready before the reader picks anything.
+      // The profile summary of every dataset lives in one file, so it is
+      // worth having ready before the reader picks anything. This one is
+      // fetched whole rather than registered remotely like the observation
+      // files: every query over it sorts or sums across all of its rows, so
+      // range requests would read the whole thing anyway, in more round
+      // trips.
       await database.registerFile("profiles", "profiles.parquet");
       return database;
     })();
@@ -72,10 +76,21 @@ export async function query(sql) {
 }
 
 /**
- * Make sure a dataset's observations are queryable, fetching them once.
+ * Make sure a dataset's observations are queryable.
  *
  * Observation files are registered on demand rather than at startup: a reader
  * who opens one profile should not pay for every dataset in the catalog.
+ *
+ * They are registered as remote views rather than downloaded, which is the
+ * reason DuckDB was chosen over SQLite. A real dataset's file runs to
+ * hundreds of megabytes, and the build writes it in profile order, so
+ * fetching one profile costs the parquet footer plus the single row group
+ * holding it: about a megabyte, whatever the size of the file. Fetching the
+ * whole file, which `registerFile` would do, is not an option at that size.
+ *
+ * This needs the server to answer range requests. GitHub Pages does; a local
+ * preview server may not, in which case DuckDB falls back to reading more
+ * than it needs and the page is merely slow.
  *
  * @param {object} entry a dataset entry from catalog.json.
  * @returns {Promise<string>} the view name to use in SQL.
@@ -84,7 +99,7 @@ export async function registerDataset(entry) {
   const view = observationView(entry.id);
   if (!registeredDatasets.has(view)) {
     const database = await connect();
-    await database.registerFile(view, entry.observations_file);
+    await database.registerRemote(view, DATA_ROOT + entry.observations_file);
     registeredDatasets.add(view);
   }
   return view;

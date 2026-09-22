@@ -27,28 +27,42 @@ export async function profileSummary(datasets, limit = 500) {
 }
 
 /**
- * The category totals of a whole product, summed over its profiles.
+ * One row per region and product, over every published profile.
  *
- * @param {Array<object>} datasets the selected product's dataset entries.
+ * This is the whole of the summary page in one statement. `profiles.parquet`
+ * carries `region` and `product` as columns, so a product built from several
+ * datasets aggregates here rather than in the page, and a product with no
+ * published profile simply does not come back: the page fills that in from
+ * the catalog, which knows the product exists.
+ *
+ * The counts describe published profiles only. The totals the trimming was
+ * measured against live in catalog.json, not here.
+ *
  * @param {Array<object>} variables the `variables` array of catalog.json.
  * @param {Array<object>} statuses the `statuses` array of catalog.json.
- * @returns {Promise<Array<object>>} one row per variable and category.
+ * @returns {Promise<Array<object>>} rows keyed by `{region, product}`, with
+ *          `n_profiles`, `n_obs`, `n_disagree` and one `{variable}_{status}`
+ *          column per variable and category.
  */
-export async function productTotals(datasets, variables, statuses) {
-  const ids = datasets.map((entry) => entry.id);
-  const parts = [];
+export async function regionProductTotals(variables, statuses) {
+  const sums = [];
   for (const variable of variables) {
     for (const status of statuses) {
-      parts.push(`
-        SELECT ${literal(variable.name)} AS variable,
-               ${literal(status.key)}    AS status,
-               SUM(${variable.name}_n_${status.key}) AS n
-        FROM profiles
-        WHERE dataset_id IN (${literalList(ids)})
-      `);
+      const column = `${variable.name}_n_${status.key}`;
+      sums.push(`SUM(${column}) AS ${variable.name}_${status.key}`);
     }
   }
-  return query(parts.join("\nUNION ALL\n"));
+  return query(`
+    SELECT region,
+           product,
+           COUNT(*)         AS n_profiles,
+           SUM(n_obs)       AS n_obs,
+           SUM(n_disagree)  AS n_disagree,
+           ${sums.join(",\n           ")}
+    FROM profiles
+    GROUP BY region, product
+    ORDER BY region, product
+  `);
 }
 
 /**

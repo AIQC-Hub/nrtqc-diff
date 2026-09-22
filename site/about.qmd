@@ -13,10 +13,11 @@ same ocean profile observations:
 Every observation falls into one of four cases, and those four cases are the
 colours used throughout:
 
+
 | Case | Meaning |
 | --- | --- |
 | Both flagged | The two sources agree that the observation is bad. |
-| Input only | The input data flags it; `aiqclib` does not. |
+| Original only | The input data flags it; `aiqclib` does not. |
 | aiqclib only | `aiqclib` flags it; the input data does not. |
 | Neither flagged | The two sources agree that the observation is good. |
 
@@ -36,9 +37,10 @@ browser. The trimming is by profile, not by observation: once a profile
 qualifies, all of its observations are published, because a flagged point is
 only readable next to the unflagged ones above and below it.
 
-The dashboard counts on each product's summary therefore describe the
-published profiles, not the source dataset. The number of profiles that were
-considered is recorded in `data/catalog.json` as `n_profiles_total`.
+Every count on this site therefore describes the published profiles, not the
+source dataset. How much of each dataset that is, region by region and product
+by product, is on the [Regions and products](summary.qmd) page, which shows
+the published figure beside the number of profiles that were considered.
 
 ## How it runs
 

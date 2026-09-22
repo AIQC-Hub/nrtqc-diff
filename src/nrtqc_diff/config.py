@@ -18,6 +18,21 @@ import yaml
 #: Flag values the IOC/Argo scheme treats as good.
 DEFAULT_BAD_FLAG_VALUES: List[int] = [3, 4, 6, 7]
 
+#: Flag values that carry no judgement: 0 is "no QC performed" and 9 is
+#: "missing value". Neither says the observation is good, so neither may be
+#: scored as agreement; both mean there is nothing to compare.
+DEFAULT_MISSING_FLAG_VALUES: List[int] = [0, 9]
+
+#: Rows per parquet row group in the observation files.
+#:
+#: The site reads those files over HTTP range requests, so opening one profile
+#: costs the file's footer plus the one row group holding it. The footer grows
+#: with the number of row groups (about 3 KB each for a 32-column file) while
+#: a row group costs about 5 bytes per observation, so the total is smallest
+#: in the middle: near 120,000 rows for the largest dataset here. Smaller row
+#: groups make the footer dominate rather than helping.
+DEFAULT_ROW_GROUP_SIZE: int = 100_000
+
 #: What a dataset id may contain. The id becomes an SQL view name and a file
 #: name in the browser, so it is kept to the characters both accept without
 #: quoting; ``site/assets/js/db.js`` enforces the same rule on its side.
@@ -43,6 +58,10 @@ class VariableSpec:
     :ivar flag: The existing flag column from the input, e.g. ``temp_qc``.
     :ivar nrt_flag: The flag ``aiqclib`` computed, e.g. ``temp_nrt_flag``.
     :ivar bad_flag_values: Values of :attr:`flag` that mean "anomaly".
+    :ivar missing_flag_values: Values of :attr:`flag` that carry no judgement,
+                               such as 0 (no QC performed) and 9 (missing
+                               value). They are reported as "no input flag"
+                               rather than being counted as agreement.
     """
 
     name: str
@@ -52,6 +71,9 @@ class VariableSpec:
     unit: str = ""
     bad_flag_values: List[int] = field(
         default_factory=lambda: list(DEFAULT_BAD_FLAG_VALUES)
+    )
+    missing_flag_values: List[int] = field(
+        default_factory=lambda: list(DEFAULT_MISSING_FLAG_VALUES)
     )
 
     @property
@@ -91,12 +113,15 @@ class BuildConfig:
     :ivar data_dir: Where the published files are written.
     :ivar variables: The variables to compare.
     :ivar datasets: The datasets to publish.
+    :ivar row_group_size: Rows per parquet row group in the observation files.
+                          See :data:`DEFAULT_ROW_GROUP_SIZE`.
     """
 
     title: str
     data_dir: str
     variables: List[VariableSpec]
     datasets: List[DatasetSpec]
+    row_group_size: int = DEFAULT_ROW_GROUP_SIZE
 
     def variable(self, name: str) -> VariableSpec:
         """
@@ -150,11 +175,28 @@ def read_config(file_name: str) -> BuildConfig:
                 int(value)
                 for value in entry.get("bad_flag_values", DEFAULT_BAD_FLAG_VALUES)
             ],
+            missing_flag_values=[
+                int(value)
+                for value in entry.get(
+                    "missing_flag_values", DEFAULT_MISSING_FLAG_VALUES
+                )
+            ],
         )
         for entry in raw.get("variables", [])
     ]
     if not variables:
         raise ValueError("The configuration lists no variables to compare.")
+
+    for variable in variables:
+        overlap = sorted(
+            set(variable.bad_flag_values) & set(variable.missing_flag_values)
+        )
+        if overlap:
+            raise ValueError(
+                f"Variable '{variable.name}' lists "
+                f"{', '.join(str(value) for value in overlap)} as both a bad "
+                "and a missing flag value; a flag cannot be both."
+            )
 
     datasets = [
         DatasetSpec(
@@ -183,11 +225,16 @@ def read_config(file_name: str) -> BuildConfig:
             f"only; rejected: {', '.join(bad_ids)}."
         )
 
+    row_group_size = int(site.get("row_group_size", DEFAULT_ROW_GROUP_SIZE))
+    if row_group_size < 1:
+        raise ValueError("site.row_group_size must be a positive number of rows.")
+
     return BuildConfig(
         title=site.get("title", "NRT QC flag differences"),
         data_dir=_resolve(site.get("data_dir", "site/data"), base_dir),
         variables=variables,
         datasets=datasets,
+        row_group_size=row_group_size,
     )
 
 
