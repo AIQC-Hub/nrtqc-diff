@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-22
+
 ### Changed
 
 - The first panel of the dashboard's Tables page is a summary of the selected
