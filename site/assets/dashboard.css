@@ -254,8 +254,12 @@
 }
 
 /* The colour key reads as a row on the summary page, which is full width, and
-   as a column in its panel beside the plots, which is not. */
+   as a single column in its panel beside the plots, which is not. The base
+   rule wraps, and one column is the whole point of the panel, so the wrap is
+   turned off rather than left to depend on the panel never bounding its own
+   height: today it does not, so nothing here is load bearing yet. */
 .nq-legend-panel .nq-legend {
   flex-direction: column;
+  flex-wrap: nowrap;
   gap: 0.5rem;
 }
