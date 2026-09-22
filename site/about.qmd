@@ -55,3 +55,46 @@ probably bad and 4 means bad. The computed flag always follows it. Which
 values of the *input* flag count as an anomaly is a per-variable setting of
 the build, listed as `bad_flag_values` in `data/catalog.json`, because input
 datasets differ in how they use the upper values.
+
+## The checks `aiqclib` runs
+
+The computed flag is not one test but eleven. Ten of them implement the
+Argo/CTD real-time tests, and the eleventh is a propagation rule. Each writes
+a flag of its own, and `temp_nrt_flag` and `psal_nrt_flag`, the values
+compared on this site, are the most severe flag among the checks that apply to
+that variable.
+
+| Test | Column | What it looks for |
+| --- | --- | --- |
+| RTQC2 | `qc_impossible_date` | The profile time is present, later than 1950, and not in the future. |
+| RTQC3 | `qc_impossible_location` | Latitude within [-90, 90] and longitude within [-180, 180]. A missing position fails. |
+| RTQC4 | `qc_position_on_land` | The position is at sea, read from a sea floor depth column carried by the input. |
+| RTQC6 | `{var}_qc_global_range` | The measurement is inside a gross worldwide range: temperature -2.5 to 40 degC, salinity 2 to 41. |
+| RTQC7 | `{var}_qc_regional_range` | The same, against the tighter range configured for the region. |
+| RTQC8 | `qc_pressure_increasing` | Pressure increases down the profile. Repeated and reversed pressures are flagged. |
+| RTQC9 | `{var}_qc_spike` | The value differs sharply from both vertical neighbours, in size and in gradient. |
+| RTQC11 | `{var}_qc_gradient` | The step from the vertical neighbours is too steep for the depth. |
+| RTQC12 | `{var}_qc_digit_rollover` | A jump from the previous observation big enough to be a sensor wrapping around its range. |
+| RTQC13 | `{var}_qc_stuck_value` | Every measurement of the variable in the profile is identical, which is a stuck sensor. |
+| RTQC14 | `{var}_qc_density_inversion` | Potential density (sigma-0) falling with depth by more than 0.03 kg/m3. Temperature and salinity are flagged together. |
+| (none) | `psal_qc_temp_to_psal` | Not a test: where the final temperature flag is 3 or 4, salinity inherits it at the same severity. |
+
+: {tbl-colwidths="[10,30,60]"}
+
+`{var}` is `temp` or `psal`: a check that reads one variable writes one column
+per variable, and one that reads the profile or the pressure writes a single
+column shared by both. The gaps in the numbering are real-time tests
+`aiqclib` does not implement.
+
+RTQC2, RTQC3, RTQC4 and RTQC13 judge the profile as a whole, so their flag is
+the same on every observation in it. The rest judge one observation at a time,
+which is why a spike or a density inversion shows up as a few marked points in
+the plots rather than a whole cast.
+
+Which checks ran is a setting of the `aiqclib` run, not a fixed list, so the
+columns present in the data are the checks that were switched on for it. The
+**QC checks that flagged** panel on the dashboard names them for the selected
+profile, by these column names. Their default thresholds and the settings that
+change them are in the [`aiqclib` NRT QC
+guide](https://aiqclib.readthedocs.io/en/latest/how-to/nrt_qc.html), which is
+the source this table summarises.
