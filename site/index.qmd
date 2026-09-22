@@ -155,57 +155,88 @@ viewof profile_row = app.tableView(profile_rows, {
 
 # Tables {orientation="rows"}
 
-## Row {height="52%"}
+## Row {height="250px"}
 
 ```{ojs}
-//| title: Profiles of this product
+//| title: Profile summary
 
-// Every published profile of the selected product, with the full breakdown
-// the sidebar has no room for. It does not select: the sidebar does that, and
-// rebuilding this table on every click would throw away the column the reader
-// sorted it by.
-profiles_table = app.tableView(profile_rows, {
-  columns: [
-    { key: "profile_id", label: "Profile", align: "left", format: (value) => value },
-    { key: "profile_timestamp", label: "Time", align: "left", format: app.formatTime },
-    { key: "n_obs", label: "Obs", title: "Observations in the profile" },
-    {
-      key: "n_disagree",
-      label: "Disagree",
-      title: "Observations the two sources disagree on"
-    },
-    ...variables.flatMap((variable) => [
-      {
-        key: `${variable.name}_n_agree_bad`,
-        label: `${variable.name} both`,
-        title: `${variable.label}: flagged by both sources`
-      },
-      {
-        key: `${variable.name}_n_original_only`,
-        label: `${variable.name} input`,
-        title: `${variable.label}: flagged by the input data only`
-      },
-      {
-        key: `${variable.name}_n_aiqclib_only`,
-        label: `${variable.name} aiqclib`,
-        title: `${variable.label}: flagged by aiqclib only`
-      }
-    ])
-  ],
-  rowKey: "profile_id",
-  sortKey: "n_disagree",
-  selectable: false,
-  empty: "No profiles were published for this product."
-})
+// The selected profile alone, one row per variable and one column per
+// agreement category. The sidebar is the profile list; repeating every
+// profile of the product here spent the top of the page on rows the reader
+// had not asked about, and pushed the numbers that do belong to their
+// profile out to the far edge.
+{
+  if (!profile_row) {
+    return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
+  }
+  const entry = datasets_by_id.get(profile_row.dataset_id);
+  const flagged = statuses.filter((status) => status.flagged);
+
+  const rows = variables.map((variable, order) => {
+    // The catalog's own order, which is also the order the plots are drawn
+    // in, so the two pages read the variables the same way round.
+    const row = { order, name: variable.name, label: variable.label };
+    for (const status of statuses) {
+      row[status.key] = Number(
+        profile_row[`${variable.name}_n_${status.key}`] ?? 0
+      );
+    }
+    row.n_flagged = flagged.reduce((sum, status) => sum + row[status.key], 0);
+    return row;
+  });
+
+  const box = document.createElement("div");
+  box.className = "nq-profile-summary";
+  box.appendChild(
+    htl.html`<p class="nq-meta"><strong>${profile_row.profile_id}</strong>
+      ${entry.label} &middot; ${app.formatTime(profile_row.profile_timestamp)}
+      &middot; ${app.formatCount(profile_row.n_obs)} observations,
+      ${app.formatCount(profile_row.n_disagree)} of them disagreements</p>`
+  );
+  box.appendChild(
+    app.tableView(rows, {
+      columns: [
+        {
+          key: "label",
+          label: "Variable",
+          align: "left",
+          format: (value) => value
+        },
+        {
+          key: "n_flagged",
+          label: "Flagged mix",
+          align: "left",
+          title: "How the flagged observations split between the cases",
+          // Over the flagged categories alone: drawn over all five it would
+          // be one block of "neither flagged" on every row.
+          render: (value, row) =>
+            app.compositionBar(
+              flagged.map((status) => ({
+                label: status.label,
+                value: row[status.key],
+                color: status.color
+              })),
+              { empty: "nothing flagged in this profile" }
+            )
+        },
+        ...statuses.map((status) => ({
+          key: status.key,
+          label: status.label,
+          title: `Observations of this profile: ${status.label.toLowerCase()}`
+        }))
+      ],
+      rowKey: "name",
+      sortKey: "order",
+      descending: false,
+      selectable: false,
+      empty: "No variables are published for this product."
+    })
+  );
+  return box;
+}
 ```
 
-```{ojs}
-//| output: false
-// Follow the sidebar's selection without rebuilding the table above.
-app.markRow(profiles_table, profile_row ? profile_row.profile_id : null)
-```
-
-## Row {height="48%"}
+## Row
 
 ```{ojs}
 //| title: Contingency

@@ -193,9 +193,6 @@ export function tableView(rows, options) {
     body.replaceChildren();
     for (const row of sorted) {
       const tr = el("tr", "nq-row");
-      // The key is stamped on the row so `markRow` can find it without the
-      // table being rebuilt, which would throw away the reader's sort.
-      tr.dataset.rowKey = String(row[rowKey]);
       if (row[rowKey] === selectedKey) tr.classList.add("is-selected");
       for (const column of columns) {
         const cell = el("td", `nq-align-${column.align ?? "right"}`);
@@ -240,36 +237,6 @@ export function tableView(rows, options) {
     // Landing on a table with no profile chosen leaves the panels below
     // empty, which reads as a broken page rather than as a waiting one.
     queueMicrotask(() => body.firstChild.click());
-  }
-  return root;
-}
-
-/**
- * Mark one row of a table as the selected one, from outside the table.
- *
- * For a table that shows what is selected without being what selects it. The
- * alternative, rebuilding the table whenever the selection changes, would
- * reset the column the reader sorted it by every time they picked a profile.
- *
- * @param {HTMLElement} root a node returned by :func:`tableView`.
- * @param {string|null} key the `rowKey` value of the row to mark, or null to
- *        clear the marking.
- * @returns {HTMLElement} `root`, so the call can be the value of a cell.
- */
-export function markRow(root, key) {
-  for (const row of root.querySelectorAll(".nq-row")) {
-    row.classList.remove("is-selected");
-  }
-  if (key === null || key === undefined) return root;
-
-  const wanted = root.querySelector(
-    `.nq-row[data-row-key="${CSS.escape(String(key))}"]`
-  );
-  if (wanted) {
-    wanted.classList.add("is-selected");
-    // A long list of profiles is mostly off screen, so bring the marked one
-    // into view. "nearest" leaves the page alone when it already is.
-    wanted.scrollIntoView({ block: "nearest" });
   }
   return root;
 }
