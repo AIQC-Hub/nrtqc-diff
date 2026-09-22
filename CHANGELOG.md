@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The dashboard's own navbar is titled `Dashboard` rather than the project
+  title, which the site navbar directly above it already carries.
+
 ## [0.2.0] - 2026-09-22
 
 ### Added

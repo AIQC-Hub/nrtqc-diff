@@ -55,7 +55,9 @@ between a product of 800 observations and one of 25 million.
 its own, `Plots` and `Tables`, declared as level 1 headings and drawn as tabs
 in the dashboard's own navbar, under the site navbar. A third level 1 heading,
 `# {.sidebar}`, makes the sidebar global, so it is the same sidebar on both
-pages rather than one per page.
+pages rather than one per page. Its `title` is `Dashboard`, not the project
+title: that bar sits directly under the site navbar, which already carries the
+project title, so repeating it there said nothing twice.
 
 **The sidebar is the whole selection**, all three levels of it:
 

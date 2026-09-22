@@ -1,5 +1,8 @@
 ---
-title: "NRT QC flag differences"
+# The site navbar already carries the project title, and this one is the
+# dashboard's own bar holding the Plots and Tables tabs. Repeating the
+# title there said nothing twice.
+title: "Dashboard"
 format:
   dashboard:
     orientation: columns
