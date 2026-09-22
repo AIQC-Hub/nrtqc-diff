@@ -74,25 +74,35 @@ pick a different profile from either one. The cost is that the sidebar is
 380px rather than 260px, and that the full per-variable breakdown does not fit
 in it; that lives on the Tables page instead.
 
-**`Plots`** shows one plot per variable for the selected profile, side by
-side: measurement on the x axis, pressure down the y axis, markers coloured by
-agreement category, with pan, box zoom, scroll zoom and double click to reset.
-Zooming and panning stop at the data: see Plotting. Side by side rather than
-stacked because a cast is tall and narrow, so two plots fit the page where two
-stacked ones do not. Past two or three variables they wrap and the box
-scrolls.
+**`Plots`** is two rows. The upper one shows one plot per variable for the
+selected profile, side by side: measurement on the x axis, pressure down the y
+axis, markers coloured by agreement category, with pan, box zoom, scroll zoom
+and double click to reset. Zooming and panning stop at the data: see Plotting.
+Side by side rather than stacked because a cast is tall and narrow, so two
+plots fit the page where two stacked ones do not. Past two or three variables
+they wrap and the box scrolls. `.nq-plot` has a 320px minimum, which is what
+decides when that happens.
 
-The **colour key** (`statusLegend`) is the narrow column to their right, next
-to the markers it explains. It is 220px of fixed width rather than a share of
-the page, so widening the window goes to the plots. `.nq-legend-panel` stacks
-it into one column; the same legend stays in a row on the summary page, which
-has the width for it. `.nq-plot` has a 280px minimum, which is what keeps two
-plots side by side once the key has taken its column.
+The **colour key** (`statusLegend`) heads that same panel, above the markers
+it explains, so no card is spent on it and nothing pushes it off the screen.
+Five categories take one row on any usual window and fall into two on a narrow
+one, which is what the base `.nq-legend` rule already does.
+
+The plots have no height of their own. `.nq-profile` is a column, `.nq-plots`
+takes what the key leaves, and `.nq-plot` is the full height of that, with a
+200px floor under which the box scrolls instead. Plotly is created responsive
+and `fitToBox` watches the node, so the plots follow the panel: a taller
+window means taller plots, not more white space.
+
+The lower row is **`QC checks that flagged`** (`profileItemBreakdown`): which
+of `aiqclib`'s own checks raised a flag on this profile, and on how many
+observations. It answers the question the plots raise, which is why it sits
+under them rather than with the tables. The code calls this an item firing;
+the panel says it in words a reader who has never seen the code can follow.
 
 **`Tables`** shows the same profile as numbers: every published profile of the
-product with the full per-variable breakdown, then the contingency tables and
-the QC items that fired. That first table does not select, because the sidebar
-does. It follows the sidebar through `markRow` rather than by being rebuilt,
+product with the full per-variable breakdown, then the contingency tables.
+That first table does not select, because the sidebar does. It follows the sidebar through `markRow` rather than by being rebuilt,
 so picking a profile does not throw away the column the reader sorted it by.
 
 Everything downstream of a selection is an Observable cell, so a click

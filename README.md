@@ -30,11 +30,11 @@ region to product to profile, and two tabs show what is selected:
    CORA NRT            26 salinity against        product, counts per
    CORA delayed mode   20 pressure, side by       category and variable
  Arctic Ocean              side, coloured by
-   CORA NRT            21 which source flagged    the contingency tables and
-                                                  the QC items that fired,
- BAL_CORA_NRT04:5  43   4                         for the selected profile
- BAL_CORA_NRT04:10 35   4
- ...
+   CORA NRT            21 which source flagged    the contingency tables for
+                                                  the selected profile
+ BAL_CORA_NRT04:5  43   4 under them, which
+ BAL_CORA_NRT04:10 35   4 aiqclib checks
+ ...                      flagged this profile
 ```
 
 The sidebar is shared, so switching tabs keeps the profile you were looking
