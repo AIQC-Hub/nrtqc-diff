@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-22
+
 ### Added
 
 - A **Regions and products** page, between the dashboard and About. One row per
