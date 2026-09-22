@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - The dashboard's own navbar is titled `Dashboard` rather than the project
   title, which the site navbar directly above it already carries.
+- The colour key moves out of the sidebar into its own column on the Plots
+  tab, beside the markers it explains. The profile list gets the room it
+  leaves behind.
 
 ## [0.2.0] - 2026-09-22
 
