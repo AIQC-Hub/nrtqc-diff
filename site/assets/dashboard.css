@@ -141,6 +141,13 @@
   font-weight: 600;
 }
 
+/* One row per variable, and the categories are narrow counts. Stretched
+   across the page they would sit a long way from the variable they belong to,
+   so the table keeps its own width. */
+.nq-profile-summary .nq-table {
+  max-width: 52rem;
+}
+
 /* A cross-tabulation of a handful of flag values, given the whole row to
    itself since the QC checks moved to the plots page. Held to a width the eye
    can cross, so the counts stay near the values they belong to. */

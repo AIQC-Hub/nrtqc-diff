@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-22
+
+### Changed
+
+- The first panel of the dashboard's Tables page is a summary of the selected
+  profile alone: one row per variable, one column per agreement category, and
+  a bar splitting what was flagged. It replaces the list of every profile in
+  the product, which the sidebar already carries, so the top of the page is
+  about the profile the reader picked rather than about the ones they did not.
+
 ## [0.3.0] - 2026-09-22
 
 ### Added
