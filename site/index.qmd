@@ -136,10 +136,42 @@ viewof profile_row = app.tableView(profile_rows, {
   }
   const entry = datasets_by_id.get(profile_row.dataset_id);
   const rows = await app.profileItemBreakdown(entry, profile_row.profile_id);
-  const table = app.tableView(rows, {
+  // The query returns the column name the check wrote, which says what it is
+  // only to a reader who knows the output already. The name in words leads,
+  // the column name follows it, and the flag number carries the scheme's word
+  // for itself.
+  const shaped = rows.map((row) => ({
+    ...row,
+    check: app.checkName(row.item, variables)
+  }));
+  const table = app.tableView(shaped, {
     columns: [
-      { key: "item", label: "QC check", align: "left", format: (v) => v },
-      { key: "flag", label: "Flag" },
+      {
+        key: "check",
+        label: "QC check",
+        align: "left",
+        title: "The aiqclib test that raised the flag",
+        // Linked rather than described: eleven descriptions do not fit a
+        // panel this short, and the About page already carries them. The
+        // href is the rendered page, because Quarto rewrites `.qmd` links in
+        // markdown and this node is built in the browser.
+        render: (value, row) =>
+          htl.html`<a href="about.html#the-checks-aiqclib-runs"
+            title="${app.checkNote(row.item, variables)}">${value}</a>`
+      },
+      {
+        key: "item",
+        label: "Column",
+        align: "left",
+        title: "The column this check writes in the data",
+        render: (value) => htl.html`<code class="nq-colname-cell">${value}</code>`
+      },
+      {
+        key: "flag",
+        label: "Flag",
+        format: app.flagWithMeaning,
+        title: "The flag the check raised, worst in the profile first"
+      },
       { key: "n", label: "Observations" }
     ],
     rowKey: "item",
@@ -147,7 +179,7 @@ viewof profile_row = app.tableView(profile_rows, {
     selectable: false,
     empty: "No aiqclib QC check flagged anything in this profile."
   });
-  // Three narrow columns across the full width of the page leave the counts a
+  // Four narrow columns across the full width of the page leave the counts a
   // long way from the name they belong to, so the table keeps its own width.
   return htl.html`<div class="nq-qc-items">${table}</div>`;
 }
@@ -264,17 +296,33 @@ viewof profile_row = app.tableView(profile_rows, {
     htl.html`<p class="nq-meta"><strong>${profile_row.profile_id}</strong>
       ${entry.label} &middot; ${profile_row.n_obs} observations</p>`
   );
+  // The tables name both flag columns in words and gloss the values the
+  // scheme fixes, which leaves one thing on the page unexplained: the red.
+  // That is a setting of the build rather than anything the scheme says, so
+  // it is written out here instead of left to a tooltip nobody hovers. Above
+  // the tables, because a key read after the table it explains is a key read
+  // twice, and because this is the shortest thing in the panel.
+  box.appendChild(
+    htl.html`<p class="nq-note">Under each flag value is what the IOC/Argo
+      scheme calls it. Red marks the input values this product counts as an
+      anomaly, which is a setting of the build, not of the scheme;
+      <a href="about.html">About</a> explains both.</p>`
+  );
+  // Side by side while the window is wide enough for both, because a
+  // cross-tabulation of a handful of values is a short, narrow thing and
+  // stacking them put the second one under the fold. They stack again when
+  // the space for two is gone.
+  const side = document.createElement("div");
+  side.className = "nq-contingency-row";
   for (const variable of variables) {
     const rows = await app.profileContingency(entry, profile_row.profile_id, variable);
-    box.appendChild(htl.html`<p class="nq-meta">${variable.label}</p>`);
-    box.appendChild(
-      app.contingencyTable(rows, {
-        rowLabel: variable.flag,
-        columnLabel: variable.nrt_flag,
-        badValues: variable.bad_flag_values
-      })
-    );
+    const block = document.createElement("section");
+    block.className = "nq-contingency-block";
+    block.appendChild(htl.html`<p class="nq-meta">${variable.label}</p>`);
+    block.appendChild(app.contingencyTable(rows, { variable }));
+    side.appendChild(block);
   }
+  box.appendChild(side);
   return box;
 }
 ```

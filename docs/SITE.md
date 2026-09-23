@@ -17,6 +17,7 @@ site/
 │       ├── db.js         data access; the only file that knows about DuckDB
 │       ├── queries.js    every SQL statement
 │       ├── views.js      tree, tables, contingency, legend, bars
+│       ├── labels.js     the column names and flag values, said in words
 │       └── plots.js      the profile plots
 ├── data/                 written by the build step  (gitignored)
 ├── libs/                 vendored by scripts/fetch_assets.sh  (gitignored)
@@ -99,6 +100,8 @@ of `aiqclib`'s own checks raised a flag on this profile, and on how many
 observations. It answers the question the plots raise, which is why it sits
 under them rather than with the tables. The code calls this an item firing;
 the panel says it in words a reader who has never seen the code can follow.
+The check is named twice over, as `Spike (temperature)` and as the column it
+writes, and the name links to the table on the About page that describes it.
 
 **`Tables`** shows the same profile as numbers: a summary of the selected
 profile, then the contingency tables. The summary is one row per variable and
@@ -121,13 +124,20 @@ re-evaluates exactly the cells that depend on it and nothing else. Both pages
 are in the DOM at once and the tabs only show and hide them, so a cell on the
 hidden page still updates.
 
+The **contingency tables** are the cross-tabulation the project is named for,
+one per variable, side by side while the window has room for both and stacked
+when it does not. Both axes carry a name in words with the column name under
+it, every flag value carries the word the IOC/Argo scheme gives it, and the
+line above the tables says what the red means, because that one is a setting
+of the build rather than anything the scheme fixes.
+
 **`about.qmd` is the prose page**, and carries one thing worth keeping
 current: a table of the `aiqclib` QC checks, one row per check, with the
-column name it writes. Those names are what the `QC checks that flagged`
-panel shows, so the table is how a reader turns `temp_qc_spike` into a
-sentence. It is a summary of the `aiqclib` NRT QC guide it links to; if that
-library adds or renames a check, this table is the place in this repository
-that goes stale.
+column name it writes. The `QC checks that flagged` panel shows those same
+column names and links to this table, which is how a reader turns
+`temp_qc_spike` into a sentence. It is a summary of the `aiqclib` NRT QC guide
+it links to; if that library adds or renames a check, this table is the place
+in this repository that goes stale, together with `QC_CHECKS` in `labels.js`.
 
 ## Conventions
 
@@ -145,6 +155,14 @@ modules, paths are resolved from `import.meta.url` for the same reason.
 **SQL.** Every statement lives in `queries.js`, and the page reads as layout.
 Values interpolated into SQL go through `literal()` even when they came from
 our own catalog.
+
+**Names in words.** Nothing on a page shows a column name or a flag number on
+its own. `labels.js` holds the words: what the IOC/Argo scheme calls a flag
+value, what a per-item QC column is called in English, and what this product
+does with one input flag value, which comes from the variable entry rather
+than from the scheme because `bad_flag_values` is a build setting. The column
+name stays visible beside the words: it is what the team who ran the build
+thinks in, and it is what a bug report has to quote.
 
 **Colours and categories** are read from `catalog.json`, never hard coded.
 Adding a category in `flags.py` makes it appear in the legend, the plots and
