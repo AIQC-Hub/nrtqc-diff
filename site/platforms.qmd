@@ -1,0 +1,247 @@
+---
+title: "Platforms and profiles"
+# Thirteen columns across a platform, and a profile list opening under any of
+# them. The default article column would scroll both sideways.
+format:
+  html:
+    page-layout: full
+# A report, not a notebook: an ordinary page has to hide its cells itself.
+execute:
+  echo: false
+---
+
+One product at a time, one row per platform: how many of its profiles were
+published, and how the two flag sources line up across them. Click a platform
+to list its profiles underneath it. The dashboard is where a single profile is
+plotted; this page is for finding the platforms worth looking at, and the
+profiles within them.
+
+```{ojs}
+//| output: false
+// The same single module the other pages import. Resolving the specifier
+// against document.baseURI keeps it working under any deployment path.
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+
+catalog = app.loadCatalog()
+variables = catalog.variables
+statuses = catalog.statuses
+
+// The categories where at least one source flagged the observation. The
+// build marks them, so this page never has to name them.
+flagged_statuses = statuses.filter((status) => status.flagged)
+
+// The build copies profile times only when the input carries them, so the
+// date columns are drawn only when there are dates to put in them.
+has_time = {
+  const columns = await app.profileColumns();
+  return columns.includes("profile_timestamp");
+}
+
+// Per 1,000 published observations, so platforms of very different sizes can
+// be compared. Null when there is nothing to divide by, rather than zero,
+// which would read as "no disagreement".
+function rate(count, observations) {
+  return observations > 0 ? (1000 * count) / observations : null;
+}
+
+function perThousand(value) {
+  return value === null || value === undefined ? "" : value.toFixed(1);
+}
+
+// A platform's first and last profile, to the day: the time of day says
+// nothing about how long a platform has been reporting.
+function day(value) {
+  return app.formatTime(value).slice(0, 10);
+}
+```
+
+::: {.nq-controls}
+
+```{ojs}
+viewof region = Inputs.select(catalog.regions, {
+  label: "Region",
+  format: (region) => region.name
+})
+```
+
+```{ojs}
+// The products of the chosen region only, so there is no pair to pick that
+// does not exist. Changing the region starts again at its first product.
+viewof product = Inputs.select(region.products, {
+  label: "Product",
+  format: (product) => product.name
+})
+```
+
+```{ojs}
+viewof variable = Inputs.select(variables, {
+  label: "Variable",
+  format: (variable) => variable.label
+})
+```
+
+:::
+
+```{ojs}
+//| output: false
+// All of the product's platforms at once: there are a few hundred at most, so
+// the filter and the sort below run in the page rather than in a query per
+// keystroke. The profiles are another matter and are fetched a page at a time
+// when a platform is opened.
+platforms = app.platformSummary(product.datasets, variables, statuses)
+```
+
+```{ojs}
+{
+  const profiles = platforms.reduce((sum, row) => sum + row.n_profiles, 0);
+  const observations = platforms.reduce((sum, row) => sum + row.n_obs, 0);
+  return htl.html`<p class="nq-meta">${region.name}, ${product.name}:
+    <strong>${app.formatCount(platforms.length)}</strong> platforms,
+    ${app.formatCount(profiles)} published profiles,
+    ${app.formatCount(observations)} observations.</p>`;
+}
+```
+
+```{ojs}
+viewof platform_rows = Inputs.search(platforms, {
+  columns: ["platform_code"],
+  placeholder: "Platform code",
+  label: "Platform"
+})
+```
+
+```{ojs}
+app.statusLegend(statuses)
+```
+
+```{ojs}
+{
+  const name = variable.name;
+  const flagged = flagged_statuses;
+  const dates = has_time
+    ? [
+        {
+          key: "first_timestamp",
+          label: "First",
+          format: day,
+          title: "The platform's first published profile"
+        },
+        {
+          key: "last_timestamp",
+          label: "Last",
+          format: day,
+          title: "The platform's last published profile"
+        }
+      ]
+    : [];
+
+  // The bar is over the flagged categories alone. Drawn over all five it
+  // would be one grey block on every row, because a published profile is
+  // mostly observations both sources call good.
+  const shaped = platform_rows.map((row) => {
+    const n_flagged = flagged.reduce((sum, s) => sum + row[`${name}_${s.key}`], 0);
+    const n_disagree = row[`${name}_original_only`] + row[`${name}_aiqclib_only`];
+    return {
+      ...row,
+      n_flagged,
+      n_profiles_disagree: row[`${name}_n_profiles_disagree`],
+      disagree_rate: rate(n_disagree, row.n_obs)
+    };
+  });
+
+  return app.tableView(shaped, {
+    columns: [
+      {
+        key: "platform_code",
+        label: "Platform",
+        align: "left",
+        format: (value) => value
+      },
+      { key: "n_profiles", label: "Profiles", title: "Profiles published for this platform" },
+      {
+        key: "n_profiles_disagree",
+        label: "Disagreeing",
+        title: `Profiles with at least one ${variable.label.toLowerCase()} observation the two sources disagree on`
+      },
+      { key: "n_obs", label: "Observations", title: "Observations in those profiles" },
+      ...dates,
+      {
+        key: "n_flagged",
+        label: "Flagged mix",
+        align: "left",
+        title: "How the flagged observations split between the cases",
+        render: (value, row) =>
+          app.compositionBar(
+            flagged.map((status) => ({
+              label: status.label,
+              value: row[`${name}_${status.key}`],
+              color: status.color
+            })),
+            { empty: "nothing flagged on this platform" }
+          )
+      },
+      ...statuses.map((status) => ({
+        key: `${name}_${status.key}`,
+        label: status.label,
+        title: `${variable.label}: ${status.label.toLowerCase()}`
+      })),
+      {
+        key: "disagree_rate",
+        label: "Disagree per 1,000",
+        format: perThousand,
+        title:
+          "Observations the two sources disagree on, per 1,000 published observations"
+      }
+    ],
+    rowKey: "platform_code",
+    sortKey: "disagree_rate",
+    selectable: false,
+    empty: platforms.length === 0
+      ? "No profile of this product was published, so it has no platforms to list."
+      : "No platform of this product matches.",
+    // A platform's profiles, fetched a page at a time when it is opened: one
+    // platform here runs to 8,541 of them. The same columns as the row above,
+    // for one profile at a time, so a count in the platform's row can be
+    // followed down to the profiles that make it.
+    expand: (row) =>
+      app.profileListView({
+        columns: [
+          {
+            key: "profile_id",
+            label: "Profile",
+            align: "left",
+            format: (value) => value
+          },
+          ...(has_time
+            ? [{ key: "profile_timestamp", label: "Time", format: app.formatTime }]
+            : []),
+          { key: "n_obs", label: "Obs", title: "Observations in the profile" },
+          ...statuses.map((status) => ({
+            key: `${name}_n_${status.key}`,
+            label: status.label,
+            title: `${variable.label}: ${status.label.toLowerCase()}`
+          })),
+          {
+            key: `${name}_n_disagree`,
+            label: "Disagree",
+            title: `${variable.label} observations the two sources disagree on`
+          }
+        ],
+        rowKey: "profile_id",
+        sortKey: `${name}_n_disagree`,
+        pageSizes: [50, 200, 1000],
+        pageSize: 50,
+        searchable: false,
+        selectable: false,
+        empty: "No profile of this platform was published.",
+        fetchRows: (request) =>
+          app.profileSummary(product.datasets, {
+            ...request,
+            platform: row.platform_code
+          }),
+        countRows: (search) =>
+          app.profileCount(product.datasets, search, row.platform_code)
+      })
+  });
+}
+```

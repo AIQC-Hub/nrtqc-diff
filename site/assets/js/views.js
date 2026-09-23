@@ -140,6 +140,12 @@ export function treeView(catalog) {
  *        instead of sorting when a header is clicked. Pass it when the rows
  *        are one page of a larger answer: the table then shows them in the
  *        order it was given and leaves the ordering to whoever fetched them.
+ * @param {function} [options.expand] `(row) => HTMLElement`. When given, a
+ *        click on a row opens a full-width row under it holding what this
+ *        returns, and a second click closes it, instead of selecting the row.
+ *        Each row's node is built the first time it is opened and kept, so
+ *        re-sorting the table or closing and reopening a row finds it as the
+ *        reader left it.
  * @returns {HTMLElement} a view whose value is the selected row, or null.
  */
 export function tableView(rows, options) {
@@ -151,9 +157,13 @@ export function tableView(rows, options) {
     selectable = true,
     empty = "Nothing to show.",
     onSortChange = null,
+    expand = null,
   } = options;
 
-  const root = el("div", `nq-table-wrap${selectable ? "" : " nq-static"}`);
+  // A table that expands answers a click, so it is not static even though it
+  // selects nothing.
+  const mode = expand ? " nq-expandable" : selectable ? "" : " nq-static";
+  const root = el("div", `nq-table-wrap${mode}`);
   const setValue = asView(root, null);
 
   if (!rows || rows.length === 0) {
@@ -165,9 +175,18 @@ export function tableView(rows, options) {
   let sortDescending = descending;
   let selectedKey = null;
 
+  // What each expanded row shows, by row key, and which of them are open.
+  const details = new Map();
+  const open = new Set();
+
   const table = el("table", "nq-table");
   const head = el("thead");
   const headRow = el("tr");
+  if (expand) {
+    // The column the open and closed markers sit in. It has no heading and
+    // does not sort: there is nothing in it to sort by.
+    headRow.appendChild(el("th", "nq-expand-cell"));
+  }
   for (const column of columns) {
     const cell = el("th", `nq-align-${column.align ?? "right"}`);
     const button = el("button", "nq-sort", column.label);
@@ -209,6 +228,7 @@ export function tableView(rows, options) {
     for (const row of sorted) {
       const tr = el("tr", "nq-row");
       if (row[rowKey] === selectedKey) tr.classList.add("is-selected");
+      if (expand) addExpandCell(tr, row);
       for (const column of columns) {
         const cell = el("td", `nq-align-${column.align ?? "right"}`);
         if (column.render) {
@@ -220,6 +240,12 @@ export function tableView(rows, options) {
         if (column.cellClass) cell.classList.add(column.cellClass(row));
         tr.appendChild(cell);
       }
+      if (expand) {
+        tr.addEventListener("click", () => toggle(tr, row));
+        body.appendChild(tr);
+        if (open.has(row[rowKey])) body.appendChild(detailRow(row));
+        continue;
+      }
       if (selectable) {
         tr.addEventListener("click", () => {
           selectedKey = row[rowKey];
@@ -230,6 +256,74 @@ export function tableView(rows, options) {
       }
       body.appendChild(tr);
     }
+  }
+
+  /**
+   * The marker at the start of an expandable row.
+   *
+   * A button, so the row can be opened from the keyboard and a screen reader
+   * says whether it is open; the click it receives is the row's click, which
+   * bubbles up to the row's own listener.
+   *
+   * @param {HTMLElement} tr
+   * @param {object} row
+   */
+  function addExpandCell(tr, row) {
+    const cell = el("td", "nq-expand-cell");
+    const button = el("button", "nq-expand");
+    button.type = "button";
+    const isOpen = open.has(row[rowKey]);
+    button.setAttribute("aria-expanded", String(isOpen));
+    button.setAttribute("aria-label", `Details of ${row[rowKey]}`);
+    if (isOpen) tr.classList.add("is-open");
+    cell.appendChild(button);
+    tr.appendChild(cell);
+  }
+
+  /**
+   * Open a row if it is closed and close it if it is open.
+   *
+   * @param {HTMLElement} tr the row that was clicked.
+   * @param {object} row
+   */
+  function toggle(tr, row) {
+    const key = row[rowKey];
+    const button = tr.querySelector(".nq-expand");
+    if (open.has(key)) {
+      open.delete(key);
+      tr.nextElementSibling?.remove();
+      tr.classList.remove("is-open");
+      button.setAttribute("aria-expanded", "false");
+    } else {
+      open.add(key);
+      tr.after(detailRow(row));
+      tr.classList.add("is-open");
+      button.setAttribute("aria-expanded", "true");
+    }
+  }
+
+  /**
+   * The full-width row under an open row, built once per row key.
+   *
+   * @param {object} row
+   * @returns {HTMLElement}
+   */
+  function detailRow(row) {
+    const key = row[rowKey];
+    if (!details.has(key)) {
+      const tr = el("tr", "nq-detail");
+      const cell = el("td", "nq-detail-cell");
+      cell.colSpan = columns.length + 1;
+      const node = expand(row);
+      // What is inside may be a view of its own. Its value is nothing this
+      // table offers, so its events stop here rather than reaching a page
+      // that reads this table as a view.
+      node.addEventListener("input", (event) => event.stopPropagation());
+      cell.appendChild(node);
+      tr.appendChild(cell);
+      details.set(key, tr);
+    }
+    return details.get(key);
   }
 
   /** The rows in the order the header says, for a table that owns them. */
@@ -292,6 +386,11 @@ export function tableView(rows, options) {
  * @param {boolean} [options.descending=true] the direction to open in.
  * @param {string} [options.empty] the message shown when nothing matches.
  * @param {string} [options.searchLabel] the placeholder of the search box.
+ * @param {boolean} [options.searchable=true] whether to offer the search box.
+ *        A list already narrowed to a platform has little left to search.
+ * @param {boolean} [options.selectable=true] whether a click selects a
+ *        profile. Pass false for a list nothing downstream reads; the first
+ *        row is then not selected on arrival either.
  * @returns {HTMLElement} a view whose value is the selected row, or null.
  */
 export function profileListView(options) {
@@ -306,6 +405,8 @@ export function profileListView(options) {
     descending = true,
     empty = "Nothing to show.",
     searchLabel = "Profile or platform",
+    searchable = true,
+    selectable = true,
   } = options;
 
   const root = el("div", "nq-profile-list");
@@ -339,7 +440,8 @@ export function profileListView(options) {
     if (value === state.size) option.selected = true;
     size.appendChild(option);
   }
-  controls.append(search, size);
+  if (searchable) controls.append(search);
+  controls.append(size);
 
   const host = el("div", "nq-list-table");
 
@@ -388,7 +490,8 @@ export function profileListView(options) {
       rowKey,
       sortKey: state.orderBy,
       descending: state.descending,
-      autoSelect: true,
+      autoSelect: selectable,
+      selectable,
       empty,
       onSortChange: (key, isDescending) => {
         state.orderBy = key;

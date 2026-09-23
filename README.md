@@ -20,6 +20,11 @@ much of each source dataset survived the trimming, and how the two flag
 sources line up across what did, with a rate per 1,000 observations so
 products of very different sizes can be compared.
 
+**Platforms** is one product at a time: one row per platform, with the same
+counts and rate, and a click on a platform lists its profiles underneath it.
+It is the way to find which platforms of a product the disagreements come
+from.
+
 **The dashboard** is the drill-down. The sidebar carries the whole selection,
 region to product to profile, and two tabs show what is selected:
 

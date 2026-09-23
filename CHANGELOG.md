@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- A **Platforms** page. Choose a region, a product and a variable, and it
+  lists the product's platforms, one row each, with the agreement counts,
+  the flagged mix and the disagreements per 1,000 observations. Clicking a
+  platform opens its profiles under it, a page at a time, since one platform
+  here has 8,541 of them; several can be open at once, and re-sorting the
+  platforms keeps them open and on the page they were on.
+- The profile list can be sorted by any column of `profiles.parquet` rather
+  than four named ones, so the per-variable counts on the new page sort too.
+
 ## [0.5.1] - 2026-09-23
 
 ### Fixed

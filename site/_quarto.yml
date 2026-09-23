@@ -16,6 +16,8 @@ website:
         text: Dashboard
       - href: summary.qmd
         text: Regions and products
+      - href: platforms.qmd
+        text: Platforms
       - href: about.qmd
         text: About
 
