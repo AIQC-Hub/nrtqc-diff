@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- The `Next` step of the profile list is legible, and `Previous` no longer
+  looks like the one to press. Quarto tags every button in a cell's output
+  with `btn btn-quarto`, so the theme drew the step that works in a near-white
+  meant for a dark fill and filled the disabled one dark grey: the only button
+  on the pager a reader could see was the one that does nothing.
+- The pager is on screen without scrolling the sidebar. The tree and a page of
+  profiles were each as tall as their contents, which together came to more
+  than the panel, so reaching `Next` meant scrolling 500 rows and then the
+  sidebar behind them. The tree now takes at most 45% of the sidebar and
+  scrolls inside itself, and the list takes what is left.
+
 ## [0.5.0] - 2026-09-23
 
 ### Added

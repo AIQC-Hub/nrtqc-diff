@@ -211,6 +211,21 @@ than from the scheme because `bad_flag_values` is a build setting. The column
 name stays visible beside the words: it is what the team who ran the build
 thinks in, and it is what a bug report has to quote.
 
+**Styling against the theme.** Quarto tags every `<button>` it finds in a
+cell's output with `btn btn-quarto`, so Bootstrap's button colours apply to
+anything `views.js` builds. A widget that does not state its own `color` gets
+the theme's, which is a near-white meant for a dark fill: the pager's steps
+were drawn invisible on white, and the disabled one, which `.btn:disabled`
+fills dark grey, was the only one a reader could see. Any button here states
+its colour, its background and its disabled look.
+
+**Sidebar height.** The sidebar is a flex column, but Quarto sizes each cell's
+output to its content, so a tall tree and a page of profiles added up to more
+than the panel and pushed the pager past the bottom edge. `dashboard.css`
+gives the tree a share of the height (45%, scrolling inside itself beyond it)
+and the profile list the rest, which is what keeps the pager on screen at any
+window size without the sidebar scrolling.
+
 **Colours and categories** are read from `catalog.json`, never hard coded.
 Adding a category in `flags.py` makes it appear in the legend, the plots and
 both summary tables without touching the site. That extends to which

@@ -346,18 +346,38 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Quarto tags every button it finds in a cell's output with `btn
+   btn-quarto`, so the theme's button colours land on these two unless this
+   says otherwise. Left to it, the step you can take is drawn in near-white
+   on white and the one you cannot is filled dark grey: the only button a
+   reader can see is the one that does nothing. Both colours are therefore
+   stated here, the enabled one in the accent the rest of the dashboard uses
+   for what can be clicked. */
 .nq-page-step {
   background: none;
   border: 1px solid var(--nq-border);
   border-radius: 3px;
+  color: var(--nq-accent);
   cursor: pointer;
   font-size: 0.78rem;
   padding: 0.15rem 0.45rem;
 }
 
+/* The colour is restated because `.btn:hover` carries one of its own, and
+   the theme's is the white that sits on its dark fill. */
+.nq-page-step:hover:not(:disabled) {
+  background: var(--nq-accent-soft);
+  color: var(--nq-accent);
+}
+
+/* Greyed and flat, which is the same thing the theme was trying to say. The
+   background and the opacity are restated because `.btn:disabled` sets both,
+   and a dark fill is the loudest thing in the panel. */
 .nq-page-step:disabled {
-  color: var(--nq-border);
+  background: none;
+  color: var(--nq-muted);
   cursor: default;
+  opacity: 0.45;
 }
 
 /* A table nothing downstream depends on still highlights on hover, so a wide
@@ -470,10 +490,32 @@
 
 /* ------------------------------------------------------------- sidebar --- */
 
-/* The profile list is as long as the product is. Cap it so it scrolls inside
-   its own card and the tree above it stays on screen. */
-.sidebar .nq-table-wrap {
-  max-height: 54vh;
+/* The sidebar is a flex column, but Quarto sizes each cell's output to what
+   is in it, so the tree and a page of profiles together ran past the bottom
+   of the panel and took the pager with them: reaching Next meant scrolling
+   500 rows and then the sidebar. The tree keeps the height it asks for and
+   scrolls inside itself when the panel is too short for it; the list takes
+   what is left over, which is what holds the pager on screen. */
+.sidebar .cell-output-display:has(.nq-tree) {
+  flex: 0 0 auto;
+  /* The tree is as long as the catalog is, and left to it a long one takes
+     the whole sidebar. Under the cap it is whatever it needs; over it, it
+     scrolls, because the regions are a handful of lines each and the list
+     underneath is the thing being read. */
+  max-height: 45%;
+}
+
+.sidebar .cell-output-display:has(.nq-profile-list) {
+  flex: 1 1 auto;
+  min-height: 9rem;
+  overflow: hidden;
+}
+
+/* Quarto wraps a cell's value in two plain divs before the node the view
+   built, and a height passes down only through a chain that has one. */
+.sidebar .cell-output-display:has(.nq-profile-list) > div,
+.sidebar .cell-output-display:has(.nq-profile-list) > div > div {
+  height: 100%;
 }
 
 /* The colour key heads the plot panel, above the markers it explains. A rule
