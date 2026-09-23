@@ -16,7 +16,12 @@ never appends and never reads what a previous run wrote, so deleting
 
 `config/test_nrt.yaml` is the same thing against the real `aiqclib` batch
 under `data/`: 8 datasets, 330 million observations, about two minutes and
-430 MB of output.
+430 MB of output. Those inputs are 2.2 GB and are not in git, and
+they are not published either: they stay where the `aiqclib` run left them.
+What is published is what this build writes. `scripts/data_release.py` uploads
+`site/data/` to a release and the deploy renders that, so the trimming runs
+once here rather than again on every push. See
+[`RELEASING.md`](RELEASING.md).
 
 ## How one dataset is built
 

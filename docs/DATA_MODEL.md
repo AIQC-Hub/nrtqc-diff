@@ -75,6 +75,7 @@ counts from it.
 ```json
 {
   "generated": "2026-09-21T18:34:38+00:00",
+  "data_format": 1,
   "title": "NRT QC flag differences",
   "variables": [
     {
@@ -110,6 +111,14 @@ counts from it.
   ]
 }
 ```
+
+`data_format` is the shape of everything described here. The published data
+is built where the inputs are and uploaded to a release rather than rebuilt on
+every deploy, so a set of files can outlive the code that wrote it;
+`DATA_FORMAT` in `build.py` is raised whenever the published columns, file
+names or catalog fields change, and `scripts/data_release.py` refuses to
+publish or deploy data stamped with anything else. See
+[`RELEASING.md`](RELEASING.md).
 
 The regions and products are derived from the dataset entries rather than
 configured separately, so the tree cannot disagree with what was built. The

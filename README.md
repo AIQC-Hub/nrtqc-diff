@@ -56,8 +56,11 @@ bash scripts/fetch_assets.sh              # DuckDB WASM and Plotly, once
 bash scripts/serve.sh                     # render and open the site
 ```
 
-`config/test_nrt.yaml` builds the real `aiqclib` batch from `data/` instead,
-if you have it: 8 datasets, 330 million observations, about two minutes.
+`config/test_nrt.yaml` builds the real `aiqclib` batch from `data/` instead:
+8 datasets, 330 million observations, about two minutes. Those inputs are
+2.2 GB and are not in git. The deployed site is rendered from what this build
+writes rather than rebuilt in CI: `scripts/data_release.py` publishes
+`site/data/` to a release, and the workflow fetches it.
 
 To use other data, point the `path` entries of `config/datasets.yaml` at your
 own NRT QC output and rebuild. Nothing else changes.

@@ -5,7 +5,38 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-09-23
+
+### Added
+
+- `scripts/data_release.py`, which publishes a built `site/data` to a release
+  of the data repository and fetches it back. The deploy renders what it
+  finds rather than rebuilding: an `aiqclib` batch is 2.2 GB the build reads
+  twice, and the workflow runs on every push to `main`, so building there
+  spent two minutes re-deriving byte-identical files on a commit that touched
+  a docstring. The trimming runs once, where the inputs are. One asset per
+  published file, with `catalog.json` mapping each back to the path it belongs
+  at, so fetching needs no build configuration and cannot disagree with what
+  was published.
+- `NRTQC_DATA_RELEASE`, the repository variable naming the release to deploy.
+  Unset, the workflow generates and builds the demo exactly as before, which
+  is what keeps a fork and a clean checkout deployable with no access to
+  anything. A `workflow_dispatch` run can ask for the demo too.
+- `data_format` in `catalog.json`, the shape of the published files. Data that
+  is published rather than rebuilt can outlive the code that wrote it, so both
+  ends of `data_release.py` compare that stamp with `DATA_FORMAT` in
+  `build.py` and refuse anything else. A change to the published columns or
+  file names now stops a deploy with a message saying to rebuild, rather than
+  rendering a site against files that no longer match it.
+
+### Changed
+
+- `docs/RELEASING.md` no longer offers a GitHub release as a host the site
+  could read from directly. It cannot be one: a release download carries no
+  `access-control-allow-origin` header, on either the `github.com` hop or the
+  signed one it redirects to, so a browser will not fetch it whatever the
+  catalog says. The data is served from the Pages site, which does send that
+  header and does answer range requests.
 
 ## [0.3.6] - 2026-09-23
 
