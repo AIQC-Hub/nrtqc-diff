@@ -58,8 +58,9 @@ bash scripts/serve.sh                     # render and open the site
 
 `config/test_nrt.yaml` builds the real `aiqclib` batch from `data/` instead:
 8 datasets, 330 million observations, about two minutes. Those inputs are
-2.2 GB and are not in git; `scripts/data_release.py` fetches them from the
-data repository, which is also where the deployed site gets them from.
+2.2 GB and are not in git. The deployed site is rendered from what this build
+writes rather than rebuilt in CI: `scripts/data_release.py` publishes
+`site/data/` to a release, and the workflow fetches it.
 
 To use other data, point the `path` entries of `config/datasets.yaml` at your
 own NRT QC output and rebuild. Nothing else changes.

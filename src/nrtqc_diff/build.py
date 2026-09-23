@@ -32,6 +32,16 @@ from nrtqc_diff.flags import (
     status_predicates,
 )
 
+#: The shape of what a build writes, recorded in the catalog.
+#:
+#: The published data is built where the inputs are and uploaded to a release,
+#: rather than rebuilt on every deploy, so a release can outlive the code that
+#: made it. Raise this in the same commit as any change to the published
+#: columns, file names or catalog fields, and a deploy carrying data from
+#: before that change stops instead of rendering a site against files that no
+#: longer match. `scripts/data_release.py` is what compares the two.
+DATA_FORMAT: int = 1
+
 #: The key identifying a profile everywhere in the site.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
 
@@ -417,6 +427,7 @@ def _catalog(config: BuildConfig, entries: List[Dict[str, Any]]) -> Dict[str, An
 
     return {
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "data_format": DATA_FORMAT,
         "title": config.title,
         "variables": [
             {
