@@ -89,6 +89,23 @@ it explains, so no card is spent on it and nothing pushes it off the screen.
 Five categories take one row on any usual window and fall into two on a narrow
 one, which is what the base `.nq-legend` rule already does.
 
+**The hover box** on a marker is where that observation says what happened to
+it. Both flag columns are named the way the contingency tables name them, in
+words with the column name beside them in grey, and each value carries the
+word the IOC/Argo scheme gives it: `temp_qc = 4, temp_nrt_flag = 3`, which is
+what the box used to say, needs the schema to be read at all.
+
+Under those two lines the box names the checks behind the computed flag. That
+flag is the most severe flag among the checks that apply to the variable, so
+the checks holding its value are listed as having set it, and anything else
+that fired is listed under them with its own flag, which is how a reader sees
+that the spike test called a point bad while the gradient test only called it
+probably good. `firedChecks` in `labels.js` does the splitting, off the item
+columns of the observation row that `SELECT *` has already brought back, so
+the hover costs no query. The label itself is a white box with the category's
+colour as its border rather than that colour behind the text: five lines of
+white on crimson is not a paragraph anybody reads.
+
 The plots have no height of their own. `.nq-profile` is a column, `.nq-plots`
 takes what the key leaves, and `.nq-plot` is the full height of that, with a
 200px floor under which the box scrolls instead. Plotly is created responsive

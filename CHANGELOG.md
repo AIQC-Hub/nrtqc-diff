@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The hover box on a profile plot reads without the schema. It names both
+  flag columns the way the contingency tables do, in words with the column
+  name beside them, and glosses each value with the word the IOC/Argo scheme
+  gives it, in place of `temp_qc = 4, temp_nrt_flag = 3`.
+- It also says which checks put the computed flag there: the checks holding
+  that value are listed as having set it, and anything else that fired on the
+  observation is listed under them with its own flag. The panel below the
+  plots answers this for the profile; the hover answers it for the one point
+  under the pointer.
+
 ## [0.3.5] - 2026-09-23
 
 ### Changed

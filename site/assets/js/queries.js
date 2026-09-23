@@ -7,6 +7,7 @@
  */
 
 import { literal, literalList, query, registerDataset } from "./db.js";
+import { isItemColumn } from "./labels.js";
 
 /**
  * One row per profile of the selected product, worst disagreement first.
@@ -149,7 +150,7 @@ async function itemColumns(view) {
       view,
       described
         .map((row) => row.column_name)
-        .filter((name) => /(^|_)qc_[a-z0-9_]+$/.test(name))
+        .filter(isItemColumn)
     );
   }
   return itemColumnCache.get(view);
