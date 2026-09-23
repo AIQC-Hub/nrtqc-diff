@@ -122,10 +122,10 @@ viewof profile_row = app.tableView(profile_rows, {
 }
 ```
 
-## Row {height="250px"}
+## Row {height="300px"}
 
 ```{ojs}
-//| title: aiqclib checks that flagged
+//| title: aiqclib QC checks that flagged
 
 // Under the plots, because it answers the question they raise: when aiqclib
 // marked something the input did not, which of its checks was it? "Fired" is
@@ -138,59 +138,68 @@ viewof profile_row = app.tableView(profile_rows, {
   }
   const entry = datasets_by_id.get(profile_row.dataset_id);
   const rows = await app.profileItemBreakdown(entry, profile_row.profile_id);
-  // The query returns the column name the check wrote, which says what it is
-  // only to a reader who knows the output already. The name in words leads,
-  // the column name follows it, and the flag number carries the scheme's word
-  // for itself.
-  const shaped = rows.map((row) => ({
-    ...row,
-    check: app.checkName(row.item, variables)
-  }));
-  const table = app.tableView(shaped, {
-    columns: [
-      {
-        key: "check",
-        label: "QC check",
-        align: "left",
-        title: "The aiqclib test that raised the flag",
-        // Linked rather than described: eleven descriptions do not fit a
-        // panel this short, and the About page already carries them. The
-        // href is the rendered page, because Quarto rewrites `.qmd` links in
-        // markdown and this node is built in the browser.
-        render: (value, row) =>
-          htl.html`<a href="about.html#the-checks-aiqclib-runs"
-            title="${app.checkNote(row.item, variables)}">${value}</a>`
-      },
-      {
-        key: "item",
-        label: "Column",
-        align: "left",
-        title: "The column this check writes in the data",
-        render: (value) => htl.html`<code class="nq-colname-cell">${value}</code>`
-      },
-      {
-        key: "flag",
-        label: "Flag",
-        format: app.flagWithMeaning,
-        title: "The flag the check raised, worst in the profile first"
-      },
-      { key: "n", label: "Observations" }
-    ],
-    rowKey: "item",
-    sortKey: "n",
-    selectable: false,
-    empty: "No aiqclib QC check flagged anything in this profile."
+
+  // One table per variable, in the catalog's order, which is the order the
+  // plots above are drawn in. A single table mixed the two together and left
+  // the reader matching `psal_` prefixes by eye against the plot they were
+  // actually looking at.
+  const blocks = variables.map((variable) => {
+    // A check that judges the whole profile, its date or its pressure, feeds
+    // both computed flags, so it belongs under both variables rather than in
+    // a third table off to the side.
+    const shaped = rows
+      .filter((row) => app.checkAppliesTo(row.item, variable, variables))
+      .map((row) => ({ ...row, check: app.qcCheck(row.item, variables).label }));
+
+    const table = app.tableView(shaped, {
+      columns: [
+        {
+          key: "check",
+          label: "QC check",
+          align: "left",
+          title: "The aiqclib test that raised the flag, and the column it writes",
+          // The name in words, with the column it writes under it: the same
+          // pairing the contingency table heads its axes with. Under rather
+          // than beside, because a column of its own pushed the counts off
+          // the side of a table this narrow.
+          //
+          // Linked rather than described: eleven descriptions do not fit a
+          // panel this short, and the About page already carries them. The
+          // href is the rendered page, because Quarto rewrites `.qmd` links
+          // in markdown and this node is built in the browser.
+          render: (value, row) =>
+            htl.html`<div><a href="about.html#the-checks-aiqclib-runs"
+              title="${app.checkNote(row.item, variables)}">${value}</a>
+              <span class="nq-colname">${row.item}</span></div>`
+        },
+        {
+          key: "flag",
+          label: "Flag",
+          format: app.flagWithMeaning,
+          title: "The flag the check raised, worst in the profile first"
+        },
+        { key: "n", label: "Obs", title: "Observations the check flagged" }
+      ],
+      rowKey: "item",
+      sortKey: "n",
+      selectable: false,
+      empty: `No aiqclib check flagged ${variable.label.toLowerCase()} here.`
+    });
+    return htl.html`<section class="nq-qc-block">
+      <p class="nq-meta">${variable.label}</p>
+      ${table}</section>`;
   });
-  // Four narrow columns across the full width of the page leave the counts a
-  // long way from the name they belong to, so the table keeps its own width.
-  // The line above it says whose flags these are: the plots beside it draw
-  // both sources at once, and nothing else in the panel would say that this
+
+  // Three narrow columns across the full width of the page leave the counts a
+  // long way from the name they belong to, so each table keeps its own width
+  // and the two sit beside each other while the window has room for both.
+  // The line above them says whose flags these are: the plots draw both
+  // sources at once, and nothing else in the panel would say that this
   // breakdown belongs to only one of them.
   return htl.html`<div class="nq-qc-items">
-    <p class="nq-note">Every row is one of <strong>aiqclib</strong>'s own
-      checks and the flag it raised. The flags that came with the input data
-      are one value per observation and break down no further.</p>
-    ${table}</div>`;
+    <p class="nq-note">A check that judges the whole profile is listed under
+      both variables, because both computed flags take it in.</p>
+    <div class="nq-qc-row">${blocks}</div></div>`;
 }
 ```
 

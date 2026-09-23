@@ -147,16 +147,21 @@ export function qcCheck(column, variables = []) {
 }
 
 /**
- * The name to show for a per-item QC column, variable and all.
+ * Whether a per-item QC column has anything to say about one variable.
+ *
+ * A check that reads one variable writes a column per variable and belongs to
+ * that one alone. A check that judges the profile, its date or its pressure
+ * writes a single column, and the computed flag of every variable takes it
+ * in, so it belongs to all of them.
  *
  * @param {string} column the column name.
+ * @param {object} variable a `variables` entry of catalog.json.
  * @param {Array<object>} [variables] the `variables` array of catalog.json.
- * @returns {string} for example `Spike (temperature)`.
+ * @returns {boolean}
  */
-export function checkName(column, variables = []) {
+export function checkAppliesTo(column, variable, variables = []) {
   const check = qcCheck(column, variables);
-  if (check.variable === null) return check.label;
-  return `${check.label} (${check.variable.label.toLowerCase()})`;
+  return check.variable === null || check.variable.name === variable.name;
 }
 
 /**
