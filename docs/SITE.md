@@ -95,13 +95,19 @@ takes what the key leaves, and `.nq-plot` is the full height of that, with a
 and `fitToBox` watches the node, so the plots follow the panel: a taller
 window means taller plots, not more white space.
 
-The lower row is **`QC checks that flagged`** (`profileItemBreakdown`): which
-of `aiqclib`'s own checks raised a flag on this profile, and on how many
+The lower row is **`aiqclib checks that flagged`** (`profileItemBreakdown`):
+which of `aiqclib`'s own checks raised a flag on this profile, and on how many
 observations. It answers the question the plots raise, which is why it sits
 under them rather than with the tables. The code calls this an item firing;
 the panel says it in words a reader who has never seen the code can follow.
 The check is named twice over, as `Spike (temperature)` and as the column it
 writes, and the name links to the table on the About page that describes it.
+
+The panel names `aiqclib` in its title and again in the line above the table,
+because the plots beside it draw both sources at once and a table of flag
+values headed `QC check` could be read as either of them. That line also says
+the thing the panel cannot show: the flags that came with the input data are
+one value per observation, with no breakdown of this kind behind them.
 
 **`Tables`** shows the same profile as numbers: a summary of the selected
 profile, then the contingency tables. The summary is one row per variable and
@@ -133,8 +139,8 @@ of the build rather than anything the scheme fixes.
 
 **`about.qmd` is the prose page**, and carries one thing worth keeping
 current: a table of the `aiqclib` QC checks, one row per check, with the
-column name it writes. The `QC checks that flagged` panel shows those same
-column names and links to this table, which is how a reader turns
+column name it writes. The `aiqclib checks that flagged` panel shows those
+same column names and links to this table, which is how a reader turns
 `temp_qc_spike` into a sentence. It is a summary of the `aiqclib` NRT QC guide
 it links to; if that library adds or renames a check, this table is the place
 in this repository that goes stale, together with `QC_CHECKS` in `labels.js`.

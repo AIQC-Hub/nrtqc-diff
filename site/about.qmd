@@ -102,9 +102,9 @@ Which checks ran is a setting of the `aiqclib` run, not a fixed list, so the
 columns present in the data are the checks that were switched on for it: a
 check listed above can be missing from a product whose run left it out, and
 nothing here will claim otherwise, because the columns are what this site
-reads. The **QC checks that flagged** panel on the dashboard names the ones
-that fired for the selected profile, in words and by column name, and links
-back to this table. Their default thresholds and the
+reads. The **aiqclib checks that flagged** panel on the dashboard names the
+ones that fired for the selected profile, in words and by column name, and
+links back to this table. Their default thresholds and the
 settings that change them are in the [`aiqclib` NRT QC
 guide](https://aiqclib.readthedocs.io/en/latest/how-to/nrt_qc.html), which is
 the source this table summarises.

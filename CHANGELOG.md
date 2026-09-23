@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The panel breaking a profile down by QC check says whose flags it is
+  showing. It is titled `aiqclib checks that flagged`, and a line above the
+  table adds that the flags which came with the input data are one value per
+  observation and break down no further. The plots beside it draw both
+  sources at once, so a table of flag values could be read as either.
+
 ## [0.3.3] - 2026-09-23
 
 ### Changed
