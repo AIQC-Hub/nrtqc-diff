@@ -41,11 +41,12 @@ jobs:
           uv run ruff check src tests scripts
           uv run pytest -q
 
-      # The real inputs are 2.2 GB and are not in git, by design: they live as
-      # assets on a release of the data repository. The variable holds the tag
-      # to build from, so refreshing the data is a variable change and a
-      # re-run, with nothing to commit here.
-      - name: Fetch the real inputs
+      # The data is built where the inputs are, not here: an aiqclib batch
+      # is 2.2 GB that the build reads twice, and this workflow runs on every
+      # push to main, so a commit touching a docstring would re-derive files
+      # identical to the ones already published. The variable holds the tag to
+      # deploy, which makes a data refresh a variable change and a re-run.
+      - name: Fetch the published data
         if: vars.NRTQC_DATA_RELEASE != '' && inputs.dataset != 'demo'
         env:
           # A public data repository needs no secret; a private one needs a
@@ -57,19 +58,15 @@ jobs:
         run: |
           uv run python scripts/data_release.py \
             --repo "$DATA_REPO" fetch "$DATA_RELEASE"
-          echo "BUILD_CONFIG=config/test_nrt.yaml" >> "$GITHUB_ENV"
 
-      # Without that variable the synthetic demo is built instead, which is
-      # what keeps a fork, a clean checkout and a `demo` dispatch deployable
-      # with no access to anything.
-      - name: Generate the demo inputs
+      # Without that variable the synthetic demo is generated and built here,
+      # which is what keeps a fork, a clean checkout and a `demo` dispatch
+      # deployable with no access to anything. It is seconds, not minutes.
+      - name: Build the demo data
         if: vars.NRTQC_DATA_RELEASE == '' || inputs.dataset == 'demo'
         run: |
           uv run python scripts/make_demo_data.py
-          echo "BUILD_CONFIG=config/datasets.yaml" >> "$GITHUB_ENV"
-
-      - name: Build the data
-        run: uv run nrtqc-diff build -c "$BUILD_CONFIG"
+          uv run nrtqc-diff build -c config/datasets.yaml
 
       - name: Vendor the browser libraries
         run: bash scripts/fetch_assets.sh

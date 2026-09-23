@@ -46,21 +46,26 @@ so it follows a release rather than a data rebuild.
 
 ### Where the data comes from
 
-The workflow builds the data itself, from one of two sources, and chooses
-between them by itself:
+The trimming runs where the inputs are, not in the workflow. An `aiqclib`
+batch is 2.2 GB that the build reads twice to write the 429 MB the site
+serves, and this workflow runs on every push to `main`, so building there
+would spend two minutes and a 2.2 GB download re-deriving byte-identical
+files on a commit that only touched a docstring. The build runs once, on the
+machine that has the data; the deploy fetches what it wrote and renders it.
 
-| `NRTQC_DATA_RELEASE` | What gets built |
+So the workflow takes its data from one of two places, and chooses by itself:
+
+| `NRTQC_DATA_RELEASE` | What gets deployed |
 | --- | --- |
-| A release tag | The real batch, through `config/test_nrt.yaml` |
-| Unset | The synthetic demo, through `config/datasets.yaml` |
+| A release tag | `site/data` as published by that release |
+| Unset | The synthetic demo, generated and built in the job |
 
-The real inputs are 2.2 GB across 8 files and are not in git, by design:
-`data/` is a symlink to a local `aiqclib` output tree. They live instead as
-assets on a release of **`AIQC-Hub/nrtqc-diff-data`**, a repository of its own
-so that a data refresh and a code release do not share a tag list and do not
-have to happen together. `scripts/data_release.py` puts them there and takes
-them back out; both halves read `config/test_nrt.yaml`, so the dataset ids are
-what name the assets and neither side can drift from the other.
+The release holds the contents of `site/data`, one asset per file:
+`catalog.json`, `profiles.parquet`, and one observation file per dataset.
+`catalog.json` is what maps an asset back to the path it belongs at, so
+fetching needs no build configuration and cannot disagree with what was
+published. They live on **`AIQC-Hub/nrtqc-diff-data`**, a repository of its
+own so that a data refresh and a code release do not share a tag list.
 
 Leaving the variable unset is what keeps a fork, a clean checkout and a
 `workflow_dispatch` run with `dataset: demo` deployable with no access to
@@ -70,31 +75,47 @@ The settings this needs, all on this repository:
 
 | Setting | Kind | What it is |
 | --- | --- | --- |
-| `NRTQC_DATA_RELEASE` | Variable | The tag to build from, e.g. `data-2026-09-23` |
+| `NRTQC_DATA_RELEASE` | Variable | The tag to deploy, e.g. `data-2026-09-23` |
 | `NRTQC_DATA_REPO` | Variable, optional | Overrides `AIQC-Hub/nrtqc-diff-data` |
 | `NRTQC_DATA_TOKEN` | Secret, optional | Read access, needed only if the data repository is private |
 
-### Publishing a new set of inputs
+### What the deploy no longer guarantees
+
+Building in the workflow bought one thing: the published data was always what
+the current build code produces. Publishing the output instead means a
+release can outlive the code that wrote it, and a change to the published
+columns or file names would leave the site rendering against files that no
+longer match.
+
+That is what `data_format` in `catalog.json` is for. `DATA_FORMAT` in
+`src/nrtqc_diff/build.py` is raised in the same commit as any change to the
+published shape, and `scripts/data_release.py` compares the two at both ends:
+publishing data built by an older checkout is refused, and so is deploying a
+release stamped with anything but what this checkout reads. A stale release
+therefore stops the deploy with a message saying to rebuild, rather than
+quietly producing a broken site.
+
+### Publishing a new build of the data
 
 From a checkout whose `data/` holds the `aiqclib` run:
 
 ```bash
+uv run nrtqc-diff build -c config/test_nrt.yaml
 uv run python scripts/data_release.py publish data-2026-09-23 --dry-run
 uv run python scripts/data_release.py publish data-2026-09-23
 ```
 
-That creates the release if it is not there, uploads one asset per dataset
-named after its id, and adds a `manifest.json` recording the sizes. Then set
-`NRTQC_DATA_RELEASE` to the new tag and run the workflow. The old release is
-left alone, so rolling back is a variable change and a re-run.
+That creates the release if it is not there and uploads what the build wrote,
+with a `manifest.json` recording the sizes. Then set `NRTQC_DATA_RELEASE` to
+the new tag and run the workflow. The old release is left alone, so rolling
+back is a variable change and a re-run.
 
-Refreshing the data is therefore a new tag rather than a commit, and that is
-the point of using releases at all. Assets are held outside the git object
-store, so publishing again adds one lightweight tag ref to the data
-repository and nothing else: a clone of it stays a README however many
-vintages of a 2.2 GB batch it is serving, and no version of the parquet files
-is ever in a history that has to be carried forever. When an old one is no
-longer worth the storage:
+A refresh is therefore a new tag rather than a commit, and that is the point
+of using releases at all. Assets are held outside the git object store, so
+publishing again adds one lightweight tag ref to the data repository and
+nothing else: a clone of it stays a README however many vintages of a 429 MB
+build it is serving, and no parquet file ever enters a history that has to be
+carried forever. When an old one is no longer worth the storage:
 
 ```bash
 gh release delete data-2026-08-12 \
@@ -105,16 +126,12 @@ Which repository holds the release is a setting on both sides, `--repo` here
 and `NRTQC_DATA_REPO` in the workflow, so a release can live wherever suits;
 `AIQC-Hub/nrtqc-diff-data` is a default, not an assumption the code makes.
 
-The upload is the slow part: 2.2 GB up your own connection, with the largest
-asset at 833 MB against a 2 GB per-asset limit. The same download inside the
-workflow takes well under a minute.
-
 `fetch` is the other half, and the workflow is not the only place it is
-useful: on a machine with no `data/` it puts a real batch where
-`config/test_nrt.yaml` expects it. It refuses to write over inputs that are
-already there, because in a working checkout that path is the real `aiqclib`
-output tree, and it checks every asset against the manifest before it moves
-any of them into place.
+useful: it puts a published build into `site/data` on a machine that has no
+inputs at all, which is enough to render the site. It replaces that directory
+rather than merging into it, so a dataset dropped from the catalog cannot
+linger as a file nothing references and the deploy still ships, and it checks
+every asset against the manifest before it writes anything.
 
 ### Why the site does not read the release directly
 
@@ -143,9 +160,11 @@ GitHub release does not. See the data access seam in `docs/SITE.md`.
 ## When the data changes
 
 The site reads whatever is in `site/data/` at render time, so a data update is
-a rebuild and a redeploy, with no code change and no version bump: publish the
-new inputs, point `NRTQC_DATA_RELEASE` at their tag, and run the workflow.
-Record what
+a rebuild and a redeploy, with no code change and no version bump: build it,
+publish it, point `NRTQC_DATA_RELEASE` at the new tag, and run the workflow.
+A change to the *shape* of what the build writes needs one more step, raising
+`DATA_FORMAT`, which is what stops a release from before it being deployed
+against code that has moved on. Record what
 changed in `CHANGELOG.md` under `### Changed` when the *shape* of the data
 changes, since that is a contract with the site; a refreshed dataset with the
 same schema needs no entry.

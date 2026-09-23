@@ -9,18 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `scripts/data_release.py`, which moves the real build inputs between a
-  working checkout and a release of the data repository. They are 2.2 GB
-  across 8 files and have no place in git, and the deploy workflow now
-  downloads them and publishes the real batch rather than the synthetic demo.
-  One asset per dataset, named by the dataset id in `config/test_nrt.yaml`, so
-  the two halves cannot disagree about which file is which, and a manifest of
-  the sizes beside them, so a short download stops the deploy instead of
-  reaching the site.
-- `NRTQC_DATA_RELEASE`, the repository variable naming the release to build
-  from. Unset, the workflow generates the demo exactly as before, which is
-  what keeps a fork and a clean checkout deployable with no access to
+- `scripts/data_release.py`, which publishes a built `site/data` to a release
+  of the data repository and fetches it back. The deploy renders what it
+  finds rather than rebuilding: an `aiqclib` batch is 2.2 GB the build reads
+  twice, and the workflow runs on every push to `main`, so building there
+  spent two minutes re-deriving byte-identical files on a commit that touched
+  a docstring. The trimming runs once, where the inputs are. One asset per
+  published file, with `catalog.json` mapping each back to the path it belongs
+  at, so fetching needs no build configuration and cannot disagree with what
+  was published.
+- `NRTQC_DATA_RELEASE`, the repository variable naming the release to deploy.
+  Unset, the workflow generates and builds the demo exactly as before, which
+  is what keeps a fork and a clean checkout deployable with no access to
   anything. A `workflow_dispatch` run can ask for the demo too.
+- `data_format` in `catalog.json`, the shape of the published files. Data that
+  is published rather than rebuilt can outlive the code that wrote it, so both
+  ends of `data_release.py` compare that stamp with `DATA_FORMAT` in
+  `build.py` and refuse anything else. A change to the published columns or
+  file names now stops a deploy with a message saying to rebuild, rather than
+  rendering a site against files that no longer match it.
 
 ### Changed
 
