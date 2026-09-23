@@ -16,7 +16,10 @@ never appends and never reads what a previous run wrote, so deleting
 
 `config/test_nrt.yaml` is the same thing against the real `aiqclib` batch
 under `data/`: 8 datasets, 330 million observations, about two minutes and
-430 MB of output.
+430 MB of output. Those inputs are 2.2 GB and are not in git; on a
+machine without them, `uv run python scripts/data_release.py fetch <tag>`
+downloads them from the data repository into the paths that config names. See
+[`RELEASING.md`](RELEASING.md) for where they are published and why.
 
 ## How one dataset is built
 
