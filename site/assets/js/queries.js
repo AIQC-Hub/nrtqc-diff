@@ -14,9 +14,6 @@ import { isItemColumn } from "./labels.js";
 //: and a product can hold many profiles from one platform.
 const SEARCH_COLUMNS = ["profile_id", "platform_code"];
 
-//: The columns the list may be ordered by. A whitelist rather than a check,
-//: because this value reaches SQL as a column name and arrives from a click.
-const ORDER_COLUMNS = ["n_disagree", "n_obs", "profile_id", "profile_timestamp"];
 
 /**
  * The `AND` clause restricting a profile query to a reader's search text.
@@ -42,13 +39,53 @@ function searchClause(search) {
 }
 
 /**
+ * The `AND` clause restricting a profile query to one platform.
+ *
+ * An exact match, unlike the search: a platform's own list must not pick up
+ * the profiles of another platform whose code happens to contain this one.
+ *
+ * @param {string|null} platform a `platform_code`, or null for every one.
+ * @returns {string} SQL beginning with `AND`, or an empty string.
+ */
+function platformClause(platform) {
+  if (platform === null || platform === undefined) return "";
+  return `AND platform_code = ${literal(String(platform))}`;
+}
+
+let profileColumnsPromise = null;
+
+/**
+ * The columns `profiles.parquet` actually has.
+ *
+ * Asked of the file rather than assumed, for two reasons. The build copies
+ * `profile_timestamp` and its neighbours only when the input carries them, so
+ * a page showing dates has to know whether there are any. And the list may be
+ * ordered by any of these columns, a whitelist that grows with the configured
+ * variables and categories without anyone having to extend it.
+ *
+ * @returns {Promise<Array<string>>}
+ */
+export function profileColumns() {
+  if (profileColumnsPromise === null) {
+    profileColumnsPromise = query("DESCRIBE profiles").then((rows) =>
+      rows.map((row) => row.column_name)
+    );
+  }
+  return profileColumnsPromise;
+}
+
+/**
  * The column a profile query may be ordered by, defaulted if unrecognised.
  *
+ * A column of `profiles` or nothing, because this value reaches SQL as a
+ * column name and arrives from a click.
+ *
  * @param {string} name the requested column.
- * @returns {string} a column of `profiles`.
+ * @returns {Promise<string>} a column of `profiles`.
  */
-function orderColumn(name) {
-  return ORDER_COLUMNS.includes(name) ? name : "n_disagree";
+async function orderColumn(name) {
+  const columns = await profileColumns();
+  return columns.includes(name) ? name : "n_disagree";
 }
 
 /**
@@ -64,8 +101,9 @@ function orderColumn(name) {
  * @param {number} [request.limit=500] rows per page.
  * @param {number} [request.offset=0] rows to skip.
  * @param {string} [request.search=""] text to match, empty for all.
- * @param {string} [request.orderBy="n_disagree"] one of `ORDER_COLUMNS`.
+ * @param {string} [request.orderBy="n_disagree"] a column of `profiles`.
  * @param {boolean} [request.descending=true] the direction of the order.
+ * @param {string|null} [request.platform=null] one `platform_code` only.
  * @returns {Promise<Array<object>>}
  */
 export async function profileSummary(datasets, request = {}) {
@@ -75,14 +113,16 @@ export async function profileSummary(datasets, request = {}) {
     search = "",
     orderBy = "n_disagree",
     descending = true,
+    platform = null,
   } = request;
   const ids = datasets.map((entry) => entry.id);
   return query(`
     SELECT *
     FROM profiles
     WHERE dataset_id IN (${literalList(ids)})
+      ${platformClause(platform)}
       ${searchClause(search)}
-    ORDER BY ${orderColumn(orderBy)} ${descending ? "DESC" : "ASC"}, profile_id
+    ORDER BY ${await orderColumn(orderBy)} ${descending ? "DESC" : "ASC"}, profile_id
     LIMIT ${Number(limit)} OFFSET ${Number(offset)}
   `);
 }
@@ -96,14 +136,16 @@ export async function profileSummary(datasets, request = {}) {
  *
  * @param {Array<object>} datasets the selected product's dataset entries.
  * @param {string} [search=""] text to match, empty for all.
+ * @param {string|null} [platform=null] one `platform_code` only.
  * @returns {Promise<number>}
  */
-export async function profileCount(datasets, search = "") {
+export async function profileCount(datasets, search = "", platform = null) {
   const ids = datasets.map((entry) => entry.id);
   const rows = await query(`
     SELECT COUNT(*) AS n
     FROM profiles
     WHERE dataset_id IN (${literalList(ids)})
+      ${platformClause(platform)}
       ${searchClause(search)}
   `);
   return Number(rows[0]?.n ?? 0);
@@ -145,6 +187,63 @@ export async function regionProductTotals(variables, statuses) {
     FROM profiles
     GROUP BY region, product
     ORDER BY region, product
+  `);
+}
+
+/**
+ * One row per platform of the selected product.
+ *
+ * The platform page's list, in one statement over `profiles`. A product holds
+ * a few hundred platforms at most, so unlike the profiles they come back all
+ * at once and the page sorts and filters them itself.
+ *
+ * The first and last profile times are there only when `profiles.parquet`
+ * carries `profile_timestamp`; the build copies it when the input has it.
+ *
+ * Every sum is cast to `BIGINT`. DuckDB sums whole numbers into a `HUGEINT`,
+ * which reaches the page as an object rather than a number: it formats
+ * correctly, and then `+` joins two of them as strings and a rate comes out
+ * a million times too large.
+ *
+ * @param {Array<object>} datasets the selected product's dataset entries.
+ * @param {Array<object>} variables the `variables` array of catalog.json.
+ * @param {Array<object>} statuses the `statuses` array of catalog.json.
+ * @returns {Promise<Array<object>>} rows keyed by `platform_code`, with
+ *          `n_profiles`, `n_obs`, `n_disagree`, and per variable
+ *          `{variable}_{status}` observation counts and
+ *          `{variable}_n_profiles_disagree`, the profiles with at least one
+ *          disagreement on that variable.
+ */
+export async function platformSummary(datasets, variables, statuses) {
+  const ids = datasets.map((entry) => entry.id);
+  const columns = await profileColumns();
+  const fields = [];
+  if (columns.includes("profile_timestamp")) {
+    fields.push("MIN(profile_timestamp) AS first_timestamp");
+    fields.push("MAX(profile_timestamp) AS last_timestamp");
+  }
+  for (const variable of variables) {
+    for (const status of statuses) {
+      const column = `${variable.name}_n_${status.key}`;
+      fields.push(
+        `CAST(SUM(${column}) AS BIGINT) AS ${variable.name}_${status.key}`
+      );
+    }
+    fields.push(
+      `COUNT(*) FILTER (WHERE ${variable.name}_n_disagree > 0) ` +
+        `AS ${variable.name}_n_profiles_disagree`
+    );
+  }
+  return query(`
+    SELECT platform_code,
+           COUNT(*)                          AS n_profiles,
+           CAST(SUM(n_obs) AS BIGINT)        AS n_obs,
+           CAST(SUM(n_disagree) AS BIGINT)   AS n_disagree,
+           ${fields.join(",\n           ")}
+    FROM profiles
+    WHERE dataset_id IN (${literalList(ids)})
+    GROUP BY platform_code
+    ORDER BY platform_code
   `);
 }
 

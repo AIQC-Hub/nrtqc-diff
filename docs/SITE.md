@@ -1,6 +1,6 @@
 # The site
 
-`site/` is an ordinary Quarto website with two pages of data and one of
+`site/` is an ordinary Quarto website with three pages of data and one of
 prose. There is no build step for the JavaScript: `site/assets/js/` holds plain ES modules that
 the browser loads directly.
 
@@ -9,6 +9,7 @@ site/
 ├── _quarto.yml           project, navbar, which folders are copied verbatim
 ├── index.qmd             the dashboard: sidebar, then Plots and Tables
 ├── summary.qmd           every region and product at once
+├── platforms.qmd         one product's platforms, each opening to its profiles
 ├── about.qmd             what the comparison means
 ├── assets/
 │   ├── dashboard.css     styling for the nq- widgets
@@ -16,7 +17,7 @@ site/
 │       ├── app.js        the single module the pages import
 │       ├── db.js         data access; the only file that knows about DuckDB
 │       ├── queries.js    every SQL statement
-│       ├── views.js      tree, tables, contingency, legend, bars
+│       ├── views.js      tree, tables, profile list, contingency, legend, bars
 │       ├── labels.js     the column names and flag values, said in words
 │       └── plots.js      the profile plots
 ├── data/                 written by the build step  (gitignored)
@@ -36,7 +37,7 @@ quarto render site         # one-shot render into site/_site
 says which command to run. Both are generated, so a fresh clone needs
 `nrtqc-diff build` and `fetch_assets.sh` before it can render anything useful.
 
-## The two pages
+## The pages
 
 **`summary.qmd` is the way in.** One row per region and product, over every
 published profile: how much of each source dataset survived the trimming, and
@@ -178,6 +179,31 @@ it, every flag value carries the word the IOC/Argo scheme gives it, and the
 line above the tables says what the red means, because that one is a setting
 of the build rather than anything the scheme fixes.
 
+**`platforms.qmd` sits between the two.** An ordinary page, not a dashboard:
+a region, a product and a variable are chosen at the top, and under them is
+one row per platform of that product, with the same agreement counts, flagged
+mix and rate per 1,000 as the summary page. Clicking a platform opens a row
+under it listing that platform's profiles, and clicking it again closes it.
+It answers the question the other two pages leave open: which platforms of a
+product the disagreements come from.
+
+The two lists are sized differently, and that decides where their work is
+done. A product has at most a few hundred platforms, so `platformSummary`
+returns them all in one `GROUP BY` and the page filters and sorts them
+itself. A platform can have thousands of profiles (8,541 for the largest
+here), so an open platform is a `profileListView` narrowed to it, paged by
+the query exactly as the dashboard's sidebar is. The expanding row is the
+`expand` option of `tableView`, which builds each platform's list the first
+time it is opened and keeps it, so re-sorting the platforms or closing and
+reopening one leaves its list on the page it was on. Changing the product or
+the variable draws a new table, with every platform closed.
+
+An open list is as wide as the platforms box, not as the table, and stays at
+its left edge when the platforms scroll sideways. On a window too narrow for
+every platform column the table overflows, and a list as wide as the table
+would put its page size and its `Next` step past the right edge. The
+container query units that do this are in `dashboard.css`.
+
 **`about.qmd` is the prose page**, and carries one thing worth keeping
 current: a table of the `aiqclib` QC checks, one row per check, with the
 column name it writes. The `aiqclib QC checks that flagged` panel shows those
@@ -225,6 +251,13 @@ than the panel and pushed the pager past the bottom edge. `dashboard.css`
 gives the tree a share of the height (45%, scrolling inside itself beyond it)
 and the profile list the rest, which is what keeps the pager on screen at any
 window size without the sidebar scrolling.
+
+**Sums are cast to `BIGINT`.** DuckDB sums whole numbers into a `HUGEINT`,
+which reaches the page as an Arrow object rather than a number.
+`formatCount` shows it correctly, which is what makes it easy to miss; then
+`+` joins two of them as strings, and a rate built from one comes out a
+million times too large. `COUNT(*)` and a cast `BIGINT` both arrive as plain
+numbers.
 
 **Colours and categories** are read from `catalog.json`, never hard coded.
 Adding a category in `flags.py` makes it appear in the legend, the plots and
@@ -322,6 +355,9 @@ The site has no test runner. After a change:
    product, pick a profile with disagreements, confirm both plots draw on
    `Plots` and that `Tables` shows the same profile, with its row marked in
    the table and the contingency totals matching it. On the summary page,
-   switch the variable and confirm the counts change with it.
+   switch the variable and confirm the counts change with it. On the
+   platforms page, pick a product, open its largest platform and page through
+   it, and confirm the platforms' profile counts add up to the summary page's
+   figure for that product.
 3. The browser console must be clean. DuckDB's own logger is chatty at info
    level; anything at error level is a real problem.
