@@ -122,14 +122,16 @@ viewof profile_row = app.tableView(profile_rows, {
 }
 ```
 
-## Row {height="210px"}
+## Row {height="250px"}
 
 ```{ojs}
-//| title: QC checks that flagged
+//| title: aiqclib checks that flagged
 
 // Under the plots, because it answers the question they raise: when aiqclib
 // marked something the input did not, which of its checks was it? "Fired" is
-// what the code calls it; this is the same thing said plainly.
+// what the code calls it; this is the same thing said plainly. The title
+// names aiqclib because the page carries two sets of flags, and a panel of
+// flag values headed "QC check" could be read as either of them.
 {
   if (!profile_row) {
     return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
@@ -181,7 +183,14 @@ viewof profile_row = app.tableView(profile_rows, {
   });
   // Four narrow columns across the full width of the page leave the counts a
   // long way from the name they belong to, so the table keeps its own width.
-  return htl.html`<div class="nq-qc-items">${table}</div>`;
+  // The line above it says whose flags these are: the plots beside it draw
+  // both sources at once, and nothing else in the panel would say that this
+  // breakdown belongs to only one of them.
+  return htl.html`<div class="nq-qc-items">
+    <p class="nq-note">Every row is one of <strong>aiqclib</strong>'s own
+      checks and the flag it raised. The flags that came with the input data
+      are one value per observation and break down no further.</p>
+    ${table}</div>`;
 }
 ```
 
