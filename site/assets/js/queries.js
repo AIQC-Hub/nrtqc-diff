@@ -9,22 +9,104 @@
 import { literal, literalList, query, registerDataset } from "./db.js";
 import { isItemColumn } from "./labels.js";
 
+//: The columns a reader can search the profile list by. `profile_id` is what
+//: the list shows; `platform_code` is the part of it people actually know,
+//: and a product can hold many profiles from one platform.
+const SEARCH_COLUMNS = ["profile_id", "platform_code"];
+
+//: The columns the list may be ordered by. A whitelist rather than a check,
+//: because this value reaches SQL as a column name and arrives from a click.
+const ORDER_COLUMNS = ["n_disagree", "n_obs", "profile_id", "profile_timestamp"];
+
 /**
- * One row per profile of the selected product, worst disagreement first.
+ * The `AND` clause restricting a profile query to a reader's search text.
+ *
+ * Matched case-insensitively against :data:`SEARCH_COLUMNS`, anywhere in the
+ * value, because a platform code is a fragment of a profile id rather than a
+ * prefix of it. `%` and `_` are wildcards to `LIKE` and a reader typing a
+ * platform code should not have to know that, so they are escaped and matched
+ * as themselves.
+ *
+ * @param {string} search the reader's text, possibly empty.
+ * @returns {string} SQL beginning with `AND`, or an empty string.
+ */
+function searchClause(search) {
+  const text = String(search ?? "").trim();
+  if (!text) return "";
+  const pattern = "%" + text.toLowerCase().replace(/[\\%_]/g, "\\$&") + "%";
+  const tests = SEARCH_COLUMNS.map(
+    (column) =>
+      `lower(CAST(${column} AS VARCHAR)) LIKE ${literal(pattern)} ESCAPE '\\'`
+  );
+  return `AND (${tests.join(" OR ")})`;
+}
+
+/**
+ * The column a profile query may be ordered by, defaulted if unrecognised.
+ *
+ * @param {string} name the requested column.
+ * @returns {string} a column of `profiles`.
+ */
+function orderColumn(name) {
+  return ORDER_COLUMNS.includes(name) ? name : "n_disagree";
+}
+
+/**
+ * One page of the selected product's profiles.
+ *
+ * The order and the search are applied here rather than in the page, because
+ * a page of 500 out of 81,541 profiles can only be a slice of the product if
+ * the database decides which slice. Sorting the rows that were fetched would
+ * sort the slice and say nothing about the rest.
  *
  * @param {Array<object>} datasets the selected product's dataset entries.
- * @param {number} [limit=500] how many rows to fetch.
+ * @param {object} [request] the page to fetch.
+ * @param {number} [request.limit=500] rows per page.
+ * @param {number} [request.offset=0] rows to skip.
+ * @param {string} [request.search=""] text to match, empty for all.
+ * @param {string} [request.orderBy="n_disagree"] one of `ORDER_COLUMNS`.
+ * @param {boolean} [request.descending=true] the direction of the order.
  * @returns {Promise<Array<object>>}
  */
-export async function profileSummary(datasets, limit = 500) {
+export async function profileSummary(datasets, request = {}) {
+  const {
+    limit = 500,
+    offset = 0,
+    search = "",
+    orderBy = "n_disagree",
+    descending = true,
+  } = request;
   const ids = datasets.map((entry) => entry.id);
   return query(`
     SELECT *
     FROM profiles
     WHERE dataset_id IN (${literalList(ids)})
-    ORDER BY n_disagree DESC, profile_id
-    LIMIT ${Number(limit)}
+      ${searchClause(search)}
+    ORDER BY ${orderColumn(orderBy)} ${descending ? "DESC" : "ASC"}, profile_id
+    LIMIT ${Number(limit)} OFFSET ${Number(offset)}
   `);
+}
+
+/**
+ * How many profiles the selected product has for a search.
+ *
+ * The pager needs the size of the whole answer, not of the page it is
+ * showing, and it is the one number that says a search found nothing beyond
+ * what is listed rather than nothing at all.
+ *
+ * @param {Array<object>} datasets the selected product's dataset entries.
+ * @param {string} [search=""] text to match, empty for all.
+ * @returns {Promise<number>}
+ */
+export async function profileCount(datasets, search = "") {
+  const ids = datasets.map((entry) => entry.id);
+  const rows = await query(`
+    SELECT COUNT(*) AS n
+    FROM profiles
+    WHERE dataset_id IN (${literalList(ids)})
+      ${searchClause(search)}
+  `);
+  return Number(rows[0]?.n ?? 0);
 }
 
 /**

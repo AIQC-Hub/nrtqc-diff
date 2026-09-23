@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A search box and a pager on the sidebar profile list. A product here runs
+  to 81,541 profiles and the list stopped at 2,000, so most of a product was
+  simply unreachable; 81,541 rows is not the alternative, because building
+  them takes six seconds and every re-sort five more. The search matches a
+  profile or platform code anywhere in the value, case-insensitively, over
+  the whole product rather than the page on screen.
+- `profileCount`, the size of the answer the page is a slice of, which is
+  what lets the pager say `501-1,000 of 81,541` and a fruitless search say so
+  rather than look like an empty product.
+
 ### Changed
+
+- The order the profile list is in is now the query's, not the browser's.
+  `profileSummary` takes the search, the order and the offset, and
+  `tableView` takes an `onSortChange` handler: given one it renders the rows
+  as handed and passes a header click back. Sorting in the browser sorted the
+  2,000 rows that had been fetched and left the reader to assume it had
+  sorted the product.
 
 - The profile summary table carries the observations each row accounts for,
   as a column between the variable and the categories that split it. The
