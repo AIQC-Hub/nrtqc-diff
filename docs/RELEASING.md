@@ -88,6 +88,23 @@ named after its id, and adds a `manifest.json` recording the sizes. Then set
 `NRTQC_DATA_RELEASE` to the new tag and run the workflow. The old release is
 left alone, so rolling back is a variable change and a re-run.
 
+Refreshing the data is therefore a new tag rather than a commit, and that is
+the point of using releases at all. Assets are held outside the git object
+store, so publishing again adds one lightweight tag ref to the data
+repository and nothing else: a clone of it stays a README however many
+vintages of a 2.2 GB batch it is serving, and no version of the parquet files
+is ever in a history that has to be carried forever. When an old one is no
+longer worth the storage:
+
+```bash
+gh release delete data-2026-08-12 \
+  --repo AIQC-Hub/nrtqc-diff-data --cleanup-tag --yes
+```
+
+Which repository holds the release is a setting on both sides, `--repo` here
+and `NRTQC_DATA_REPO` in the workflow, so a release can live wherever suits;
+`AIQC-Hub/nrtqc-diff-data` is a default, not an assumption the code makes.
+
 The upload is the slow part: 2.2 GB up your own connection, with the largest
 asset at 833 MB against a 2 GB per-asset limit. The same download inside the
 workflow takes well under a minute.

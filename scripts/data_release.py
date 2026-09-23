@@ -287,23 +287,39 @@ def fetch(args: argparse.Namespace) -> None:
 
 def main() -> None:
     """Parse the command line and run the requested half."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--repo", default=DEFAULT_REPO, help="The repository holding the release."
+    # Which release and which configuration are accepted on either side of the
+    # subcommand, because both orders are the natural one to type. Suppressing
+    # the defaults is what makes that safe: an option left out of one parser
+    # then leaves what the other parsed alone, rather than writing a default
+    # over it, and the defaults are applied once at the end instead.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--repo",
+        default=argparse.SUPPRESS,
+        help=f"The repository holding the release. Default: {DEFAULT_REPO}",
     )
-    parser.add_argument(
-        "-c", "--config", default=DEFAULT_CONFIG, help="The build configuration."
+    common.add_argument(
+        "-c",
+        "--config",
+        default=argparse.SUPPRESS,
+        help=f"The build configuration. Default: {DEFAULT_CONFIG}",
     )
+
+    parser = argparse.ArgumentParser(description=__doc__, parents=[common])
     commands = parser.add_subparsers(dest="command", required=True)
 
-    upload = commands.add_parser("publish", help="Upload the inputs to a release.")
+    upload = commands.add_parser(
+        "publish", parents=[common], help="Upload the inputs to a release."
+    )
     upload.add_argument("tag", help="The release tag, e.g. data-2026-09-23.")
     upload.add_argument(
         "--dry-run", action="store_true", help="List what would be uploaded."
     )
     upload.set_defaults(handler=publish)
 
-    download = commands.add_parser("fetch", help="Download the inputs of a release.")
+    download = commands.add_parser(
+        "fetch", parents=[common], help="Download the inputs of a release."
+    )
     download.add_argument("tag", help="The release tag to download.")
     download.add_argument(
         "--force", action="store_true", help="Write over inputs already present."
@@ -311,6 +327,8 @@ def main() -> None:
     download.set_defaults(handler=fetch)
 
     args = parser.parse_args()
+    args.repo = getattr(args, "repo", DEFAULT_REPO)
+    args.config = getattr(args, "config", DEFAULT_CONFIG)
     args.handler(args)
 
 
