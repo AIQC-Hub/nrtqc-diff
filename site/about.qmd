@@ -50,16 +50,23 @@ WebAssembly. Nothing you click is sent anywhere.
 
 ## Flag values
 
-Both flag columns use the IOC/Argo scheme, where 1 means good, 3 means
-probably bad and 4 means bad. The computed flag always follows it. Which
-values of the *input* flag count as an anomaly is a per-variable setting of
-the build, listed as `bad_flag_values` in `data/catalog.json`, because input
-datasets differ in how they use the upper values.
+Both flag columns use the IOC/Argo scheme, where 1 means good, 2 probably
+good, 3 probably bad and 4 bad; 0 and 9 carry no judgement at all, meaning no
+QC was performed and the value is missing. The computed flag always follows
+the scheme, and the contingency tables on the dashboard print these words
+under the numbers.
+
+Which values of the *input* flag count as an anomaly is a per-variable setting
+of the build, listed as `bad_flag_values` in `data/catalog.json`, because
+input datasets differ in how they use the upper values. That is what the red
+marks in the contingency table, and it is why a number alone cannot say
+whether an observation counts as flagged here: the same 6 can be an anomaly
+in one product and not in the next.
 
 ## The checks `aiqclib` runs
 
-The computed flag is not one test but eleven. Ten of them implement the
-Argo/CTD real-time tests, and the eleventh is a propagation rule. Each writes
+The computed flag is not one test but twelve. Eleven of them implement the
+Argo/CTD real-time tests, and the twelfth is a propagation rule. Each writes
 a flag of its own, and `temp_nrt_flag` and `psal_nrt_flag`, the values
 compared on this site, are the most severe flag among the checks that apply to
 that variable.
@@ -92,9 +99,12 @@ which is why a spike or a density inversion shows up as a few marked points in
 the plots rather than a whole cast.
 
 Which checks ran is a setting of the `aiqclib` run, not a fixed list, so the
-columns present in the data are the checks that were switched on for it. The
-**QC checks that flagged** panel on the dashboard names them for the selected
-profile, by these column names. Their default thresholds and the settings that
-change them are in the [`aiqclib` NRT QC
+columns present in the data are the checks that were switched on for it: a
+check listed above can be missing from a product whose run left it out, and
+nothing here will claim otherwise, because the columns are what this site
+reads. The **QC checks that flagged** panel on the dashboard names the ones
+that fired for the selected profile, in words and by column name, and links
+back to this table. Their default thresholds and the
+settings that change them are in the [`aiqclib` NRT QC
 guide](https://aiqclib.readthedocs.io/en/latest/how-to/nrt_qc.html), which is
 the source this table summarises.

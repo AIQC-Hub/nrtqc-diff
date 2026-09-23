@@ -7,6 +7,8 @@
  * in rows and gets a node back.
  */
 
+import { flagMeaning, inputFlagNote } from "./labels.js";
+
 /**
  * Create an element with a class and optional text.
  *
@@ -244,20 +246,28 @@ export function tableView(rows, options) {
 /**
  * A contingency table of input flag value against computed flag value.
  *
+ * Both axes are named twice over: what the column is, in words, and the
+ * column name it has in the data underneath. The first is for a reader
+ * meeting the comparison for the first time, the second for whoever runs the
+ * build and thinks in `temp_qc`. The same goes for the values: a flag number
+ * carries the scheme's word for it wherever the scheme fixes one.
+ *
  * @param {Array<object>} rows `{existing_flag, new_flag, n}` in any order.
- * @param {object} [options]
- * @param {string} [options.rowLabel] the header above the input flag values.
- * @param {string} [options.columnLabel] the header above the computed values.
- * @param {Array<number>} [options.badValues] input values counted as anomalies,
- *                        which are marked in the row header.
+ * @param {object} options
+ * @param {object} options.variable a `variables` entry of catalog.json. It
+ *        supplies both column names and the values this product counts as an
+ *        anomaly, which are marked in the row header.
+ * @param {string} [options.rowLabel] what the input flag is, in words.
+ * @param {string} [options.columnLabel] what the computed flag is, in words.
  * @returns {HTMLElement}
  */
 export function contingencyTable(rows, options = {}) {
   const {
-    rowLabel = "Input flag",
-    columnLabel = "aiqclib flag",
-    badValues = [],
+    variable,
+    rowLabel = "Flag in the input data",
+    columnLabel = "Flag aiqclib computed",
   } = options;
+  const badValues = variable.bad_flag_values ?? [];
 
   const root = el("div", "nq-table-wrap");
   if (!rows || rows.length === 0) {
@@ -275,8 +285,8 @@ export function contingencyTable(rows, options = {}) {
   const table = el("table", "nq-table nq-contingency");
   const head = el("thead");
   const topRow = el("tr");
-  topRow.appendChild(el("th", "nq-align-left", rowLabel));
-  const spanning = el("th", "nq-align-center", columnLabel);
+  topRow.appendChild(named("nq-align-left", rowLabel, variable.flag));
+  const spanning = named("nq-align-center", columnLabel, variable.nrt_flag);
   spanning.colSpan = columnValues.length + 1;
   topRow.appendChild(spanning);
   head.appendChild(topRow);
@@ -284,7 +294,9 @@ export function contingencyTable(rows, options = {}) {
   const valueRow = el("tr");
   valueRow.appendChild(el("th", "nq-align-left", ""));
   for (const value of columnValues) {
-    valueRow.appendChild(el("th", "nq-align-right", label(value)));
+    // The computed flag always follows the scheme, so every value it can
+    // hold has a word for it and none of them needs the build's opinion.
+    valueRow.appendChild(valueHeader(value, null));
   }
   valueRow.appendChild(el("th", "nq-align-right", "Total"));
   head.appendChild(valueRow);
@@ -293,7 +305,8 @@ export function contingencyTable(rows, options = {}) {
   const body = el("tbody");
   for (const rowValue of rowValues) {
     const tr = el("tr");
-    const header = el("th", "nq-align-left", label(rowValue));
+    const header = valueHeader(rowValue, inputFlagNote(rowValue, variable));
+    header.className = "nq-align-left";
     if (badValues.includes(rowValue)) header.classList.add("is-bad");
     tr.appendChild(header);
 
@@ -323,6 +336,38 @@ export function contingencyTable(rows, options = {}) {
   table.appendChild(body);
   root.appendChild(table);
   return root;
+
+  /**
+   * A header cell carrying a name in words and its column name under it.
+   *
+   * @param {string} className
+   * @param {string} text what the column is, in words.
+   * @param {string} columnName the name it has in the data.
+   * @returns {HTMLElement}
+   */
+  function named(className, text, columnName) {
+    const cell = el("th", className, text);
+    cell.appendChild(el("span", "nq-colname", columnName));
+    return cell;
+  }
+
+  /**
+   * A header cell for one flag value, with the scheme's word under it.
+   *
+   * @param {number|null} value
+   * @param {string|null} note a tooltip, where there is more to say than the
+   *        word under the number.
+   * @returns {HTMLElement}
+   */
+  function valueHeader(value, note) {
+    const cell = el("th", "nq-align-right", label(value));
+    const meaning = flagMeaning(value);
+    if (meaning !== null) {
+      cell.appendChild(el("span", "nq-flag-meaning", meaning));
+    }
+    if (note !== null) cell.title = note;
+    return cell;
+  }
 
   /**
    * Render one flag value, naming the null case rather than printing "null".

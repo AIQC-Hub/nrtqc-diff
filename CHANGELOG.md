@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-23
+
+### Changed
+
+- Nothing on the dashboard shows a column name or a flag number on its own.
+  The contingency tables head their axes "Flag in the input data" and "Flag
+  aiqclib computed" with the column name under each, every flag value carries
+  the word the IOC/Argo scheme gives it, and a line above the tables says that
+  the red marks the values this product counts as an anomaly. Reading them
+  used to need the schema.
+- The `QC checks that flagged` panel names each check in words, keeps the
+  column name in a second column, glosses the flag it raised, and links to the
+  table on the About page that describes what the check looks for.
+- The two contingency tables sit side by side while the window has room for
+  both, which is down to a 1280px laptop, instead of stacking the second one
+  out of sight.
+- The demo generator writes every QC check the About page lists, rather than
+  nine of them, and each one fires in at least one profile: the published site
+  runs on this data, so a check it never wrote was a check no reader could see
+  working. It also derives the rolled-up `temp_nrt_flag` and `psal_nrt_flag`
+  from the item columns instead of from a second list.
+- The About page counts the checks it lists correctly (twelve, eleven of them
+  real-time tests) and says plainly that a check listed there can be absent
+  from a product whose `aiqclib` run left it out.
+
 ## [0.3.2] - 2026-09-22
 
 ### Changed
