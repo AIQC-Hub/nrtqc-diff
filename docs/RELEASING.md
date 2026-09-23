@@ -37,7 +37,10 @@ as `TypeError: app.checkAppliesTo is not a function`.
 
 It is not a broken deploy, and checking is quick: load the site in a private
 window, which has no cache to be stale. A hard reload (`Ctrl+Shift+R`, or
-`Cmd+Shift+R`) fixes it for whoever hit it, and it clears itself ten minutes
+`Cmd+Shift+R`) fixes it for whoever hit it, twice if once is not enough: the
+reload bypasses the cache for the page and what it loads with it, while the
+modules arrive later through the dynamic `import()` in the first cell of the
+page, which that bypass need not cover. It also clears itself ten minutes
 after the deploy. Only a change that adds or renames an export can cause it,
 so it follows a release rather than a data rebuild.
 
