@@ -155,8 +155,19 @@
    and it is the cheaper one. */
 .nq-profile-summary .nq-table-wrap {
   flex: 1 1 20rem;
-  max-width: 44rem;
+  /* Eight columns now: the five categories, the mix, the variable and the
+     total they add up to. 44rem was the width of the seven, so the total
+     would have sat behind a sideways scroll on every window. */
+  max-width: 48rem;
   min-width: 0;
+}
+
+/* The bar's floor is what the eighth column had to come out of. At 96px this
+   table wanted 754px and a 1280px laptop offers it 745, so the whole row
+   scrolled to hold a floor no other panel needs: this bar splits the flagged
+   observations of one profile, which is three segments, not five. */
+.nq-profile-summary .nq-bar {
+  min-width: 80px;
 }
 
 /* Table on the left, colour key on the right, and they stay that way. Let

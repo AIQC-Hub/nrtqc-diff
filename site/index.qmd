@@ -236,6 +236,12 @@ viewof profile_row = app.tableView(profile_rows, {
       );
     }
     row.n_flagged = flagged.reduce((sum, status) => sum + row[status.key], 0);
+    // The five categories are exclusive and exhaustive, so they sum to the
+    // observations in the profile. Added up from the counts in this row
+    // rather than read from `n_obs`, so the total is the one the cells
+    // beside it actually make: a row that did not add up would show it here
+    // instead of hiding behind a number from somewhere else.
+    row.n_obs = statuses.reduce((sum, status) => sum + row[status.key], 0);
     return row;
   });
 
@@ -257,6 +263,15 @@ viewof profile_row = app.tableView(profile_rows, {
           label: "Variable",
           align: "left",
           format: (value) => value
+        },
+        {
+          // The denominator, to the left of everything it divides. Each row
+          // carries its own, because a reader checking a category against
+          // the whole should not have to find the total in the line above
+          // the table.
+          key: "n_obs",
+          label: "Obs",
+          title: "Observations in this profile, which the categories split between them"
         },
         {
           key: "n_flagged",

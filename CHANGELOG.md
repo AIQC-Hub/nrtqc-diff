@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The profile summary table carries the observations each row accounts for,
+  as a column between the variable and the categories that split it. The
+  count was in the line above the table, which is one place to read it when
+  the question is asked of a row. It is added up from the five counts in the
+  row rather than taken from `n_obs`, so what it shows is what the cells
+  beside it make.
+- The table is held to 48rem rather than 44rem, and its composition bar may
+  narrow to 80px. 44rem was the width of seven columns exactly, so an eighth
+  put the last category behind a sideways scroll on every window; the bar's
+  96px floor is where the last 9px of a 1280px laptop had to come from.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added
