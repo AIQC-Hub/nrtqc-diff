@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/data_release.py`, which moves the real build inputs between a
+  working checkout and a release of the data repository. They are 2.2 GB
+  across 8 files and have no place in git, and the deploy workflow now
+  downloads them and publishes the real batch rather than the synthetic demo.
+  One asset per dataset, named by the dataset id in `config/test_nrt.yaml`, so
+  the two halves cannot disagree about which file is which, and a manifest of
+  the sizes beside them, so a short download stops the deploy instead of
+  reaching the site.
+- `NRTQC_DATA_RELEASE`, the repository variable naming the release to build
+  from. Unset, the workflow generates the demo exactly as before, which is
+  what keeps a fork and a clean checkout deployable with no access to
+  anything. A `workflow_dispatch` run can ask for the demo too.
+
+### Changed
+
+- `docs/RELEASING.md` no longer offers a GitHub release as a host the site
+  could read from directly. It cannot be one: a release download carries no
+  `access-control-allow-origin` header, on either the `github.com` hop or the
+  signed one it redirects to, so a browser will not fetch it whatever the
+  catalog says. The data is served from the Pages site, which does send that
+  header and does answer range requests.
+
 ## [0.3.6] - 2026-09-23
 
 ### Changed

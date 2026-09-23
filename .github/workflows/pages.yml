@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      dataset:
+        description: Which inputs to build from
+        type: choice
+        options: [release, demo]
+        default: release
 
 permissions:
   contents: read
@@ -35,13 +41,35 @@ jobs:
           uv run ruff check src tests scripts
           uv run pytest -q
 
-      # As shipped this builds the synthetic demo, which keeps the published
-      # site reproducible from a clean checkout. Replace this step with one
-      # that fetches the real inputs; see docs/RELEASING.md.
-      - name: Build the data
+      # The real inputs are 2.2 GB and are not in git, by design: they live as
+      # assets on a release of the data repository. The variable holds the tag
+      # to build from, so refreshing the data is a variable change and a
+      # re-run, with nothing to commit here.
+      - name: Fetch the real inputs
+        if: vars.NRTQC_DATA_RELEASE != '' && inputs.dataset != 'demo'
+        env:
+          # A public data repository needs no secret; a private one needs a
+          # token with read access to it, since the job's own token is scoped
+          # to this repository alone.
+          GH_TOKEN: ${{ secrets.NRTQC_DATA_TOKEN || github.token }}
+          DATA_REPO: ${{ vars.NRTQC_DATA_REPO || 'AIQC-Hub/nrtqc-diff-data' }}
+          DATA_RELEASE: ${{ vars.NRTQC_DATA_RELEASE }}
+        run: |
+          uv run python scripts/data_release.py \
+            --repo "$DATA_REPO" fetch "$DATA_RELEASE"
+          echo "BUILD_CONFIG=config/test_nrt.yaml" >> "$GITHUB_ENV"
+
+      # Without that variable the synthetic demo is built instead, which is
+      # what keeps a fork, a clean checkout and a `demo` dispatch deployable
+      # with no access to anything.
+      - name: Generate the demo inputs
+        if: vars.NRTQC_DATA_RELEASE == '' || inputs.dataset == 'demo'
         run: |
           uv run python scripts/make_demo_data.py
-          uv run nrtqc-diff build -c config/datasets.yaml
+          echo "BUILD_CONFIG=config/datasets.yaml" >> "$GITHUB_ENV"
+
+      - name: Build the data
+        run: uv run nrtqc-diff build -c "$BUILD_CONFIG"
 
       - name: Vendor the browser libraries
         run: bash scripts/fetch_assets.sh
@@ -49,6 +77,9 @@ jobs:
       - name: Render
         run: quarto render site
 
+      # The data is served from this site rather than from the release it was
+      # built from: release assets carry no CORS header, so a browser cannot
+      # read them. See docs/RELEASING.md.
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/_site
