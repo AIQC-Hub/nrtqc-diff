@@ -104,7 +104,9 @@ check listed above can be missing from a product whose run left it out, and
 nothing here will claim otherwise, because the columns are what this site
 reads. The **aiqclib QC checks that flagged** panel on the dashboard names the
 ones that fired for the selected profile, in words and by column name, and
-links back to this table. Their default thresholds and the
+links back to this table. Hovering a marker on the plots narrows that to a
+single observation: the box names the check or checks that set its computed
+flag, and any others that fired below them. Their default thresholds and the
 settings that change them are in the [`aiqclib` NRT QC
 guide](https://aiqclib.readthedocs.io/en/latest/how-to/nrt_qc.html), which is
 the source this table summarises.

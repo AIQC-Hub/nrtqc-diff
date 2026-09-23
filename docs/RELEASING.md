@@ -25,6 +25,25 @@ The site is static, so deploying is copying `site/_site/` to a host. The
 workflow in `.github/workflows/pages.yml` does it on every push to `main`:
 build the data, vendor the browser libraries, render, publish to GitHub Pages.
 
+### The first ten minutes after a deploy
+
+GitHub Pages serves every file with `cache-control: max-age=600`, and the
+JavaScript is a handful of ES modules the browser fetches one by one. A
+reader who was on the site shortly before a deploy can therefore get the new
+`index.html`, because browsers revalidate the top-level document, together
+with a module still held from the old one. The page then calls a function its
+module does not have yet, and the panel that needed it shows an OJS error such
+as `TypeError: app.checkAppliesTo is not a function`.
+
+It is not a broken deploy, and checking is quick: load the site in a private
+window, which has no cache to be stale. A hard reload (`Ctrl+Shift+R`, or
+`Cmd+Shift+R`) fixes it for whoever hit it, twice if once is not enough: the
+reload bypasses the cache for the page and what it loads with it, while the
+modules arrive later through the dynamic `import()` in the first cell of the
+page, which that bypass need not cover. It also clears itself ten minutes
+after the deploy. Only a change that adds or renames an export can cause it,
+so it follows a release rather than a data rebuild.
+
 The workflow needs the input data to exist. As shipped it generates the
 synthetic demo, which is what makes the published site reproducible from a
 clean checkout. A GitHub runner cannot reach the real inputs: `data/` is a

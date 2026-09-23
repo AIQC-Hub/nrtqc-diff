@@ -90,6 +90,10 @@ viewof profile_row = app.tableView(profile_rows, {
 // Measurement on the x axis, pressure down the y axis, one marker per
 // observation coloured by which source flagged it. Scroll or drag to zoom;
 // double click to reset. Zooming and panning stop at the edge of the data.
+//
+// `variables` goes in because the hover box names the checks behind the
+// computed flag, and telling a check that reads this variable from one that
+// judges the whole profile takes the full list of prefixes.
 {
   if (!profile_row) {
     return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
@@ -114,7 +118,7 @@ viewof profile_row = app.tableView(profile_rows, {
   plots.className = "nq-plots";
   for (const variable of variables) {
     plots.appendChild(
-      await app.profilePlot(observations, { variable, statuses })
+      await app.profilePlot(observations, { variable, statuses, variables })
     );
   }
   box.appendChild(plots);

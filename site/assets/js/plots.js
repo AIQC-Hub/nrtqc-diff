@@ -8,6 +8,7 @@
  */
 
 import { LIB_ROOT } from "./db.js";
+import { firedChecks, flagWithMeaning } from "./labels.js";
 
 let plotlyPromise = null;
 
@@ -178,6 +179,52 @@ function holdSpanWhileDragging(Plotly, node) {
 }
 
 /**
+ * The flags on one observation, as the hover box says them.
+ *
+ * Both flag columns are named in words with the column under the words, the
+ * same pairing the contingency tables head their axes with, because a hover
+ * box reading `temp_qc = 4, temp_nrt_flag = 3` needs the schema to be read at
+ * all. The values carry the word the IOC/Argo scheme gives them.
+ *
+ * Then the part the plot alone cannot answer: the computed flag is a roll-up,
+ * so the box names the checks behind it. The ones holding the computed value
+ * set it; anything else that fired is listed under them with its own flag, so
+ * a reader can see that a spike was called bad while the gradient check only
+ * called it probably good.
+ *
+ * @param {object} row one observation.
+ * @param {object} variable a `variables` entry of catalog.json.
+ * @param {Array<object>} variables the `variables` array of catalog.json.
+ * @returns {string} Plotly hover markup, one item per line.
+ */
+function flagStory(row, variable, variables) {
+  // Muted, like the column names elsewhere on the dashboard: it answers a
+  // second question, asked by fewer readers than ask the first.
+  const column = (name) => `<span style="color:#667079">${name}</span>`;
+  const lines = [
+    `Flag in the input data ${column(variable.flag)}: ` +
+      flagWithMeaning(row[variable.flag]),
+    `Flag aiqclib computed ${column(variable.nrt_flag)}: ` +
+      flagWithMeaning(row[variable.nrt_flag]),
+  ];
+
+  const { decisive, others } = firedChecks(row, variable, variables);
+  if (decisive.length > 0) {
+    // No flag value beside these: it is the computed one, on the line above.
+    lines.push(`Set by: ${decisive.map((check) => check.label).join(", ")}`);
+  }
+  if (others.length > 0) {
+    const heading = decisive.length > 0 ? "Also fired" : "Fired";
+    const named = others.map((check) => `${check.label} (${check.flag})`);
+    lines.push(`${heading}: ${named.join(", ")}`);
+  }
+  if (decisive.length === 0 && others.length === 0) {
+    lines.push("No aiqclib check flagged this observation.");
+  }
+  return lines.join("<br>");
+}
+
+/**
  * Draw one variable of one profile.
  *
  * Every observation is drawn twice: once as a thin grey line giving the shape
@@ -189,13 +236,17 @@ function holdSpanWhileDragging(Plotly, node) {
  * @param {object} options
  * @param {object} options.variable a `variables` entry from catalog.json.
  * @param {Array<object>} options.statuses the `statuses` array of catalog.json.
+ * @param {Array<object>} [options.variables] the `variables` array of
+ *   catalog.json, which the hover text needs to tell a check that reads this
+ *   variable from one that judges the whole profile. Left out, only this
+ *   variable's own columns are recognised.
  * @param {number} [options.height] the plot height in pixels. Left out, the
  *   plot fills the box it is put in: it is created responsive, so it follows
  *   that box for the life of the page.
  * @returns {Promise<HTMLElement>} the plot node.
  */
 export async function profilePlot(rows, options) {
-  const { variable, statuses, height } = options;
+  const { variable, statuses, height, variables = [variable] } = options;
   const node = document.createElement("div");
   node.className = "nq-plot";
 
@@ -234,8 +285,7 @@ export async function profilePlot(rows, options) {
       y: subset.map((row) => row.pres),
       customdata: subset.map((row) => [
         row.observation_no,
-        row[variable.flag],
-        row[variable.nrt_flag],
+        flagStory(row, variable, variables),
       ]),
       mode: "markers",
       type: "scatter",
@@ -245,12 +295,19 @@ export async function profilePlot(rows, options) {
         size: status.key === "agree_good" ? 5 : 9,
         line: { color: "#33383d", width: status.key === "agree_good" ? 0 : 0.8 },
       },
+      // White box with the category's colour as its border, rather than the
+      // colour behind the text: this label is five lines of flags and check
+      // names, and white-on-crimson is not a paragraph anybody reads.
+      hoverlabel: {
+        align: "left",
+        bgcolor: "#ffffff",
+        bordercolor: status.color,
+        font: { color: "#33383d", size: 12 },
+      },
       hovertemplate:
-        `<b>%{x:.3f}</b> ${variable.unit}<br>` +
-        "pressure %{y:.1f} db<br>" +
-        "observation %{customdata[0]}<br>" +
-        `${variable.flag} = %{customdata[1]}, ` +
-        `${variable.nrt_flag} = %{customdata[2]}` +
+        `<b>${variable.label} %{x:.3f}</b> ${variable.unit}<br>` +
+        "pressure %{y:.1f} db, observation %{customdata[0]}<br>" +
+        "%{customdata[1]}" +
         "<extra>" + status.label + "</extra>",
     });
   }
