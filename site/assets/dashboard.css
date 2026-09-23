@@ -225,16 +225,8 @@
   text-transform: none;
 }
 
-.nq-colname,
-.nq-colname-cell {
+.nq-colname {
   font-family: var(--bs-font-monospace, monospace);
-}
-
-/* Quarto styles `code` into a chip of its own; this only takes the loudness
-   out of it, because the column name is the second thing in the cell. */
-.nq-colname-cell {
-  color: var(--nq-muted);
-  font-size: 0.78rem;
 }
 
 /* What the numbers and the colour under it mean, in a line or two. Muted,
@@ -369,11 +361,25 @@
   padding: 1rem 0;
 }
 
-/* The QC check table is three narrow columns: name, flag, count. Left to
-   fill the row it sits in, it would strand the counts at the far edge of the
-   page, so it is held to a width the eye can cross. */
+/* The QC check table is four narrow columns: name, column, flag, count. Left
+   to fill the row it sits in, it would strand the counts at the far edge of
+   the page, so it is held to a width the eye can cross. */
 .nq-qc-items .nq-table {
   max-width: 46rem;
+}
+
+/* One table per variable, beside each other while there is room, on the same
+   terms as the contingency tables: a basis narrow enough that two fit next to
+   a 380px sidebar on a 1280px window, and a wrap that stacks them below it. */
+.nq-qc-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.6rem;
+}
+
+.nq-qc-block {
+  flex: 1 1 23rem;
+  min-width: 0;
 }
 
 /* ------------------------------------------------------------- sidebar --- */
