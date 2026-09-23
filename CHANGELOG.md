@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-09-23
+
+### Changed
+
+- The QC check breakdown under the plots is one table per variable, side by
+  side, rather than one list with `temp_` and `psal_` prefixes mixed together.
+  A check that judges the whole profile is listed under both, because both
+  computed flags take it in, and the line above the tables says so.
+- The panel is titled `aiqclib QC checks that flagged`, and each row carries
+  the column the check writes under its name rather than in a column of its
+  own, which is what leaves the two tables room to sit beside each other.
+
 ## [0.3.4] - 2026-09-23
 
 ### Changed
