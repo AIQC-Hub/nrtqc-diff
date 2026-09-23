@@ -136,6 +136,10 @@ export function treeView(catalog) {
  * @param {boolean} [options.selectable=true] whether clicking a row selects
  *        it. Pass false for a table nothing downstream reads.
  * @param {string} [options.empty] the message shown when there are no rows.
+ * @param {function} [options.onSortChange] `(key, descending) => void`, called
+ *        instead of sorting when a header is clicked. Pass it when the rows
+ *        are one page of a larger answer: the table then shows them in the
+ *        order it was given and leaves the ordering to whoever fetched them.
  * @returns {HTMLElement} a view whose value is the selected row, or null.
  */
 export function tableView(rows, options) {
@@ -146,6 +150,7 @@ export function tableView(rows, options) {
     descending = true,
     selectable = true,
     empty = "Nothing to show.",
+    onSortChange = null,
   } = options;
 
   const root = el("div", `nq-table-wrap${selectable ? "" : " nq-static"}`);
@@ -169,12 +174,16 @@ export function tableView(rows, options) {
     button.type = "button";
     if (column.title) button.title = column.title;
     button.addEventListener("click", () => {
-      if (sortColumn === column.key) {
-        sortDescending = !sortDescending;
-      } else {
-        sortColumn = column.key;
-        sortDescending = true;
+      const nextDescending = sortColumn === column.key ? !sortDescending : true;
+      if (onSortChange) {
+        // The rows here are a page of a larger answer, so ordering them
+        // would order the page and say nothing about the rest. Whoever
+        // fetched them re-fetches in the new order instead.
+        onSortChange(column.key, nextDescending);
+        return;
       }
+      sortColumn = column.key;
+      sortDescending = nextDescending;
       draw();
     });
     cell.appendChild(button);
@@ -189,8 +198,12 @@ export function tableView(rows, options) {
 
   /** Sort the rows and rebuild the body. */
   function draw() {
-    const sorted = [...rows].sort((a, b) => compare(a[sortColumn], b[sortColumn]));
-    if (sortDescending) sorted.reverse();
+    // Rows that arrived in an order chosen elsewhere keep it: re-sorting them
+    // here would break the ties that order settled, and the column being
+    // sorted on is the one it was already fetched by.
+    const sorted = onSortChange
+      ? [...rows]
+      : sortedRows();
 
     body.replaceChildren();
     for (const row of sorted) {
@@ -219,6 +232,13 @@ export function tableView(rows, options) {
     }
   }
 
+  /** The rows in the order the header says, for a table that owns them. */
+  function sortedRows() {
+    const sorted = [...rows].sort((a, b) => compare(a[sortColumn], b[sortColumn]));
+    if (sortDescending) sorted.reverse();
+    return sorted;
+  }
+
   /**
    * Order two cell values, keeping nulls at the bottom of a descending sort.
    *
@@ -240,6 +260,196 @@ export function tableView(rows, options) {
     // empty, which reads as a broken page rather than as a waiting one.
     queueMicrotask(() => body.firstChild.click());
   }
+  return root;
+}
+
+/**
+ * A searchable, paged list of profiles, as one view.
+ *
+ * A product here can hold 81,541 profiles and the browser cannot have them
+ * all on the page: 81,541 rows take six seconds to build and five more every
+ * time they are re-sorted. So the list shows a page, and the search, the
+ * order and the page boundaries are all decided by the query rather than by
+ * this file. That is also what makes the search worth having: it reaches the
+ * whole product, not the page in front of the reader.
+ *
+ * The queries arrive as functions rather than imports, which keeps this file
+ * clear of the database and lets a test drive the list with rows of its own.
+ *
+ * The value is the selected row, the same contract :func:`tableView` offers,
+ * so a page reading it needs to know nothing about the paging around it.
+ *
+ * @param {object} options
+ * @param {Array<object>} options.columns column definitions for `tableView`.
+ * @param {string} options.rowKey the column holding a unique row identifier.
+ * @param {function} options.fetchRows `(request) => Promise<Array<object>>`,
+ *        given `{limit, offset, search, orderBy, descending}`.
+ * @param {function} options.countRows `(search) => Promise<number>`, the size
+ *        of the whole answer the page is a slice of.
+ * @param {Array<number>} [options.pageSizes] the page sizes offered.
+ * @param {number} [options.pageSize] the page size to open on.
+ * @param {string} [options.sortKey] the column to order by first.
+ * @param {boolean} [options.descending=true] the direction to open in.
+ * @param {string} [options.empty] the message shown when nothing matches.
+ * @param {string} [options.searchLabel] the placeholder of the search box.
+ * @returns {HTMLElement} a view whose value is the selected row, or null.
+ */
+export function profileListView(options) {
+  const {
+    columns,
+    rowKey,
+    fetchRows,
+    countRows,
+    pageSizes = [100, 500, 2000],
+    pageSize = 500,
+    sortKey = "n_disagree",
+    descending = true,
+    empty = "Nothing to show.",
+    searchLabel = "Profile or platform",
+  } = options;
+
+  const root = el("div", "nq-profile-list");
+  const setValue = asView(root, null);
+
+  const state = {
+    search: "",
+    page: 0,
+    size: pageSizes.includes(pageSize) ? pageSize : pageSizes[0],
+    orderBy: sortKey,
+    descending,
+    total: 0,
+  };
+
+  // Every load is numbered, so a slow answer cannot land on top of a newer
+  // one. Typing into the search box starts a query per pause and they do not
+  // necessarily come back in the order they were asked.
+  let latest = 0;
+  let typing = null;
+
+  const controls = el("div", "nq-list-controls");
+  const search = el("input", "nq-search");
+  search.type = "search";
+  search.placeholder = searchLabel;
+  search.setAttribute("aria-label", searchLabel);
+  const size = el("select", "nq-page-size");
+  size.setAttribute("aria-label", "Profiles per page");
+  for (const value of pageSizes) {
+    const option = el("option", null, formatCount(value));
+    option.value = String(value);
+    if (value === state.size) option.selected = true;
+    size.appendChild(option);
+  }
+  controls.append(search, size);
+
+  const host = el("div", "nq-list-table");
+
+  const pager = el("div", "nq-pager");
+  const previous = el("button", "nq-page-step", "Previous");
+  previous.type = "button";
+  const label = el("span", "nq-pager-label", "Loading");
+  const next = el("button", "nq-page-step", "Next");
+  next.type = "button";
+  pager.append(previous, label, next);
+
+  root.append(controls, host, pager);
+
+  /** Fetch the current page and draw it, unless a newer load overtakes it. */
+  async function load() {
+    const token = ++latest;
+    root.classList.add("is-loading");
+    const [rows, total] = await Promise.all([
+      fetchRows({
+        limit: state.size,
+        offset: state.page * state.size,
+        search: state.search,
+        orderBy: state.orderBy,
+        descending: state.descending,
+      }),
+      countRows(state.search),
+    ]);
+    if (token !== latest) return;
+    state.total = total;
+    if (rows.length === 0 && state.page > 0) {
+      // A search, or a larger page size, can leave the reader past the end of
+      // an answer that was longer when they got there. Step back to the last
+      // page that exists rather than show them an empty list.
+      state.page = Math.max(0, Math.ceil(total / state.size) - 1);
+      load();
+      return;
+    }
+    root.classList.remove("is-loading");
+    draw(rows);
+  }
+
+  /** Replace the table with one page of rows, and say where the page sits. */
+  function draw(rows) {
+    const table = tableView(rows, {
+      columns,
+      rowKey,
+      sortKey: state.orderBy,
+      descending: state.descending,
+      autoSelect: true,
+      empty,
+      onSortChange: (key, isDescending) => {
+        state.orderBy = key;
+        state.descending = isDescending;
+        // A new order makes a new first page: keeping the offset would show
+        // the reader rows 500 to 1,000 of an order they have not seen.
+        state.page = 0;
+        load();
+      },
+    });
+    // The inner table is an implementation detail, so its events stop here
+    // and this view re-emits them as its own.
+    table.addEventListener("input", (event) => {
+      event.stopPropagation();
+      setValue(table.value);
+    });
+    host.replaceChildren(table);
+    setValue(table.value);
+
+    const first = state.total === 0 ? 0 : state.page * state.size + 1;
+    const last = state.page * state.size + rows.length;
+    label.textContent =
+      state.total === 0
+        ? "No profiles"
+        : `${formatCount(first)}-${formatCount(last)} of ${formatCount(state.total)}`;
+    previous.disabled = state.page === 0;
+    next.disabled = last >= state.total;
+  }
+
+  search.addEventListener("input", () => {
+    // One query per keystroke would run six for a platform code; the pause
+    // between letters is what tells typing apart from having typed.
+    clearTimeout(typing);
+    typing = setTimeout(() => {
+      state.search = search.value;
+      state.page = 0;
+      load();
+    }, 250);
+  });
+
+  size.addEventListener("change", () => {
+    // Hold the reader's place rather than sending them back to the top: they
+    // asked for a different page size, not for a different part of the list.
+    const anchor = state.page * state.size;
+    state.size = Number(size.value);
+    state.page = Math.floor(anchor / state.size);
+    load();
+  });
+
+  previous.addEventListener("click", () => {
+    if (state.page === 0) return;
+    state.page -= 1;
+    load();
+  });
+
+  next.addEventListener("click", () => {
+    state.page += 1;
+    load();
+  });
+
+  load();
   return root;
 }
 

@@ -65,9 +65,26 @@ project title, so repeating it there said nothing twice.
 1. **Product**, from the tree (`treeView`). Selecting one sets
    `selection = {region, product, datasets}`. The first product selects itself
    on load, because opening on an empty panel reads as a broken page.
-2. **How many profiles** to fetch, and then **the profile** itself
-   (`tableView` with `autoSelect: true`), three columns wide because the
-   sidebar is narrow.
+2. **The profile**, from a searchable paged list (`profileListView`), three
+   columns wide because the sidebar is narrow. It opens on the first page,
+   worst disagreement first, with a row already selected: an empty panel
+   reads as a broken page.
+
+The list is a page at a time because a product here runs to 81,541 profiles
+and 81,541 rows is not a thing a browser can hold: building them takes about
+six seconds and every re-sort another five, measured on a fast desktop. So
+the search box, the column the rows are ordered by and the page boundaries
+are all settled by the query, in `profileSummary`, with `profileCount`
+supplying the size of the whole answer for the pager. Sorting a page in the
+browser would sort the page and say nothing about the rest of the product,
+which is why `tableView` takes an `onSortChange` handler: given one, it shows
+the rows in the order it was handed and passes the click back to whoever
+fetched them.
+
+The search matches `profile_id` or `platform_code`, anywhere in the value and
+either case, against the whole product rather than the page on screen. That
+is what makes a profile 60,000 rows down reachable: two words instead of 120
+clicks through the pager.
 
 Putting the profile list there rather than on one of the pages is what lets a
 reader switch between the plots and the tables without losing their place, and

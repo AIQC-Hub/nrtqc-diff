@@ -285,6 +285,81 @@
   min-width: 2px;
 }
 
+/* The profile list: a search box and a page size above the table, and the
+   page it landed on below. The table keeps whatever height is left, so the
+   controls and the pager stay put while the rows move under them. */
+.nq-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  /* The panel's height, divided between the controls, the rows and the
+     pager. Left to grow, the list would push the pager below the fold and
+     the reader would have no way back to page one. */
+  height: 100%;
+  min-height: 0;
+}
+
+.nq-list-controls {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.nq-search {
+  border: 1px solid var(--nq-border);
+  border-radius: 3px;
+  flex: 1 1 auto;
+  font-size: 0.82rem;
+  min-width: 0;
+  padding: 0.22rem 0.4rem;
+}
+
+.nq-page-size {
+  border: 1px solid var(--nq-border);
+  border-radius: 3px;
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  padding: 0.22rem 0.2rem;
+}
+
+.nq-list-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Dimmed rather than emptied while a page is on its way: a list that blanks
+   between pages reads as a list that lost them. */
+.nq-profile-list.is-loading .nq-list-table {
+  opacity: 0.55;
+}
+
+.nq-pager {
+  align-items: center;
+  display: flex;
+  gap: 0.4rem;
+  justify-content: space-between;
+}
+
+.nq-pager-label {
+  color: var(--nq-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.nq-page-step {
+  background: none;
+  border: 1px solid var(--nq-border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.45rem;
+}
+
+.nq-page-step:disabled {
+  color: var(--nq-border);
+  cursor: default;
+}
+
 /* A table nothing downstream depends on still highlights on hover, so a wide
    row stays readable across, but it does not offer a selection. */
 .nq-static .nq-row {
