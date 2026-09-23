@@ -318,6 +318,8 @@
   border-radius: 3px;
   flex: 0 0 auto;
   font-size: 0.82rem;
+  /* Right-aligned whether or not a search box sits beside it. */
+  margin-left: auto;
   padding: 0.22rem 0.2rem;
 }
 
@@ -384,6 +386,114 @@
    row stays readable across, but it does not offer a selection. */
 .nq-static .nq-row {
   cursor: default;
+}
+
+/* ------------------------------------------------------ expanding rows --- */
+
+/* The platforms page's three selectors, on one line while the window has room
+   for them and wrapping when it does not. Quarto's own column layout held
+   them to three columns at any width, and each is 360px wide, so on a 1024px
+   window the page scrolled sideways for the last one. */
+.nq-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.5rem;
+}
+
+/* The platforms table scrolls inside its own box, so its header stays in view
+   down a list of several hundred platforms with a profile list open in it.
+   The box is also the container the open lists measure themselves against,
+   below. */
+.nq-expandable {
+  container-type: inline-size;
+  max-height: 80vh;
+}
+
+/* Above the header of a profile list scrolling underneath it. Both are
+   sticky at the same level, and without this the later one in the page, the
+   inner one, is drawn on top.
+
+   The headings wrap, because the table is thirteen columns and the width it
+   needs is mostly theirs: "Disagree per 1,000" over a column of "12.4". On
+   one line each they came to 1,430px, which a 1440px window does not have. */
+.nq-expandable > .nq-table > thead th {
+  vertical-align: bottom;
+  white-space: normal;
+  z-index: 2;
+}
+
+.nq-table .nq-expand-cell {
+  padding-right: 0;
+  width: 1.5rem;
+}
+
+/* Quarto tags this button `btn btn-quarto` like every other, and the theme
+   would fill it dark and flash it darker when pressed. Its own colours are
+   stated for every state the theme styles, `:active` included, which the
+   theme reaches with `.btn:first-child:active`: the selectors here match that
+   weight and win by coming later. */
+.nq-table .nq-expand,
+.nq-table .nq-expand:hover,
+.nq-table .nq-expand:active {
+  background: none;
+  border: 0;
+  color: var(--nq-accent);
+}
+
+.nq-table .nq-expand {
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.1rem 0.2rem;
+}
+
+.nq-expand::before {
+  content: "\25B8";
+  display: inline-block;
+  transition: transform 0.12s ease;
+}
+
+.nq-expand[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+.nq-row.is-open {
+  background: var(--nq-accent-soft);
+  font-weight: 600;
+}
+
+/* The profiles of an open platform, set in from the marker column and on a
+   tint, so where one platform's list ends and the next platform begins is
+   plain without reading the codes. */
+.nq-table .nq-detail-cell {
+  background: #f7f9fb;
+  padding: 0.45rem 0.6rem 0.8rem 1.9rem;
+  text-align: left;
+  white-space: normal;
+}
+
+/* The width of the box the reader can see, not of the table, and held at its
+   left edge while the platforms scroll sideways underneath. A list as wide as
+   the table put its page size and its Next button past the right edge on any
+   window too narrow for every platform column, which is where a reader would
+   never look for them. `100cqw` is the platforms box, and it counts the
+   box's own vertical scrollbar, which the space inside it does not: the rest
+   is the cell's padding and a rem to spare for that scrollbar. */
+.nq-detail .nq-profile-list {
+  height: auto;
+  left: 1.9rem;
+  position: sticky;
+  width: calc(100cqw - 3.5rem);
+}
+
+/* A page of 50 profiles would otherwise push the rest of the platforms a
+   screen further down. The list scrolls in its own box instead, with its own
+   header held at the top of it. */
+.nq-detail .nq-profile-list .nq-table-wrap {
+  max-height: 22rem;
+}
+
+.nq-detail .nq-table thead th {
+  background: #f7f9fb;
 }
 
 /* --------------------------------------------------------- legend, meta --- */
