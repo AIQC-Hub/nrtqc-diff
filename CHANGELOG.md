@@ -5,6 +5,40 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-09-23
+
+### Added
+
+- A search box and a pager on the sidebar profile list. A product here runs
+  to 81,541 profiles and the list stopped at 2,000, so most of a product was
+  simply unreachable; 81,541 rows is not the alternative, because building
+  them takes six seconds and every re-sort five more. The search matches a
+  profile or platform code anywhere in the value, case-insensitively, over
+  the whole product rather than the page on screen.
+- `profileCount`, the size of the answer the page is a slice of, which is
+  what lets the pager say `501-1,000 of 81,541` and a fruitless search say so
+  rather than look like an empty product.
+
+### Changed
+
+- The order the profile list is in is now the query's, not the browser's.
+  `profileSummary` takes the search, the order and the offset, and
+  `tableView` takes an `onSortChange` handler: given one it renders the rows
+  as handed and passes a header click back. Sorting in the browser sorted the
+  2,000 rows that had been fetched and left the reader to assume it had
+  sorted the product.
+
+- The profile summary table carries the observations each row accounts for,
+  as a column between the variable and the categories that split it. The
+  count was in the line above the table, which is one place to read it when
+  the question is asked of a row. It is added up from the five counts in the
+  row rather than taken from `n_obs`, so what it shows is what the cells
+  beside it make.
+- The table is held to 48rem rather than 44rem, and its composition bar may
+  narrow to 80px. 44rem was the width of seven columns exactly, so an eighth
+  put the last category behind a sideways scroll on every window; the bar's
+  96px floor is where the last 9px of a 1280px laptop had to come from.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

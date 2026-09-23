@@ -33,24 +33,11 @@ datasets_by_id = new Map(
     )
   )
 )
-
-// One row per published profile of the selected product, worst disagreement
-// first. Both pages read this, so it is fetched once here rather than by
-// whichever page happens to be open.
-profile_rows = app.profileSummary(selection.datasets, row_limit)
 ```
 
 ```{ojs}
 //| title: Regions and products
 viewof selection = app.treeView(catalog)
-```
-
-```{ojs}
-//| title: Rows
-viewof row_limit = Inputs.select([100, 500, 2000], {
-  label: "Profiles shown",
-  value: 500
-})
 ```
 
 ```{ojs}
@@ -61,9 +48,14 @@ viewof row_limit = Inputs.select([100, 500, 2000], {
 // between the plots and the tables without losing their place, and can pick
 // a different profile from either one.
 //
+// A page at a time, because a product here runs to 81,541 profiles and the
+// list is the one thing on the page whose size the reader does not choose.
+// The search reaches the whole product rather than the page: a profile
+// 60,000 rows down is two words away instead of 120 clicks.
+//
 // Three columns, because the sidebar is narrow. The full breakdown, every
 // category for every variable, is the first table on the Tables page.
-viewof profile_row = app.tableView(profile_rows, {
+viewof profile_row = app.profileListView({
   columns: [
     { key: "profile_id", label: "Profile", align: "left", format: (value) => value },
     { key: "n_obs", label: "Obs", title: "Observations in the profile" },
@@ -75,8 +67,10 @@ viewof profile_row = app.tableView(profile_rows, {
   ],
   rowKey: "profile_id",
   sortKey: "n_disagree",
-  autoSelect: true,
-  empty: "No profiles were published for this product."
+  searchLabel: "Profile or platform",
+  empty: "No profile of this product matches.",
+  fetchRows: (request) => app.profileSummary(selection.datasets, request),
+  countRows: (search) => app.profileCount(selection.datasets, search)
 })
 ```
 
@@ -236,6 +230,12 @@ viewof profile_row = app.tableView(profile_rows, {
       );
     }
     row.n_flagged = flagged.reduce((sum, status) => sum + row[status.key], 0);
+    // The five categories are exclusive and exhaustive, so they sum to the
+    // observations in the profile. Added up from the counts in this row
+    // rather than read from `n_obs`, so the total is the one the cells
+    // beside it actually make: a row that did not add up would show it here
+    // instead of hiding behind a number from somewhere else.
+    row.n_obs = statuses.reduce((sum, status) => sum + row[status.key], 0);
     return row;
   });
 
@@ -257,6 +257,15 @@ viewof profile_row = app.tableView(profile_rows, {
           label: "Variable",
           align: "left",
           format: (value) => value
+        },
+        {
+          // The denominator, to the left of everything it divides. Each row
+          // carries its own, because a reader checking a category against
+          // the whole should not have to find the total in the line above
+          // the table.
+          key: "n_obs",
+          label: "Obs",
+          title: "Observations in this profile, which the categories split between them"
         },
         {
           key: "n_flagged",
