@@ -178,6 +178,62 @@ export function checkNote(column, variables = []) {
 }
 
 /**
+ * Whether a column is one of the per-check QC flag columns.
+ *
+ * A check writes either `{var}_qc_{item}` or, when it judges the profile,
+ * `qc_{item}`. The rolled-up flags (`temp_qc`, `temp_nrt_flag`) are not
+ * checks and do not match: this is the shape of an item column alone.
+ *
+ * @param {string} column the column name.
+ * @returns {boolean}
+ */
+export function isItemColumn(column) {
+  return /(^|_)qc_[a-z0-9_]+$/.test(column);
+}
+
+/**
+ * The checks that fired on one observation, split by what they decided.
+ *
+ * The computed flag is the most severe flag among the checks that apply to
+ * the variable, so the checks holding that value are the ones that set it and
+ * the rest fired under it. A reader looking at a flagged marker is asking
+ * which test put it there, and the answer is the first group.
+ *
+ * Firing means a flag worse than good, the same threshold the QC check panel
+ * uses. A check that ran and passed says nothing about this observation.
+ *
+ * @param {object} row one observation, with its item columns.
+ * @param {object} variable a `variables` entry of catalog.json.
+ * @param {Array<object>} [variables] the `variables` array of catalog.json,
+ *                        needed to tell a per-variable column from a
+ *                        per-profile one.
+ * @returns {{decisive: Array<object>, others: Array<object>}} checks as
+ *          `qcCheck` returns them with a `flag` added, worst first.
+ */
+export function firedChecks(row, variable, variables = []) {
+  const computed = row[variable.nrt_flag];
+  const decisive = [];
+  const others = [];
+
+  for (const [column, value] of Object.entries(row)) {
+    if (!isItemColumn(column)) continue;
+    if (value === null || value === undefined) continue;
+    const flag = Number(value);
+    if (!(flag > 1)) continue;
+    if (!checkAppliesTo(column, variable, variables)) continue;
+    const check = { ...qcCheck(column, variables), flag };
+    const decided =
+      computed !== null && computed !== undefined && flag === Number(computed);
+    (decided ? decisive : others).push(check);
+  }
+
+  const worstFirst = (a, b) => b.flag - a.flag || a.label.localeCompare(b.label);
+  decisive.sort(worstFirst);
+  others.sort(worstFirst);
+  return { decisive, others };
+}
+
+/**
  * An underscored name as a sentence: `stuck_value` becomes `Stuck value`.
  *
  * @param {string} name
