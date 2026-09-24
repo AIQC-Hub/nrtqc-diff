@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- A loading spinner on the dashboard's profile panels. While the profile
+  list fetches its first page, and while the Profile panel on Plots fetches
+  the observations (after a quarter of a second, so a quick switch does not
+  flash it), the panels say the profile is loading.
+
+### Fixed
+
+- The dashboard's profile panels no longer say "Select a profile in the
+  sidebar" while the first profile is still loading. The list announced an
+  empty selection just before selecting its first row, and the Profile panel
+  kept that message on screen while it fetched the observations.
+
 ## [0.7.0] - 2026-09-24
 
 ### Added

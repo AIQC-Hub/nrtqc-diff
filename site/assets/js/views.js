@@ -391,7 +391,8 @@ export function tableView(rows, options) {
  * @param {boolean} [options.selectable=true] whether a click selects a
  *        profile. Pass false for a list nothing downstream reads; the first
  *        row is then not selected on arrival either.
- * @returns {HTMLElement} a view whose value is the selected row, or null.
+ * @returns {HTMLElement} a view whose value is the selected row, null when
+ *          nothing is selected, or false until the first page arrives.
  */
 export function profileListView(options) {
   const {
@@ -410,7 +411,11 @@ export function profileListView(options) {
   } = options;
 
   const root = el("div", "nq-profile-list");
-  const setValue = asView(root, null);
+  // False rather than null until the first page is in: the first row is
+  // about to be selected, and a panel reading this should say it is loading
+  // rather than ask the reader to pick a profile. Not undefined, which
+  // Observable's Generators.input holds back, leaving the panels blank.
+  const setValue = asView(root, false);
 
   const state = {
     search: "",
@@ -509,7 +514,10 @@ export function profileListView(options) {
       setValue(table.value);
     });
     host.replaceChildren(table);
-    setValue(table.value);
+    // A selectable page with rows selects its first one a moment from now,
+    // and that click is announced above. Announcing the empty selection before
+    // it would tell every panel reading this that there is no profile.
+    if (!selectable || rows.length === 0) setValue(table.value);
 
     const first = state.total === 0 ? 0 : state.page * state.size + 1;
     const last = state.page * state.size + rows.length;
@@ -821,6 +829,19 @@ export function profileFacts(profile, options = {}) {
   // give the disagreements one variable at a time.
   fact("Observations", formatCount(profile.n_obs));
   fact("File", profile.filename, "", "The input file the profile was read from");
+  return root;
+}
+
+/**
+ * A spinner and a line of text, for a panel whose data is on its way.
+ *
+ * @param {string} [text] what is loading.
+ * @returns {HTMLElement}
+ */
+export function loadingNote(text = "Loading the profile") {
+  const root = el("p", "nq-loading");
+  root.setAttribute("role", "status");
+  root.append(el("span", "nq-spinner"), el("span", null, text));
   return root;
 }
 
