@@ -736,6 +736,95 @@ export function compositionBar(parts, options = {}) {
 }
 
 /**
+ * A latitude and longitude as degrees with a hemisphere.
+ *
+ * Hemisphere letters rather than signs, because a reader copying a position
+ * out of the page should not have to know which sign convention it used.
+ * Three decimals is about a hundred metres, finer than any cast is placed.
+ *
+ * @param {number|null|undefined} latitude
+ * @param {number|null|undefined} longitude
+ * @returns {string} empty when either is missing.
+ */
+export function formatPosition(latitude, longitude) {
+  if (latitude === null || latitude === undefined) return "";
+  if (longitude === null || longitude === undefined) return "";
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+  const north = `${Math.abs(lat).toFixed(3)}\u00b0 ${lat < 0 ? "S" : "N"}`;
+  const east = `${Math.abs(lon).toFixed(3)}\u00b0 ${lon < 0 ? "W" : "E"}`;
+  return `${north}, ${east}`;
+}
+
+/**
+ * What one profile is, where and when: everything about it that is not QC.
+ *
+ * One wrapping line of labelled values, heading both the Profile panel of
+ * Plots and the Profile summary panel of Tables, so a reader on either page
+ * can tell which cast they are looking at without going back to the sidebar.
+ * The input carries no platform name, only its code, and every profile here
+ * is a CTD cast, so the code and the source file are what say where it came
+ * from.
+ *
+ * A fact the data does not carry is left out rather than shown blank: the
+ * build copies the time, the position and the file name only when the input
+ * has them.
+ *
+ * @param {object} profile a row of `profiles.parquet`.
+ * @param {object} [options]
+ * @param {string} [options.product] the label of the dataset it came from.
+ * @param {number} [options.platformProfiles] how many profiles of the same
+ *                 platform this product published.
+ * @param {Array<number|null>} [options.pressure] `[shallowest, deepest]` in
+ *                 dbar.
+ * @returns {HTMLElement}
+ */
+export function profileFacts(profile, options = {}) {
+  const { product, platformProfiles, pressure } = options;
+  const root = el("dl", "nq-facts");
+
+  function fact(label, value, note, title) {
+    if (value === null || value === undefined || value === "") return;
+    const item = el("div", "nq-fact");
+    item.appendChild(el("dt", null, label));
+    const detail = el("dd", null, String(value));
+    if (note) detail.appendChild(el("span", "nq-fact-note", ` ${note}`));
+    if (title) item.title = title;
+    item.appendChild(detail);
+    root.appendChild(item);
+  }
+
+  // The id first and in bold: it is what the sidebar lists and what a reader
+  // searches for, and it already holds the profile number after the colon.
+  fact("Profile", profile.profile_id);
+  root.lastChild?.classList.add("is-key");
+  const profiles = Number(platformProfiles);
+  fact(
+    "Platform",
+    profile.platform_code,
+    Number.isFinite(profiles)
+      ? `(${formatCount(profiles)} ${profiles === 1 ? "profile" : "profiles"})`
+      : "",
+    "The platform code, and how many of its profiles this product published"
+  );
+  fact("Product", product);
+  const time = formatTime(profile.profile_timestamp);
+  fact("Time", time ? `${time} UTC` : "");
+  fact("Position", formatPosition(profile.latitude, profile.longitude));
+  const [shallowest, deepest] = pressure ?? [];
+  if (Number.isFinite(shallowest) && Number.isFinite(deepest)) {
+    fact("Pressure", `${shallowest.toFixed(1)}-${deepest.toFixed(1)} dbar`);
+  }
+  // The count alone. `n_disagree` adds the variables together, so beside it
+  // a profile could disagree on more observations than it has; the tables
+  // give the disagreements one variable at a time.
+  fact("Observations", formatCount(profile.n_obs));
+  fact("File", profile.filename, "", "The input file the profile was read from");
+  return root;
+}
+
+/**
  * The colour key shared by the plots and the summary table.
  *
  * @param {Array<object>} statuses the `statuses` array of catalog.json.
