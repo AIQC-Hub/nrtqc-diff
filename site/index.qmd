@@ -74,6 +74,16 @@ viewof profile_row = app.profileListView({
 })
 ```
 
+```{ojs}
+//| output: false
+// How many profiles the selected profile's platform has in this product, for
+// the facts heading both pages. One cell, so switching tabs does not ask
+// twice, and a count over `profiles`, which is already in memory.
+platform_profiles = profile_row
+  ? app.profileCount(selection.datasets, "", profile_row.platform_code)
+  : null
+```
+
 # Plots {orientation="rows"}
 
 ## Row
@@ -97,9 +107,23 @@ viewof profile_row = app.profileListView({
 
   const box = document.createElement("div");
   box.className = "nq-profile";
+  // What the profile is, where and when, above the plots of it. The pressure
+  // range comes from the observations this cell has fetched anyway.
+  // A loop rather than Math.min(...), which spreads every observation onto
+  // the stack.
+  let pressure = null;
+  for (const { pres } of observations) {
+    if (pres === null || pres === undefined) continue;
+    pressure = pressure
+      ? [Math.min(pressure[0], pres), Math.max(pressure[1], pres)]
+      : [pres, pres];
+  }
   box.appendChild(
-    htl.html`<p class="nq-meta"><strong>${profile_row.profile_id}</strong>
-      ${entry.label} &middot; ${profile_row.n_obs} observations</p>`
+    app.profileFacts(profile_row, {
+      product: entry.label,
+      platformProfiles: platform_profiles,
+      pressure
+    })
   );
   // The colour key rides at the top of this panel, above the markers it
   // explains and inside the same card, so it is on screen whatever the plots
@@ -203,7 +227,7 @@ viewof profile_row = app.profileListView({
 
 # Tables {orientation="rows"}
 
-## Row {height="250px"}
+## Row {height="280px"}
 
 ```{ojs}
 //| title: Profile summary
@@ -241,11 +265,15 @@ viewof profile_row = app.profileListView({
 
   const box = document.createElement("div");
   box.className = "nq-profile-summary";
+  // The same facts that head the plots, so the two pages name the profile
+  // the same way. This page draws no observations, so the pressure range is
+  // asked for on its own.
   box.appendChild(
-    htl.html`<p class="nq-meta"><strong>${profile_row.profile_id}</strong>
-      ${entry.label} &middot; ${app.formatTime(profile_row.profile_timestamp)}
-      &middot; ${app.formatCount(profile_row.n_obs)} observations,
-      ${app.formatCount(profile_row.n_disagree)} of them disagreements</p>`
+    app.profileFacts(profile_row, {
+      product: entry.label,
+      platformProfiles: platform_profiles,
+      pressure: await app.profilePressureRange(entry, profile_row.profile_id)
+    })
   );
   const row = document.createElement("div");
   row.className = "nq-summary-row";

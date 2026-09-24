@@ -102,6 +102,18 @@ plots fit the page where two stacked ones do not. Past two or three variables
 they wrap and the box scrolls. `.nq-plot` has a 320px minimum, which is what
 decides when that happens.
 
+Both pages open on the same line of **profile facts** (`profileFacts`): the
+profile id, its platform and how many profiles of that platform the product
+published, the product, the time, the position, the pressure range, the
+number of observations and the input file. Everything about the cast that is
+not QC, so a reader on either page knows which one they are looking at
+without going back to the sidebar. The input carries no platform name or
+type, only the code, and every file here is a CTD cast, so the code and the
+file name are what say where a profile came from. A fact whose column the
+build did not copy is left out rather than shown empty. The Plots panel takes
+the pressure range from the observations it has fetched; the Tables panel
+draws none, so it asks `profilePressureRange`.
+
 The **colour key** (`statusLegend`) heads that same panel, above the markers
 it explains, so no card is spent on it and nothing pushes it off the screen.
 Five categories take one row on any usual window and fall into two on a narrow

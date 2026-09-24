@@ -316,6 +316,27 @@ export async function profileItemBreakdown(entry, profileId) {
   `);
 }
 
+/**
+ * The shallowest and deepest pressure of one profile.
+ *
+ * For the line of facts heading the Tables page, which has no observations
+ * of its own to take them from. Two numbers over the same rows the
+ * contingency tables under it read.
+ *
+ * @param {object} entry the dataset entry the profile belongs to.
+ * @param {string} profileId the `profile_id` of the profile.
+ * @returns {Promise<Array<number|null>>} `[shallowest, deepest]` in dbar.
+ */
+export async function profilePressureRange(entry, profileId) {
+  const view = await registerDataset(entry);
+  const rows = await query(`
+    SELECT MIN(pres) AS shallowest, MAX(pres) AS deepest
+    FROM ${view}
+    WHERE profile_id = ${literal(profileId)}
+  `);
+  return [rows[0]?.shallowest ?? null, rows[0]?.deepest ?? null];
+}
+
 const itemColumnCache = new Map();
 
 /**
