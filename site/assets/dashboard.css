@@ -530,6 +530,42 @@
   color: inherit;
 }
 
+/* The facts heading a profile's panels: labelled values in one line that
+   wraps, the labels muted and the values in the body colour. A description
+   list, so each value is tied to its label for a screen reader, with
+   Bootstrap's bold terms and bottom margin taken back out. */
+.nq-facts {
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  gap: 0.1rem 1.1rem;
+  margin: 0.15rem 0 0.45rem;
+}
+
+.nq-fact {
+  align-items: baseline;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.nq-fact dt {
+  color: var(--nq-muted);
+  font-weight: normal;
+}
+
+.nq-fact dd {
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.nq-fact.is-key dd {
+  font-weight: 600;
+}
+
+.nq-fact-note {
+  color: var(--nq-muted);
+}
+
 /* ---------------------------------------------------------------- plots --- */
 
 /* The panel is the colour key, then the plots under it, and the plots take

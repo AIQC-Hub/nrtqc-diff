@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-09-24
+
+### Added
+
+- The **Profile** panel on Plots and the **Profile summary** panel on Tables
+  open with a line of facts about the selected profile: its platform and how
+  many profiles of it the product published, the product, the time in UTC,
+  the position, the pressure range, the number of observations and the input
+  file. The Profile summary row is 30px taller to hold it.
+
+### Fixed
+
+- The Profile summary line no longer calls the profile's summed
+  disagreements "of them": it added temperature and salinity together, so a
+  profile could show more disagreements than observations.
+
 ## [0.6.0] - 2026-09-23
 
 ### Added
