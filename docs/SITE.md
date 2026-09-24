@@ -69,7 +69,13 @@ project title, so repeating it there said nothing twice.
 2. **The profile**, from a searchable paged list (`profileListView`), three
    columns wide because the sidebar is narrow. It opens on the first page,
    worst disagreement first, with a row already selected: an empty panel
-   reads as a broken page.
+   reads as a broken page. Its value is the selected row, `null` when nothing
+   is selected, and `false` until the first page arrives. The panels show a
+   spinner (`loadingNote`) for `false` rather than asking the reader to pick
+   a profile. `false` rather than `undefined`, because Observable's
+   `Generators.input` holds back an undefined value and the panels stayed
+   blank. The Profile panel on Plots also shows the spinner while it fetches
+   the observations, when the fetch takes longer than a quarter of a second.
 
 The list is a page at a time because a product here runs to 81,541 profiles
 and 81,541 rows is not a thing a browser can hold: building them takes about

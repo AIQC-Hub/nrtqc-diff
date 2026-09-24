@@ -98,12 +98,28 @@ platform_profiles = profile_row
 // `variables` goes in because the hover box names the checks behind the
 // computed flag, and telling a check that reads this variable from one that
 // judges the whole profile takes the full list of prefixes.
+//
+// A generator, so a spinner can replace the previous output while the
+// observations are fetched. The first fetch of a product downloads its
+// observations file, and without it the panel went on asking the reader to
+// select a profile that was already selected. A fetch that is back within a
+// quarter of a second shows no spinner: the old plots stay until the new
+// ones are drawn, rather than blinking out and back.
 {
+  if (profile_row === false) {
+    yield app.loadingNote();
+    return;
+  }
   if (!profile_row) {
-    return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
+    yield htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
+    return;
   }
   const entry = datasets_by_id.get(profile_row.dataset_id);
-  const observations = await app.profileObservations(entry, profile_row.profile_id);
+  const fetching = app.profileObservations(entry, profile_row.profile_id);
+  if (!(await Promise.race([fetching, Promises.delay(250, null)]))) {
+    yield app.loadingNote();
+  }
+  const observations = await fetching;
 
   const box = document.createElement("div");
   box.className = "nq-profile";
@@ -140,7 +156,7 @@ platform_profiles = profile_row
     );
   }
   box.appendChild(plots);
-  return box;
+  yield box;
 }
 ```
 
@@ -155,6 +171,7 @@ platform_profiles = profile_row
 // names aiqclib because the page carries two sets of flags, and a panel of
 // flag values headed "QC check" could be read as either of them.
 {
+  if (profile_row === false) return app.loadingNote();
   if (!profile_row) {
     return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
   }
@@ -238,6 +255,7 @@ platform_profiles = profile_row
 // had not asked about, and pushed the numbers that do belong to their
 // profile out to the far edge.
 {
+  if (profile_row === false) return app.loadingNote();
   if (!profile_row) {
     return htl.html`<p class="nq-empty">Select a profile in the sidebar.</p>`;
   }
@@ -344,6 +362,7 @@ platform_profiles = profile_row
 // The cross-tabulation the whole project is about: how the input's flag value
 // and the value aiqclib computed line up, for this profile alone.
 {
+  if (profile_row === false) return app.loadingNote();
   const box = document.createElement("div");
   if (!profile_row) {
     box.className = "nq-empty";
