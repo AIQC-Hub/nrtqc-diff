@@ -113,7 +113,7 @@ export function dataModeOptions(catalog) {
       key: ALL_MODES,
       label: "All profiles",
       description:
-        "Both groups together, which mixes automated input flags with " +
+        "Every group together, which mixes automated input flags with " +
         "delayed mode ones.",
     },
   ];

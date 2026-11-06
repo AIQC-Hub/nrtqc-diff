@@ -54,12 +54,13 @@ published observations: it is the only figure on the row that compares fairly
 between a product of 800 observations and one of 25 million.
 
 **Every data page has a data mode choice**: "NRT only", "Contains delayed
-mode" or "All profiles", the first two read from `data_modes` in
-`catalog.json` and the third added by `dataModeOptions` in `labels.js`. "NRT
+mode", "Data mode unknown" or "All profiles", the first three read from
+`data_modes` in `catalog.json` and the last added by `dataModeOptions` in
+`labels.js`. "NRT
 only" is the default, because it is the comparison the site is named for: two
 sets of automated flags. A delayed mode input flag is likely to be an
 operator's decision, and a disagreement with one means something else, so the
-two are kept apart unless the reader asks for both. `docs/DATA_MODEL.md` has
+groups are kept apart unless the reader asks for all of them. `docs/DATA_MODEL.md` has
 the rule. The choice is one `AND data_mode = ...` clause, `modeClause` in
 `queries.js`, added to every query over `profiles`, so the three pages
 cannot filter differently. Observation files are not filtered: they are only
@@ -67,7 +68,7 @@ read for a profile already chosen.
 
 On the summary page it governs both tables, with the source totals read from
 the per-group `modes` of each catalog entry, and a third table, **NRT against
-delayed mode**, ignores it on purpose: it puts the two groups side by side per
+delayed mode**, ignores it on purpose: it puts the groups side by side per
 product, as rates of "input only" and "nrtqclib only" per 1,000 of each
 group's own observations. That is where the difference between the groups
 shows, and the reason for having them. `regionProductTotals` groups by
@@ -84,7 +85,7 @@ project title, so repeating it there said nothing twice.
 
 **The sidebar is the whole selection**, and nothing else:
 
-1. **Data mode**, a radio of three, with one line under it saying what the
+1. **Data mode**, a radio of four, with one line under it saying what the
    chosen group means. It restricts the profile list and the tree's counts.
 2. **Product**, from the tree (`treeView`). Selecting one sets
    `selection = {region, product, datasets}`. The first product selects itself
@@ -142,8 +143,9 @@ decides when that happens.
 Both pages open on the same line of **profile facts** (`profileFacts`): the
 profile id, its platform and how many profiles of that platform the product
 published, the product, the time, the position, the pressure range, the
-number of observations, the data mode group (with how many observations are
-delayed, for a delayed profile) and the input file. Everything about the cast that is
+number of observations, the data mode group and the input file. The group
+says why: how many observations are delayed or have no mode, or that the
+configuration set it for the whole product. Everything about the cast that is
 not QC, so a reader on either page knows which one they are looking at
 without going back to the sidebar. The input carries no platform name or
 type, only the code, and every file here is a CTD cast, so the code and the
@@ -420,7 +422,6 @@ The site has no test runner. After a change:
    dashboard the tree's counts change while the selected product stays
    selected, the list holds only that group, and a delayed profile draws
    diamonds and names its data mode in the facts; on the summary and
-   platforms pages "NRT only" and "Contains delayed mode" add up to "All
-   profiles".
+   platforms pages the three groups add up to "All profiles".
 3. The browser console must be clean. DuckDB's own logger is chatty at info
    level; anything at error level is a real problem.

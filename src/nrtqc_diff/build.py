@@ -26,6 +26,7 @@ from nrtqc_diff.data_mode import (
     DATA_MODES,
     DELAYED_COLUMN,
     is_delayed,
+    is_unknown,
     profile_data_mode,
 )
 from nrtqc_diff.flags import (
@@ -88,7 +89,7 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
         scan = _scan_dataset(spec, config)
         _check_input_order(spec, scan)
 
-        summary = _profile_summary(scan, config)
+        summary = _profile_summary(scan, spec, config)
         kept = summary.filter(pl.col(KEEP_COLUMN))
 
         profiles = _profile_frame(kept, spec, config)
@@ -108,18 +109,25 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
                 "n_profiles_total": summary.height,
                 "n_observations": int(kept["n_obs"].sum()),
                 "n_observations_total": int(summary["n_obs"].sum()),
+                "data_mode": spec.data_mode,
                 "modes": _mode_counts(summary, kept),
             }
         )
         if verbose:
             entry = entries[-1]
-            delayed = entry["modes"]["delayed"]
+            groups = ", ".join(
+                f"{mode['key']} {entry['modes'][mode['key']]['n_profiles']}"
+                for mode in DATA_MODES
+            )
+            filed = (
+                f", all filed as {spec.data_mode} by configuration"
+                if spec.data_mode
+                else ""
+            )
             print(
                 f"[nrtqc-diff] {spec.id}: kept {entry['n_profiles']} of "
                 f"{entry['n_profiles_total']} profiles, "
-                f"{entry['n_observations']} observations; "
-                f"{delayed['n_profiles']} of the kept profiles contain "
-                "delayed mode data"
+                f"{entry['n_observations']} observations ({groups}{filed})"
             )
 
     profile_path = os.path.join(config.data_dir, "profiles.parquet")
@@ -215,18 +223,21 @@ def _check_input_order(spec: DatasetSpec, scan: pl.LazyFrame) -> None:
         )
 
 
-def _profile_summary(scan: pl.LazyFrame, config: BuildConfig) -> pl.DataFrame:
+def _profile_summary(
+    scan: pl.LazyFrame, spec: DatasetSpec, config: BuildConfig
+) -> pl.DataFrame:
     """
     One row per profile of the whole input, kept or not.
 
     This is the pass that reads every observation. It answers four questions
     at once: how many profiles and observations the input holds, which
     profiles the trimming rule keeps, what the summary table's counts are, and
-    which profiles contain delayed mode data.
+    which data mode group each profile belongs to.
     The result is one row per profile, so collecting it is safe however large
     the input was.
 
     :param scan: The scan produced by :func:`_scan_dataset`.
+    :param spec: The dataset being built, for its data mode override.
     :param config: The build configuration.
     :return: The grouped frame, with a :data:`KEEP_COLUMN` flag and the
              profile's ``data_mode``.
@@ -252,6 +263,9 @@ def _profile_summary(scan: pl.LazyFrame, config: BuildConfig) -> pl.DataFrame:
         is_delayed(config.data_mode).sum().cast(pl.Int32).alias("n_obs_delayed")
     )
     aggregations.append(
+        is_unknown(config.data_mode).sum().cast(pl.Int32).alias("n_obs_unknown")
+    )
+    aggregations.append(
         pl.any_horizontal([is_anomaly(v) for v in config.variables])
         .any()
         .alias(KEEP_COLUMN)
@@ -261,7 +275,11 @@ def _profile_summary(scan: pl.LazyFrame, config: BuildConfig) -> pl.DataFrame:
         scan.group_by(PROFILE_KEYS)
         .agg(aggregations)
         .collect(engine="streaming")
-        .with_columns(profile_data_mode(pl.col("n_obs_delayed")).alias("data_mode"))
+        .with_columns(
+            profile_data_mode(
+                pl.col("n_obs_delayed"), pl.col("n_obs_unknown"), spec.data_mode
+            ).alias("data_mode")
+        )
     )
 
 
@@ -392,7 +410,9 @@ def _profile_frame(
     ``{variable}_n_disagree``, and the frame as a whole carries ``n_disagree``
     summed across variables, which is the table's default sort. ``data_mode``
     says which group of ``DATA_MODES`` the profile is published under, and
-    ``n_obs_delayed`` how many of its observations made it so.
+    ``n_obs_delayed`` and ``n_obs_unknown`` how many of its observations are
+    delayed and have no data mode. The two counts are what the data mode
+    columns say even for a dataset filed whole under one group.
 
     :param kept: The rows of :func:`_profile_summary` the trimming rule keeps.
     :param spec: The dataset being built.
@@ -427,7 +447,7 @@ def _profile_frame(
             ["dataset_id", "region", "product", "profile_id"]
             + PROFILE_KEYS
             + present
-            + ["data_mode", "n_obs", "n_obs_delayed", "n_disagree"]
+            + ["data_mode", "n_obs", "n_obs_delayed", "n_obs_unknown", "n_disagree"]
             + [
                 column
                 for variable in config.variables

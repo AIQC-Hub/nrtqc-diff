@@ -21,8 +21,10 @@ product is worth opening.
 The data mode decides which profiles are counted. "NRT only" compares two
 sets of automated flags. "Contains delayed mode" compares nrtqclib with input
 flags that are likely to be an operator's decisions, which is a different
-question, so the two are kept apart unless you ask for both. The last section
-puts them side by side.
+question, and CORA is filed there whole, since its flags come from its own
+delayed mode QC. "Data mode unknown" holds the profiles whose files do not
+say. The groups are kept apart unless you ask for all of them, and the last
+section puts them side by side.
 
 ```{ojs}
 //| output: false
@@ -279,7 +281,7 @@ app.statusLegend(statuses)
 
 ## NRT against delayed mode
 
-The same products with the two data mode groups side by side, for the
+The same products with the data mode groups side by side, for the
 variable chosen above, each as a rate per 1,000 of its own published
 observations. Where a product has delayed mode profiles, this is where the
 difference shows: the automated tests and an operator tend to disagree in

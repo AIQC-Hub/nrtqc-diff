@@ -70,7 +70,7 @@ above 1 is an anomaly, so it needs no list.
 derives both the published `{variable}_status` column and the per-profile
 counts from it.
 
-## The two data mode groups
+## The data mode groups
 
 The input carries a data mode per observation and parameter, as ctddump
 writes it from the NetCDF files and `nrtqclib` passes it through: `temp_dm`,
@@ -79,21 +79,41 @@ writes it from the NetCDF files and `nrtqclib` passes it through: `temp_dm`,
 operator's decision rather than the automated tests', so comparing it with
 the flags `nrtqclib` computes asks a different question: not whether two
 automated systems agree, but whether the automated tests anticipate what an
-expert decided. The site keeps the two apart.
+expert decided. The site keeps them apart.
+
+ctddump reads the values and flags from the plain variables (`TEMP`,
+`TEMP_QC`), never from `*_ADJUSTED`. It writes an empty data mode whenever
+the file gives no usable one: a fill cell of a `<PARAM>_DM` variable, a
+parameter marked `M` (mixed) with no per-level variable, a parameter with no
+mode at all, a CORA file without `DATA_MODE`. An empty mode can therefore
+hide delayed mode data, and it does not mean the measurement is missing.
 
 Every published profile belongs to exactly one group, computed at build time
 in `src/nrtqc_diff/data_mode.py` and stored as `data_mode`:
 
 | Key | Label | Rule |
 | --- | --- | --- |
-| `nrt` | NRT only | No observation is delayed in any configured data mode column |
-| `delayed` | Contains delayed mode | At least one observation is |
+| `nrt` | NRT only | Every observation is `R` or `A` in every configured data mode column |
+| `delayed` | Contains delayed mode | At least one observation is delayed in at least one column |
+| `unknown` | Data mode unknown | None is delayed, but at least one is empty in at least one column |
+
+The order of the table is the order of the test: a delayed value decides
+the profile even when another cell of it is empty. "NRT only" takes positive
+evidence, which is why an empty mode is a group of its own rather than a
+quiet NRT.
 
 The columns and the values that mean delayed are the `data_mode` section of
 the configuration, `[temp_dm, psal_dm, pres_dm]` and `[D]` in both shipped
 configs. Pressure counts: a profile whose pressure alone was revised in
 delayed mode was still touched by an operator. `A` is an automatic adjustment
-and counts as NRT, and an empty cell says nothing either way.
+and counts as NRT.
+
+**A dataset can be filed whole** under one group by setting `data_mode` on
+its configuration entry, whatever its columns say. The three CORA datasets
+are filed as `delayed`: CORA's `DATA_MODE` is the mode of the original
+observation, not of the reprocessing QC that set CORA's flags, so a CORA
+profile marked `R` throughout still carries delayed mode flags.
+`n_obs_delayed` and `n_obs_unknown` keep what the columns say even then.
 
 The split is by profile, like the trimming, because a profile is what a
 reader opens. On the real batch that loses very little. Delayed mode data is
@@ -101,8 +121,8 @@ in the two Arctic NRT products and one Mediterranean profile, and a profile
 mixing delayed with real time observations is rare (about 1,450 of 295,000
 in the largest product), nearly always one whose deepest pressures were
 revised. `n_obs_delayed` keeps the number of delayed observations per
-profile, so a three way split (all delayed, mixed, NRT) needs no rebuild of
-the counts if it is ever wanted.
+profile, so splitting "all delayed" from "mixed" needs no rebuild of the
+counts if it is ever wanted.
 
 The trimming rule does not look at the data mode: a profile is published or
 not on its flags alone, and then filed under its group.
@@ -133,7 +153,8 @@ not on its flags alone, and then filed under its group.
   },
   "data_modes": [
     { "key": "nrt", "label": "NRT only", "description": "..." },
-    { "key": "delayed", "label": "Contains delayed mode", "description": "..." }
+    { "key": "delayed", "label": "Contains delayed mode", "description": "..." },
+    { "key": "unknown", "label": "Data mode unknown", "description": "..." }
   ],
   "regions": [
     {
@@ -149,11 +170,14 @@ not on its flags alone, and then filed under its group.
               "observations_file": "obs/bal_cora_nrt.parquet",
               "n_profiles": 26, "n_profiles_total": 40,
               "n_observations": 1002, "n_observations_total": 1556,
+              "data_mode": null,
               "modes": {
                 "nrt": { "n_profiles": 21, "n_profiles_total": 32,
                          "n_observations": 810, "n_observations_total": 1243 },
                 "delayed": { "n_profiles": 5, "n_profiles_total": 8,
-                             "n_observations": 192, "n_observations_total": 313 }
+                             "n_observations": 192, "n_observations_total": 313 },
+                "unknown": { "n_profiles": 0, "n_profiles_total": 0,
+                             "n_observations": 0, "n_observations_total": 0 }
               }
             }
           ]
@@ -180,7 +204,8 @@ colour key lives here too: the legend, the tables and the plots all read
 `modes` repeats the four totals of a dataset per data mode group, so a page
 filtered to one group can still say how much of that group the trimming left
 out; the trimmed profiles are in no parquet. The groups add up to the
-dataset's own totals. `data_modes` lists the groups in the order the site
+dataset's own totals. `data_mode` on an entry is the group its configuration
+filed it under whole, or `null` when its profiles were classified one by one. `data_modes` lists the groups in the order the site
 offers them, with the words it uses, read from `DATA_MODES` in
 `data_mode.py`, and `data_mode` records what decided them.
 
@@ -199,9 +224,10 @@ One row per published profile, across every dataset.
 | `profile_id` | str | `platform_code:profile_no`, the site's selection key |
 | `platform_code`, `profile_no` | str, i32 | The original key |
 | `profile_timestamp`, `longitude`, `latitude`, `filename` | varies | Copied when the input carries them |
-| `data_mode` | str | `nrt` or `delayed`; see "The two data mode groups" |
+| `data_mode` | str | `nrt`, `delayed` or `unknown`; see "The data mode groups" |
 | `n_obs` | i64 | Observations in the profile |
 | `n_obs_delayed` | i32 | Observations delayed in at least one data mode column |
+| `n_obs_unknown` | i32 | Observations empty in at least one data mode column |
 | `n_disagree` | i32 | Disagreements summed over variables; the default sort |
 | `{variable}_n_disagree` | i32 | `original_only` plus `nrtqclib_only` |
 | `{variable}_n_{category}` | i32 | One column per agreement category |

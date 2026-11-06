@@ -845,10 +845,19 @@ export function formatPosition(latitude, longitude) {
  *                 dbar.
  * @param {Array<object>} [options.dataModes] the `data_modes` array of
  *                 catalog.json, which names the profile's group in words.
+ * @param {string|null} [options.datasetMode] the `data_mode` of the
+ *                 profile's catalog entry: set when the configuration filed
+ *                 the whole dataset under one group.
  * @returns {HTMLElement}
  */
 export function profileFacts(profile, options = {}) {
-  const { product, platformProfiles, pressure, dataModes = [] } = options;
+  const {
+    product,
+    platformProfiles,
+    pressure,
+    dataModes = [],
+    datasetMode = null,
+  } = options;
   const root = el("dl", "nq-facts");
 
   function fact(label, value, note, title) {
@@ -887,20 +896,25 @@ export function profileFacts(profile, options = {}) {
   // a profile could disagree on more observations than it has; the tables
   // give the disagreements one variable at a time.
   fact("Observations", formatCount(profile.n_obs));
-  // Which group the profile is published under, and for a delayed one how
-  // much of it is delayed: a profile with one revised pressure reads very
-  // differently from one revised throughout.
+  // Which group the profile is published under, and why: for a delayed one
+  // how much of it is delayed, since a profile with one revised pressure
+  // reads very differently from one revised throughout; for an unknown one
+  // how much has no mode; and for a dataset filed whole by its
+  // configuration, that, since its own columns may say otherwise.
   if (profile.data_mode) {
     const group = dataModes.find((mode) => mode.key === profile.data_mode);
+    const total = formatCount(profile.n_obs);
     const delayed = Number(profile.n_obs_delayed ?? 0);
-    fact(
-      "Data mode",
-      group?.label ?? profile.data_mode,
-      delayed > 0
-        ? `(${formatCount(delayed)} of ${formatCount(profile.n_obs)} observations delayed)`
-        : "",
-      group?.description
-    );
+    const unknown = Number(profile.n_obs_unknown ?? 0);
+    let note = "";
+    if (datasetMode) {
+      note = "(set for the whole product)";
+    } else if (profile.data_mode === "delayed" && delayed > 0) {
+      note = `(${formatCount(delayed)} of ${total} observations delayed)`;
+    } else if (profile.data_mode === "unknown" && unknown > 0) {
+      note = `(${formatCount(unknown)} of ${total} observations with no data mode)`;
+    }
+    fact("Data mode", group?.label ?? profile.data_mode, note, group?.description);
   }
   fact("File", profile.filename, "", "The input file the profile was read from");
   return root;

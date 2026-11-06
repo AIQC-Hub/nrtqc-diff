@@ -80,6 +80,7 @@ datasets:
     label: Baltic CORA NRT 2021    # shown for the dataset itself
     description: One sentence.     # optional
     path: ../data/nrt_qc/bal.parquet
+    data_mode: delayed             # optional: file every profile under one group
 ```
 
 Notes worth knowing:
@@ -101,12 +102,17 @@ Notes worth knowing:
   entry and the summary table covers all of them, with `dataset_id` telling
   them apart.
 - **`data_mode` is required.** A profile with a delayed value in any of its
-  columns is published as `delayed`, the rest as `nrt`; see "The two data
-  mode groups" in `docs/DATA_MODEL.md`. It has no default, because a build
+  columns is published as `delayed`, one with an empty value and no delayed
+  one as `unknown`, the rest as `nrt`; see "The data mode groups" in
+  `docs/DATA_MODEL.md`. It has no default, because a build
   that called every profile NRT by omission would mix operator flags into
   the automated comparison, which is the thing the split prevents. List
   `pres_dm` along with the variables' own columns: a revised pressure means
   an operator was there.
+- **A dataset's `data_mode`** files all of its profiles under one group,
+  whatever the columns say: `nrt`, `delayed` or `unknown`. Set it to
+  `delayed` for a product whose flags come from its own delayed mode QC, as
+  `config/test_nrt.yaml` does for CORA.
 - **Every configured column must exist** in every dataset. A missing column is
   an error naming all of the missing ones at once, not a silent skip: a
   mistyped variable name usually breaks three columns together, and finding
@@ -127,10 +133,16 @@ its habits reach this build unchanged, since `nrtqclib` passes every input
 column through:
 
 - **The data mode columns** (`temp_dm`, `psal_dm`, `pres_dm`) are ctddump's:
-  `R`, `A` or `D` per observation, `""` for a fill cell. In a CORA file they
-  repeat the profile's `DATA_MODE` on every observation; in an NRT file with
-  a `<PARAM>_DM` variable they are per observation, and otherwise they repeat
-  the parameter's `data_mode` attribute.
+  `R`, `A` or `D` per observation, `""` whenever the file gives no usable
+  mode. In a CORA file they repeat the profile's `DATA_MODE` on every
+  observation; in an NRT file with a `<PARAM>_DM` variable they are per
+  observation, and otherwise they repeat the parameter's `data_mode`
+  attribute when it is `R`, `A` or `D`. A parameter marked `M` with no
+  `<PARAM>_DM` variable is left empty, and ctddump warns about it in its batch
+  log and counts it as `{param}_dm_unknown` in its report: check those after
+  converting. Versions before that change wrote `R` there instead.
+- **Values and flags are never the adjusted ones**: ctddump reads `TEMP` and
+  `TEMP_QC`, not `TEMP_ADJUSTED`.
 - **The input flags are strings**: `"1"`, `"4"`, and `""` where one is
   missing. The build casts them to whole numbers, and one that will not cast
   is reported as `no_input_flag`, as any unreadable flag is.
@@ -168,7 +180,7 @@ the fastest way to see the site working before wiring up your own files.
 | A new per-profile statistic | `build.py`: `_profile_frame` and its column list |
 | A new published column | `build.py`: `_observation_frame` |
 | A new catalog field | `build.py`: `_catalog` |
-| A new data mode group | `data_mode.py`: add to `DATA_MODES` and to `profile_data_mode` |
+| A new data mode group | `data_mode.py`: add to `DATA_MODES` and to `profile_data_mode`; `config.py`: add to `DATA_MODE_KEYS` |
 
 Adding to `STATUSES` is enough to make a category appear in the legend, the
 plots and both summary tables: they all read the list from `catalog.json`

@@ -45,14 +45,16 @@ region to product to profile, and two tabs show what is selected:
 The sidebar is shared, so switching tabs keeps the profile you were looking
 at, and either tab can be read against the other.
 
-**Data mode** splits the profiles in two on every page. "NRT only" profiles
-have every observation in real time or adjusted in real time, so both sets of
-flags come from automated tests. "Contains delayed mode" profiles have at
-least one delayed mode observation, whose input flag is likely to be an
-operator's decision: comparing those with `nrtqclib` asks whether the
-automated tests anticipate what an expert decided, which is a different
-question. NRT only is the default, and the summary page puts the two groups
-side by side.
+**Data mode** splits the profiles into groups on every page. "NRT only"
+profiles have every observation in real time or adjusted in real time, so
+both sets of flags come from automated tests. "Contains delayed mode"
+profiles have at least one delayed mode observation, whose input flag is
+likely to be an operator's decision, and CORA is filed there whole, since its
+flags come from its own delayed mode QC: comparing those with `nrtqclib` asks
+whether the automated tests anticipate what an expert decided, which is a
+different question. "Data mode unknown" holds the profiles whose files do not
+say. NRT only is the default, and the summary page puts the groups side by
+side.
 
 The profile plots put the measurement on the x axis and pressure on the y
 axis, increasing downwards, with every point coloured by which source flagged

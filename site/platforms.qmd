@@ -18,8 +18,9 @@ profiles within them.
 
 "NRT only" compares two sets of automated flags. "Contains delayed mode"
 compares nrtqclib with input flags that are likely to be an operator's
-decisions, so a disagreement there means something different; the two are
-kept apart unless you ask for both.
+decisions, so a disagreement there means something different. "Data mode
+unknown" holds the profiles whose files do not say. The groups are kept apart
+unless you ask for all of them.
 
 ```{ojs}
 //| output: false

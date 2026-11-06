@@ -42,7 +42,8 @@ DATA_MODE_CASES: Dict[str, Dict[int, tuple]] = {
     "CLEAN": {1: ("D", "D"), 2: ("D", "D"), 3: ("D", "D")},
     # Delayed mode throughout.
     "INPUT": {1: ("D", "D"), 2: ("D", "D"), 3: ("D", "D")},
-    # An empty data mode says nothing, so this profile stays NRT.
+    # An empty data mode says nothing, so this profile cannot be called NRT
+    # and is filed as unknown.
     "MISSING": {1: ("", "R"), 2: (None, "R")},
 }
 

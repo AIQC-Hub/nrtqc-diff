@@ -11,7 +11,7 @@ data and keep working.
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -43,6 +43,13 @@ DATASET_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 #: time) and ``A`` (adjusted in real time) are automatic and count as NRT, and
 #: an empty cell says nothing either way.
 DEFAULT_DELAYED_VALUES: List[str] = ["D"]
+
+#: The data mode groups a profile can be published under. They are the keys of
+#: ``DATA_MODES`` in :mod:`nrtqc_diff.data_mode`, repeated here so a dataset's
+#: ``data_mode`` override can be checked when the configuration is read; that
+#: module imports this one, not the other way round, and a test pins the two
+#: lists together.
+DATA_MODE_KEYS: List[str] = ["nrt", "delayed", "unknown"]
 
 #: Columns every dataset must carry, whatever else it holds.
 REQUIRED_COLUMNS: List[str] = [
@@ -122,6 +129,13 @@ class DatasetSpec:
     :ivar label: The name shown for the dataset itself.
     :ivar path: The ``nrtqclib`` NRT QC output parquet.
     :ivar description: One sentence shown beside the dataset in the site.
+    :ivar data_mode: A data mode group to file every profile of the dataset
+                     under, whatever its data mode columns say, or None to
+                     classify each profile by those columns. For a product
+                     whose input flags come from its own delayed mode QC:
+                     CORA's ``DATA_MODE`` describes the original observation,
+                     not the reprocessing that set CORA's flags, so a CORA
+                     profile marked ``R`` still carries delayed mode flags.
     """
 
     id: str
@@ -130,6 +144,7 @@ class DatasetSpec:
     label: str
     path: str
     description: str = ""
+    data_mode: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -240,6 +255,7 @@ def read_config(file_name: str) -> BuildConfig:
                 _require(entry, "path", f"Dataset '{entry.get('id')}'"), base_dir
             ),
             description=entry.get("description", ""),
+            data_mode=entry.get("data_mode"),
         )
         for entry in raw.get("datasets", [])
     ]
@@ -255,6 +271,17 @@ def read_config(file_name: str) -> BuildConfig:
         raise ValueError(
             "Dataset ids may hold lower case letters, digits and underscores "
             f"only; rejected: {', '.join(bad_ids)}."
+        )
+
+    bad_modes = [
+        f"{d.id} ({d.data_mode})"
+        for d in datasets
+        if d.data_mode is not None and d.data_mode not in DATA_MODE_KEYS
+    ]
+    if bad_modes:
+        raise ValueError(
+            f"A dataset's data_mode must be one of {', '.join(DATA_MODE_KEYS)}; "
+            f"rejected: {', '.join(bad_modes)}."
         )
 
     row_group_size = int(site.get("row_group_size", DEFAULT_ROW_GROUP_SIZE))

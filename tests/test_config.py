@@ -186,3 +186,27 @@ def test_data_mode_needs_a_column(tmp_path):
     path = write_config(tmp_path, data_mode={"columns": []})
     with pytest.raises(ValueError, match="data_mode.columns"):
         read_config(str(path))
+
+
+def test_a_dataset_can_be_filed_under_one_data_mode(tmp_path):
+    entry = {
+        "id": "cora",
+        "region": "R",
+        "product": "P",
+        "path": "a.parquet",
+        "data_mode": "delayed",
+    }
+    config = read_config(str(write_config(tmp_path, datasets=[entry])))
+    assert config.datasets[0].data_mode == "delayed"
+
+
+def test_a_dataset_data_mode_must_be_a_group(tmp_path):
+    entry = {
+        "id": "cora",
+        "region": "R",
+        "product": "P",
+        "path": "a.parquet",
+        "data_mode": "D",
+    }
+    with pytest.raises(ValueError, match="cora"):
+        read_config(str(write_config(tmp_path, datasets=[entry])))

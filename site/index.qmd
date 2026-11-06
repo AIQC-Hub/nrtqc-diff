@@ -177,7 +177,8 @@ platform_profiles = profile_row
       product: entry.label,
       platformProfiles: platform_profiles,
       pressure,
-      dataModes: catalog.data_modes
+      dataModes: catalog.data_modes,
+      datasetMode: entry.data_mode
     })
   );
   // The colour key rides at the top of this panel, above the markers it
@@ -340,7 +341,8 @@ platform_profiles = profile_row
       product: entry.label,
       platformProfiles: platform_profiles,
       pressure: await app.profilePressureRange(entry, profile_row.profile_id),
-      dataModes: catalog.data_modes
+      dataModes: catalog.data_modes,
+      datasetMode: entry.data_mode
     })
   );
   const row = document.createElement("div");
