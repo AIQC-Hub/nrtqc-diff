@@ -15,8 +15,8 @@ never appends and never reads what a previous run wrote, so deleting
 `site/data/` and rebuilding is always safe and always enough.
 
 `config/test_nrt.yaml` is the same thing against the real `nrtqclib` batch
-under `data/`: 8 datasets, 330 million observations, about two minutes and
-430 MB of output. Those inputs are 2.2 GB and are not in git, and
+under `data/`: 8 datasets, 330 million observations, about three minutes and
+426 MB of output. Those inputs are 2.2 GB and are not in git, and
 they are not published either: they stay where the `nrtqclib` run left them.
 What is published is what this build writes. `scripts/data_release.py` uploads
 `site/data/` to a release and the deploy renders that, so the trimming runs
@@ -45,7 +45,7 @@ Two rules keep this bounded, and both are easy to undo by accident:
   pass costs 11 GB on the largest dataset here, against 2.4 GB for the whole
   build. `docs/DATA_MODEL.md` explains what the order buys the site.
 - **No `is_in` inside an aggregation.** `flags.py` tests flag values with a
-  chain of equalities, through `_is_one_of`, because `is_in` in a group-by
+  chain of equalities, through `is_one_of`, because `is_in` in a group-by
   makes the streaming engine materialise the whole input: 14 GB against
   0.9 GB, for the same answer. The comment there says so; keep it.
 
@@ -68,6 +68,10 @@ variables:
     nrt_flag: temp_nrt_flag        # the flag nrtqclib computed
     bad_flag_values: [3, 4, 6, 7]  # input values counted as an anomaly
     missing_flag_values: [0, 9]    # input values that say nothing at all
+
+data_mode:                         # required
+  columns: [temp_dm, psal_dm, pres_dm]  # observation-level data mode
+  delayed_values: [D]              # values meaning delayed mode, optional
 
 datasets:
   - id: bal_cora_nrt               # lower case, digits, underscores only
@@ -96,6 +100,13 @@ Notes worth knowing:
 - **Several datasets may share a region and product.** The tree shows one
   entry and the summary table covers all of them, with `dataset_id` telling
   them apart.
+- **`data_mode` is required.** A profile with a delayed value in any of its
+  columns is published as `delayed`, the rest as `nrt`; see "The two data
+  mode groups" in `docs/DATA_MODEL.md`. It has no default, because a build
+  that called every profile NRT by omission would mix operator flags into
+  the automated comparison, which is the thing the split prevents. List
+  `pres_dm` along with the variables' own columns: a revised pressure means
+  an operator was there.
 - **Every configured column must exist** in every dataset. A missing column is
   an error naming all of the missing ones at once, not a silent skip: a
   mistyped variable name usually breaks three columns together, and finding
@@ -106,10 +117,23 @@ Notes worth knowing:
 The input is whatever `nrtqclib`'s NRT QC `concat` step wrote, which is the
 `nrt_qc/nrt_qc_output.parquet` of a run, not the `qc/nrt_qc_flags.parquet`
 beside it: the latter is the same rows before the roll-up flag columns were
-added. Beyond the configured variables and their two flag columns, the build
-needs `platform_code`, `profile_no`, `observation_no` and `pres`. It copies
-`profile_timestamp`, `longitude`, `latitude` and `filename` when they are
-there and works without them.
+added. Beyond the configured variables, their two flag columns and the
+configured data mode columns, the build needs `platform_code`, `profile_no`,
+`observation_no` and `pres`. It copies `profile_timestamp`, `longitude`,
+`latitude` and `filename` when they are there and works without them.
+
+The input to `nrtqclib` is what ctddump made of the NetCDF files, and two of
+its habits reach this build unchanged, since `nrtqclib` passes every input
+column through:
+
+- **The data mode columns** (`temp_dm`, `psal_dm`, `pres_dm`) are ctddump's:
+  `R`, `A` or `D` per observation, `""` for a fill cell. In a CORA file they
+  repeat the profile's `DATA_MODE` on every observation; in an NRT file with
+  a `<PARAM>_DM` variable they are per observation, and otherwise they repeat
+  the parameter's `data_mode` attribute.
+- **The input flags are strings**: `"1"`, `"4"`, and `""` where one is
+  missing. The build casts them to whole numbers, and one that will not cast
+  is reported as `no_input_flag`, as any unreadable flag is.
 
 The input must be **ordered by `platform_code`**, which an `nrtqclib` run
 already is. The build checks this and stops with a message naming the dataset
@@ -126,8 +150,10 @@ uv run python scripts/make_demo_data.py
 ```
 
 writes three synthetic datasets under `demo-data/`, in exactly the schema an
-`nrtqclib` run produces, seeded so that every agreement category and both
-region and product levels have something to show. It writes the item set of
+`nrtqclib` run produces, seeded so that every agreement category, both data
+mode groups and both region and product levels have something to show. The
+data mode and the input flags are strings, as ctddump writes them, and a few
+delayed profiles are mixed, with only their deepest pressures revised. It writes the item set of
 the `test_nrt` batch plus `qc_position_on_land`, and every one of those checks
 fires in at least one profile, so the QC check panel and the item discovery
 behind it are exercised by the demo rather than only by real data. No real
@@ -142,6 +168,7 @@ the fastest way to see the site working before wiring up your own files.
 | A new per-profile statistic | `build.py`: `_profile_frame` and its column list |
 | A new published column | `build.py`: `_observation_frame` |
 | A new catalog field | `build.py`: `_catalog` |
+| A new data mode group | `data_mode.py`: add to `DATA_MODES` and to `profile_data_mode` |
 
 Adding to `STATUSES` is enough to make a category appear in the legend, the
 plots and both summary tables: they all read the list from `catalog.json`

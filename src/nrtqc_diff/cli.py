@@ -8,6 +8,7 @@ this writes.
 
 import argparse
 import sys
+from dataclasses import replace
 from typing import List, Optional
 
 from nrtqc_diff.build import build_site_data
@@ -62,12 +63,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         config = read_config(args.config)
         if args.data_dir:
-            config = type(config)(
-                title=config.title,
-                data_dir=args.data_dir,
-                variables=config.variables,
-                datasets=config.datasets,
-            )
+            # Every other setting is kept, row_group_size included, which a
+            # field by field copy here once dropped.
+            config = replace(config, data_dir=args.data_dir)
         build_site_data(config, verbose=not args.quiet)
     except (FileNotFoundError, ValueError) as error:
         print(f"nrtqc-diff: {error}", file=sys.stderr)

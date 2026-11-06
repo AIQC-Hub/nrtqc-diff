@@ -2,9 +2,11 @@
 
 import polars as pl
 import pytest
+from conftest import DELAYED_PUBLISHED
 
 from nrtqc_diff.build import build_site_data
-from nrtqc_diff.config import BuildConfig, DatasetSpec, VariableSpec
+from nrtqc_diff.config import BuildConfig, DataModeSpec, DatasetSpec, VariableSpec
+from nrtqc_diff.data_mode import DELAYED, NRT
 from nrtqc_diff.flags import (
     AGREE_BAD,
     AGREE_GOOD,
@@ -12,6 +14,9 @@ from nrtqc_diff.flags import (
     NRTQCLIB_ONLY,
     ORIGINAL_ONLY,
 )
+
+#: The data mode columns of the ``conftest`` frame.
+DATA_MODE = DataModeSpec(columns=["temp_dm", "pres_dm"])
 
 
 def _single_dataset_config(tmp_path, frame, **overrides) -> BuildConfig:
@@ -36,6 +41,7 @@ def _single_dataset_config(tmp_path, frame, **overrides) -> BuildConfig:
                 bad_flag_values=[3, 4],
             )
         ],
+        "data_mode": DATA_MODE,
         "datasets": [DatasetSpec("one", "R", "P", "One", str(path))],
     }
     settings.update(overrides)
@@ -208,6 +214,7 @@ class TestInputValidation:
             title="T",
             data_dir=str(tmp_path / "out"),
             variables=[VariableSpec("temp", "Temperature", "temp_qc", "temp_nrt_flag")],
+            data_mode=DATA_MODE,
             datasets=[
                 DatasetSpec("one", "R", "P", "One", str(tmp_path / "absent.parquet"))
             ],
@@ -230,9 +237,68 @@ class TestInputValidation:
             title="T",
             data_dir=str(tmp_path / "out"),
             variables=[VariableSpec("temp", "Temperature", "temp_qc", "temp_nrt_flag")],
+            data_mode=DATA_MODE,
             datasets=[DatasetSpec("one", "R", "P", "One", str(path))],
         )
         with pytest.raises(ValueError) as error:
             build_site_data(config)
         message = str(error.value)
         assert "temp_qc" in message and "temp_nrt_flag" in message and "temp" in message
+        assert "temp_dm" in message and "pres_dm" in message
+
+
+class TestDataMode:
+    """Profiles touched in delayed mode are published apart from NRT ones."""
+
+    def test_profiles_are_split_by_data_mode(self, built):
+        _, profiles, _ = built
+        modes = dict(
+            zip(profiles["profile_id"].to_list(), profiles["data_mode"].to_list())
+        )
+        assert sorted(key for key, mode in modes.items() if mode == DELAYED) == (
+            DELAYED_PUBLISHED
+        )
+        assert set(modes.values()) == {NRT, DELAYED}
+
+    def test_one_delayed_pressure_makes_the_profile_delayed(self, built):
+        """Pressure counts: a revised pressure means an operator was there."""
+        _, profiles, _ = built
+        row = profiles.filter(pl.col("platform_code") == "CALC")
+        assert row["data_mode"].item() == DELAYED
+        assert row["n_obs_delayed"].item() == 1
+
+    def test_an_empty_data_mode_is_not_delayed(self, built):
+        _, profiles, _ = built
+        row = profiles.filter(pl.col("platform_code") == "MISSING")
+        assert row["data_mode"].item() == NRT
+        assert row["n_obs_delayed"].item() == 0
+
+    def test_observations_carry_their_data_mode(self, built):
+        _, _, observations = built
+        calc = observations.filter(pl.col("platform_code") == "CALC").sort(
+            "observation_no"
+        )
+        assert calc["pres_dm"].to_list() == ["R", "R", "D"]
+        assert calc["delayed"].to_list() == [False, False, True]
+
+    def test_catalog_counts_each_group(self, built):
+        """CLEAN is delayed and dropped, so it shows only in the source total."""
+        catalog, _, _ = built
+        entry = catalog["regions"][0]["products"][0]["datasets"][0]
+        modes = entry["modes"]
+        assert modes[DELAYED] == {
+            "n_profiles": 2,
+            "n_profiles_total": 3,
+            "n_observations": 6,
+            "n_observations_total": 9,
+        }
+        assert modes[NRT]["n_profiles"] == 3
+        assert modes[NRT]["n_profiles_total"] == 4
+        for field in ("n_profiles", "n_profiles_total"):
+            assert modes[NRT][field] + modes[DELAYED][field] == entry[field]
+
+    def test_catalog_describes_the_split(self, built):
+        catalog, _, _ = built
+        assert [mode["key"] for mode in catalog["data_modes"]] == [NRT, DELAYED]
+        assert catalog["data_mode"]["columns"] == ["temp_dm", "pres_dm"]
+        assert catalog["data_mode"]["delayed_values"] == ["D"]

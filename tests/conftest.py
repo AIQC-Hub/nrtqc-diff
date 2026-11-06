@@ -30,6 +30,25 @@ PROFILE_CASES: Dict[str, List[tuple]] = {
     "NOQC": [(1, 0, 1), (2, 0, 1), (3, 1, 1)],
 }
 
+#: The data mode of each profile that is not plain real time, as
+#: ``{platform: {observation_no: (temp_dm, pres_dm)}}``. Everything not
+#: listed is ``("R", "R")``.
+DATA_MODE_CASES: Dict[str, Dict[int, tuple]] = {
+    # Mixed: only the pressure of the deepest observation was revised in
+    # delayed mode, which is still enough to make the profile delayed.
+    "CALC": {3: ("R", "D")},
+    # Delayed, but nothing is flagged, so it counts towards the source total
+    # of the delayed group without being published.
+    "CLEAN": {1: ("D", "D"), 2: ("D", "D"), 3: ("D", "D")},
+    # Delayed mode throughout.
+    "INPUT": {1: ("D", "D"), 2: ("D", "D"), 3: ("D", "D")},
+    # An empty data mode says nothing, so this profile stays NRT.
+    "MISSING": {1: ("", "R"), 2: (None, "R")},
+}
+
+#: The published profiles that contain delayed mode data.
+DELAYED_PUBLISHED: List[str] = ["CALC:1", "INPUT:1"]
+
 
 @pytest.fixture
 def nrt_qc_frame() -> pl.DataFrame:
@@ -37,6 +56,9 @@ def nrt_qc_frame() -> pl.DataFrame:
     rows = []
     for platform, observations in PROFILE_CASES.items():
         for observation_no, temp_qc, temp_nrt in observations:
+            temp_dm, pres_dm = DATA_MODE_CASES.get(platform, {}).get(
+                observation_no, ("R", "R")
+            )
             rows.append(
                 {
                     "platform_code": platform,
@@ -46,6 +68,8 @@ def nrt_qc_frame() -> pl.DataFrame:
                     "temp": 10.0 - observation_no,
                     "temp_qc": temp_qc,
                     "temp_nrt_flag": temp_nrt,
+                    "temp_dm": temp_dm,
+                    "pres_dm": pres_dm,
                     "temp_qc_spike": temp_nrt,
                     "qc_impossible_date": 1,
                     "longitude": 20.0,
@@ -84,6 +108,7 @@ def built(tmp_path, nrt_qc_frame):
                         "bad_flag_values": [3, 4],
                     }
                 ],
+                "data_mode": {"columns": ["temp_dm", "pres_dm"]},
                 "datasets": [
                     {
                         "id": "one",

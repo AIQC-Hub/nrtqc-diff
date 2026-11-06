@@ -38,6 +38,12 @@ DEFAULT_ROW_GROUP_SIZE: int = 100_000
 #: quoting; ``site/assets/js/db.js`` enforces the same rule on its side.
 DATASET_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
+#: The data mode values that mark an observation as delayed mode, and so as
+#: likely to have been edited by an operator: ctddump writes ``D``. ``R`` (real
+#: time) and ``A`` (adjusted in real time) are automatic and count as NRT, and
+#: an empty cell says nothing either way.
+DEFAULT_DELAYED_VALUES: List[str] = ["D"]
+
 #: Columns every dataset must carry, whatever else it holds.
 REQUIRED_COLUMNS: List[str] = [
     "platform_code",
@@ -83,6 +89,28 @@ class VariableSpec:
 
 
 @dataclass(frozen=True)
+class DataModeSpec:
+    """
+    Where the observation-level data mode lives, and which values mean delayed.
+
+    A profile with even one delayed mode observation, in any of
+    :attr:`columns`, is published as ``delayed`` rather than ``nrt``: its
+    input flags are likely to be an operator's decisions rather than the
+    automated NRT tests', which is a different comparison.
+
+    :ivar columns: The data mode columns, e.g. ``temp_dm``, ``psal_dm`` and
+                   ``pres_dm``. Pressure belongs here as well: a profile whose
+                   pressure was revised in delayed mode was touched by one.
+    :ivar delayed_values: The values of those columns that mean delayed mode.
+    """
+
+    columns: List[str]
+    delayed_values: List[str] = field(
+        default_factory=lambda: list(DEFAULT_DELAYED_VALUES)
+    )
+
+
+@dataclass(frozen=True)
 class DatasetSpec:
     """
     One published dataset: a single NRT QC output file plus where it belongs.
@@ -112,6 +140,7 @@ class BuildConfig:
     :ivar title: The site title.
     :ivar data_dir: Where the published files are written.
     :ivar variables: The variables to compare.
+    :ivar data_mode: Where the data mode is and what counts as delayed.
     :ivar datasets: The datasets to publish.
     :ivar row_group_size: Rows per parquet row group in the observation files.
                           See :data:`DEFAULT_ROW_GROUP_SIZE`.
@@ -120,6 +149,7 @@ class BuildConfig:
     title: str
     data_dir: str
     variables: List[VariableSpec]
+    data_mode: DataModeSpec
     datasets: List[DatasetSpec]
     row_group_size: int = DEFAULT_ROW_GROUP_SIZE
 
@@ -198,6 +228,8 @@ def read_config(file_name: str) -> BuildConfig:
                 "and a missing flag value; a flag cannot be both."
             )
 
+    data_mode = _data_mode(raw.get("data_mode"))
+
     datasets = [
         DatasetSpec(
             id=_require(entry, "id", "A 'datasets' entry"),
@@ -233,9 +265,39 @@ def read_config(file_name: str) -> BuildConfig:
         title=site.get("title", "NRT QC flag differences"),
         data_dir=_resolve(site.get("data_dir", "site/data"), base_dir),
         variables=variables,
+        data_mode=data_mode,
         datasets=datasets,
         row_group_size=row_group_size,
     )
+
+
+def _data_mode(raw: Any) -> DataModeSpec:
+    """
+    Read the ``data_mode`` section.
+
+    Required rather than defaulted: a build that silently called every
+    profile NRT, because the section was left out, would mix delayed mode
+    flags into the NRT comparison, which is the thing the split exists to
+    prevent.
+
+    :param raw: The section as parsed from YAML.
+    :return: The parsed section.
+    :raises ValueError: If the section or its columns are missing.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError(
+            "The configuration has no 'data_mode' section naming the data mode "
+            "columns, such as temp_dm, psal_dm and pres_dm."
+        )
+    columns = [str(column) for column in raw.get("columns") or []]
+    if not columns:
+        raise ValueError("data_mode.columns must name at least one column.")
+    delayed = [
+        str(value) for value in raw.get("delayed_values", DEFAULT_DELAYED_VALUES)
+    ]
+    if not delayed:
+        raise ValueError("data_mode.delayed_values must list at least one value.")
+    return DataModeSpec(columns=columns, delayed_values=delayed)
 
 
 def _resolve(path: str, base_dir: str) -> str:

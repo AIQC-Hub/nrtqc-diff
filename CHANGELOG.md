@@ -5,6 +5,42 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The input is now `nrtqclib` NRT QC output, built from ctddump, rather than
+  `aiqclib` output, and the site names `nrtqclib` throughout. The published
+  agreement category `aiqclib_only` is now `nrtqclib_only`.
+- **Data format 2.** Data published by an earlier version will not deploy;
+  rebuild it with `nrtqc-diff build`.
+- The configuration has a required `data_mode` section naming the data mode
+  columns (`temp_dm`, `psal_dm`, `pres_dm`) and the values that mean delayed
+  mode (`D` by default).
+
+### Added
+
+- Profiles are split by **data mode**. A profile with at least one delayed
+  mode observation, in temperature, salinity or pressure, is published as
+  "Contains delayed mode", and every other one as "NRT only", since a delayed
+  mode input flag is likely to be an operator's decision rather than an
+  automated one. Every page has the choice, NRT only by default, and "All
+  profiles" puts the two back together.
+- The summary page has a table putting the two groups side by side per
+  product, as "input only" and "nrtqclib only" rates per 1,000 observations.
+- The plots draw a delayed mode observation as a diamond in its category's
+  colour, and the hover box gives every data mode with its meaning. The
+  profile facts name the profile's group and, for a delayed one, how many of
+  its observations are delayed.
+- `profiles.parquet` carries `data_mode` and `n_obs_delayed`; the observation
+  files carry the data mode columns and `delayed`; each catalog entry carries
+  its totals per group under `modes`.
+
+### Fixed
+
+- `nrtqc-diff build -o` no longer drops `row_group_size` from the
+  configuration.
+
 ## [0.7.1] - 2026-09-24
 
 ### Fixed

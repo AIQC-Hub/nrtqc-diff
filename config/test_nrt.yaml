@@ -7,9 +7,9 @@
 #
 #   uv run nrtqc-diff build -c config/test_nrt.yaml
 #
-# Expect a few minutes and roughly 460 MB of output. The inputs hold 330
-# million observations, of which the trimming rule publishes about 88
-# million, in 357,000 profiles.
+# Expect about three minutes and roughly 430 MB of output. The inputs hold
+# 330 million observations, of which the trimming rule publishes about 83
+# million, in 343,000 profiles.
 
 site:
   title: NRT QC flag differences
@@ -44,6 +44,17 @@ variables:
     nrt_flag: psal_nrt_flag
     bad_flag_values: [3, 4, 6, 7]
     missing_flag_values: [0, 9]
+
+# Where the observation-level data mode lives: `R` (real time), `A` (adjusted
+# in real time) or `D` (delayed mode), as ctddump writes it and nrtqclib
+# passes it through. A profile with a delayed value in any of these columns
+# is published as "contains delayed mode" rather than "NRT only", because its
+# input flags are likely to be an operator's decisions. Pressure is listed
+# too: a profile whose pressure was revised in delayed mode was touched by
+# one. `delayed_values` defaults to [D].
+data_mode:
+  columns: [temp_dm, psal_dm, pres_dm]
+  delayed_values: [D]
 
 # The eight datasets of the batch are a region by product grid. `ar`, `bo` and
 # `mo` are the Copernicus codes for the Arctic, the Baltic and the

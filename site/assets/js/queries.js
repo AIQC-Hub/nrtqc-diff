@@ -7,7 +7,7 @@
  */
 
 import { literal, literalList, query, registerDataset } from "./db.js";
-import { isItemColumn } from "./labels.js";
+import { ALL_MODES, isItemColumn } from "./labels.js";
 
 //: The columns a reader can search the profile list by. `profile_id` is what
 //: the list shows; `platform_code` is the part of it people actually know,
@@ -50,6 +50,20 @@ function searchClause(search) {
 function platformClause(platform) {
   if (platform === null || platform === undefined) return "";
   return `AND platform_code = ${literal(String(platform))}`;
+}
+
+/**
+ * The `AND` clause restricting a profile query to one data mode group.
+ *
+ * Every profile is published under exactly one group, `nrt` or `delayed`, so
+ * this is an equality on one column. `all`, or nothing at all, is no filter.
+ *
+ * @param {string|null} mode a `data_modes` key of catalog.json, or `all`.
+ * @returns {string} SQL beginning with `AND`, or an empty string.
+ */
+function modeClause(mode) {
+  if (mode === null || mode === undefined || mode === ALL_MODES) return "";
+  return `AND data_mode = ${literal(String(mode))}`;
 }
 
 let profileColumnsPromise = null;
@@ -104,6 +118,7 @@ async function orderColumn(name) {
  * @param {string} [request.orderBy="n_disagree"] a column of `profiles`.
  * @param {boolean} [request.descending=true] the direction of the order.
  * @param {string|null} [request.platform=null] one `platform_code` only.
+ * @param {string} [request.mode="all"] one data mode group only.
  * @returns {Promise<Array<object>>}
  */
 export async function profileSummary(datasets, request = {}) {
@@ -114,6 +129,7 @@ export async function profileSummary(datasets, request = {}) {
     orderBy = "n_disagree",
     descending = true,
     platform = null,
+    mode = ALL_MODES,
   } = request;
   const ids = datasets.map((entry) => entry.id);
   return query(`
@@ -121,6 +137,7 @@ export async function profileSummary(datasets, request = {}) {
     FROM profiles
     WHERE dataset_id IN (${literalList(ids)})
       ${platformClause(platform)}
+      ${modeClause(mode)}
       ${searchClause(search)}
     ORDER BY ${await orderColumn(orderBy)} ${descending ? "DESC" : "ASC"}, profile_id
     LIMIT ${Number(limit)} OFFSET ${Number(offset)}
@@ -137,35 +154,46 @@ export async function profileSummary(datasets, request = {}) {
  * @param {Array<object>} datasets the selected product's dataset entries.
  * @param {string} [search=""] text to match, empty for all.
  * @param {string|null} [platform=null] one `platform_code` only.
+ * @param {string} [mode="all"] one data mode group only.
  * @returns {Promise<number>}
  */
-export async function profileCount(datasets, search = "", platform = null) {
+export async function profileCount(
+  datasets,
+  search = "",
+  platform = null,
+  mode = ALL_MODES
+) {
   const ids = datasets.map((entry) => entry.id);
   const rows = await query(`
     SELECT COUNT(*) AS n
     FROM profiles
     WHERE dataset_id IN (${literalList(ids)})
       ${platformClause(platform)}
+      ${modeClause(mode)}
       ${searchClause(search)}
   `);
   return Number(rows[0]?.n ?? 0);
 }
 
 /**
- * One row per region and product, over every published profile.
+ * One row per region, product and data mode group, over every published
+ * profile.
  *
  * This is the whole of the summary page in one statement. `profiles.parquet`
  * carries `region` and `product` as columns, so a product built from several
  * datasets aggregates here rather than in the page, and a product with no
  * published profile simply does not come back: the page fills that in from
- * the catalog, which knows the product exists.
+ * the catalog, which knows the product exists. Grouped by `data_mode` as
+ * well, because the page compares the groups side by side as well as
+ * filtering on them, and adding two rows up is cheaper than asking twice.
  *
  * The counts describe published profiles only. The totals the trimming was
  * measured against live in catalog.json, not here.
  *
  * @param {Array<object>} variables the `variables` array of catalog.json.
  * @param {Array<object>} statuses the `statuses` array of catalog.json.
- * @returns {Promise<Array<object>>} rows keyed by `{region, product}`, with
+ * @returns {Promise<Array<object>>} rows keyed by `{region, product,
+ *          data_mode}`, with
  *          `n_profiles`, `n_obs`, `n_disagree` and one `{variable}_{status}`
  *          column per variable and category.
  */
@@ -174,19 +202,22 @@ export async function regionProductTotals(variables, statuses) {
   for (const variable of variables) {
     for (const status of statuses) {
       const column = `${variable.name}_n_${status.key}`;
-      sums.push(`SUM(${column}) AS ${variable.name}_${status.key}`);
+      sums.push(
+        `CAST(SUM(${column}) AS BIGINT) AS ${variable.name}_${status.key}`
+      );
     }
   }
   return query(`
     SELECT region,
            product,
-           COUNT(*)         AS n_profiles,
-           SUM(n_obs)       AS n_obs,
-           SUM(n_disagree)  AS n_disagree,
+           data_mode,
+           COUNT(*)                          AS n_profiles,
+           CAST(SUM(n_obs) AS BIGINT)        AS n_obs,
+           CAST(SUM(n_disagree) AS BIGINT)   AS n_disagree,
            ${sums.join(",\n           ")}
     FROM profiles
-    GROUP BY region, product
-    ORDER BY region, product
+    GROUP BY region, product, data_mode
+    ORDER BY region, product, data_mode
   `);
 }
 
@@ -208,13 +239,19 @@ export async function regionProductTotals(variables, statuses) {
  * @param {Array<object>} datasets the selected product's dataset entries.
  * @param {Array<object>} variables the `variables` array of catalog.json.
  * @param {Array<object>} statuses the `statuses` array of catalog.json.
+ * @param {string} [mode="all"] one data mode group only.
  * @returns {Promise<Array<object>>} rows keyed by `platform_code`, with
  *          `n_profiles`, `n_obs`, `n_disagree`, and per variable
  *          `{variable}_{status}` observation counts and
  *          `{variable}_n_profiles_disagree`, the profiles with at least one
  *          disagreement on that variable.
  */
-export async function platformSummary(datasets, variables, statuses) {
+export async function platformSummary(
+  datasets,
+  variables,
+  statuses,
+  mode = ALL_MODES
+) {
   const ids = datasets.map((entry) => entry.id);
   const columns = await profileColumns();
   const fields = [];
@@ -242,6 +279,7 @@ export async function platformSummary(datasets, variables, statuses) {
            ${fields.join(",\n           ")}
     FROM profiles
     WHERE dataset_id IN (${literalList(ids)})
+      ${modeClause(mode)}
     GROUP BY platform_code
     ORDER BY platform_code
   `);

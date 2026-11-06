@@ -45,6 +45,15 @@ region to product to profile, and two tabs show what is selected:
 The sidebar is shared, so switching tabs keeps the profile you were looking
 at, and either tab can be read against the other.
 
+**Data mode** splits the profiles in two on every page. "NRT only" profiles
+have every observation in real time or adjusted in real time, so both sets of
+flags come from automated tests. "Contains delayed mode" profiles have at
+least one delayed mode observation, whose input flag is likely to be an
+operator's decision: comparing those with `nrtqclib` asks whether the
+automated tests anticipate what an expert decided, which is a different
+question. NRT only is the default, and the summary page puts the two groups
+side by side.
+
 The profile plots put the measurement on the x axis and pressure on the y
 axis, increasing downwards, with every point coloured by which source flagged
 it: both, the input only, `nrtqclib` only, or neither. They pan and zoom, and
@@ -62,7 +71,7 @@ bash scripts/serve.sh                     # render and open the site
 ```
 
 `config/test_nrt.yaml` builds the real `nrtqclib` batch from `data/` instead:
-8 datasets, 330 million observations, about two minutes. Those inputs are
+8 datasets, 330 million observations, about three minutes. Those inputs are
 2.2 GB and are not in git. The deployed site is rendered from what this build
 writes rather than rebuilt in CI: `scripts/data_release.py` publishes
 `site/data/` to a release, and the workflow fetches it.

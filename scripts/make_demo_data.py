@@ -11,6 +11,13 @@ Every QC check the About page lists can fire here, one per profile, because
 the demo is what the published site runs on: a check the demo never writes is
 a check nobody sees working until real data is hosted.
 
+The data mode columns (``temp_dm``, ``psal_dm``, ``pres_dm``) are written the
+way ctddump writes them and nrtqclib passes them through: ``R`` or ``D`` per
+observation, ``""`` for a fill cell. Each dataset has a share of delayed mode
+profiles, a few of them mixed with only the deepest pressures revised, so both
+groups of the site's data mode filter have something to show. The input flags
+are single-character strings for the same reason, ``""`` where one is missing.
+
 Usage:
 
     python scripts/make_demo_data.py [--out demo-data] [--profiles 40]
@@ -24,12 +31,31 @@ from typing import Dict, List
 
 import polars as pl
 
-#: The datasets the shipped ``config/datasets.yaml`` expects.
+#: The datasets the shipped ``config/datasets.yaml`` expects. ``delayed`` is
+#: the share of profiles in delayed mode.
 DEMO_DATASETS: Dict[str, Dict[str, float]] = {
-    "bal_cora_nrt": {"latitude": 58.9, "longitude": 20.3, "salinity": 7.0},
-    "bal_cora_dm": {"latitude": 57.4, "longitude": 19.1, "salinity": 7.6},
-    "arc_cora_nrt": {"latitude": 74.2, "longitude": 15.8, "salinity": 34.4},
+    "bal_cora_nrt": {
+        "latitude": 58.9,
+        "longitude": 20.3,
+        "salinity": 7.0,
+        "delayed": 0.2,
+    },
+    "bal_cora_dm": {
+        "latitude": 57.4,
+        "longitude": 19.1,
+        "salinity": 7.6,
+        "delayed": 0.7,
+    },
+    "arc_cora_nrt": {
+        "latitude": 74.2,
+        "longitude": 15.8,
+        "salinity": 34.4,
+        "delayed": 0.3,
+    },
 }
+
+#: The data mode columns, one per parameter, in the order ctddump writes them.
+DATA_MODE_COLUMNS: List[str] = ["temp_dm", "psal_dm", "pres_dm"]
 
 #: The checks that judge one measurement, written per variable as
 #: ``{variable}_qc_{item}``.
@@ -120,6 +146,44 @@ def rollup(items: Dict[str, int], variable: str) -> int:
     )
 
 
+def profile_data_modes(
+    platform: str, profile_no: int, depth_count: int, share: float
+) -> List[Dict[str, str]]:
+    """
+    The data mode of every observation of one profile.
+
+    Drawn from a random source of its own, seeded by the profile's key, so
+    adding the data mode left every other value of the demo as it was.
+
+    Most profiles are one mode throughout, which is what the real batch shows.
+    A delayed profile is sometimes mixed instead: real time, with only the
+    deepest pressures revised in delayed mode, the commonest kind of mixing
+    in the real batch. A real time profile occasionally has a fill cell.
+
+    :param platform: The platform code.
+    :param profile_no: The profile number within the platform.
+    :param depth_count: The number of observations.
+    :param share: The share of profiles in delayed mode.
+    :return: One ``{column: mode}`` dictionary per observation.
+    """
+    rng = random.Random(f"{platform}:{profile_no}")
+    delayed = rng.random() < share
+    mixed = delayed and rng.random() < 0.25
+    fill_at = rng.randrange(depth_count) if rng.random() < 0.1 else None
+
+    modes = []
+    for index in range(depth_count):
+        if mixed:
+            deep = index >= depth_count - 3
+            row = {"temp_dm": "R", "psal_dm": "R", "pres_dm": "D" if deep else "R"}
+        else:
+            row = {column: "D" if delayed else "R" for column in DATA_MODE_COLUMNS}
+        if index == fill_at and not delayed:
+            row = {column: "" for column in DATA_MODE_COLUMNS}
+        modes.append(row)
+    return modes
+
+
 def build_profile(
     platform: str, profile_no: int, base: Dict[str, float], rng: random.Random
 ) -> List[Dict[str, object]]:
@@ -153,6 +217,8 @@ def build_profile(
     if kind == "impossible_date":
         # Before 1950, so the profile time cannot be real.
         timestamp = datetime(1904, 6, 2) + timedelta(hours=6 * profile_no)
+
+    modes = profile_data_modes(platform, profile_no, depth_count, base["delayed"])
 
     rows: List[Dict[str, object]] = []
     previous_pressure = 0.0
@@ -231,10 +297,12 @@ def build_profile(
                 "pres": pressure,
                 "temp": round(values["temp"], 3),
                 "psal": round(values["psal"], 3),
-                "temp_qc": input_flags["temp"],
-                "psal_qc": input_flags["psal"],
+                # Strings, as ctddump writes them.
+                "temp_qc": str(input_flags["temp"]),
+                "psal_qc": str(input_flags["psal"]),
                 "temp_nrt_flag": temp_nrt,
                 "psal_nrt_flag": psal_nrt,
+                **modes[index],
                 **items,
             }
         )

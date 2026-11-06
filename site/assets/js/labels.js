@@ -77,6 +77,61 @@ export function flagWithMeaning(value) {
 }
 
 /**
+ * What the data mode codes stand for, as ctddump writes them.
+ *
+ * Per observation and parameter: `temp_dm`, `psal_dm`, `pres_dm`. An empty
+ * cell is a fill value and says nothing.
+ */
+const DATA_MODE_MEANINGS = new Map([
+  ["R", "real time"],
+  ["A", "adjusted in real time"],
+  ["D", "delayed mode"],
+]);
+
+/**
+ * The key of the data mode choice that applies no filter.
+ *
+ * Not one of the build's groups: every profile is published under exactly
+ * one of those, and this is the two of them together.
+ */
+export const ALL_MODES = "all";
+
+/**
+ * The data mode choices a page offers, the build's groups first.
+ *
+ * The first is the default, and the build lists "NRT only" first: a reader
+ * who chooses nothing compares two sets of automated flags, which is what
+ * the site is named for, rather than an automated set against an operator's.
+ *
+ * @param {object} catalog the parsed catalog.json.
+ * @returns {Array<object>} `{key, label, description}` entries.
+ */
+export function dataModeOptions(catalog) {
+  return [
+    ...(catalog.data_modes ?? []),
+    {
+      key: ALL_MODES,
+      label: "All profiles",
+      description:
+        "Both groups together, which mixes automated input flags with " +
+        "delayed mode ones.",
+    },
+  ];
+}
+
+/**
+ * One data mode code with its meaning: `D (delayed mode)`.
+ *
+ * @param {string|null} value a code from a `_dm` column.
+ * @returns {string}
+ */
+export function dataModeWithMeaning(value) {
+  if (value === null || value === undefined || value === "") return "not given";
+  const meaning = DATA_MODE_MEANINGS.get(String(value));
+  return meaning === undefined ? String(value) : `${value} (${meaning})`;
+}
+
+/**
  * What this product does with one value of its input flag, in a sentence.
  *
  * The scheme cannot answer this on its own. Which input values count as an

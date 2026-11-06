@@ -79,7 +79,7 @@ class TestStatusExpression:
 
     def test_an_empty_value_list_still_covers_every_row(self):
         """
-        ``_is_one_of`` is anchored to the column, not written as a literal.
+        ``is_one_of`` is anchored to the column, not written as a literal.
 
         A bare literal would collapse to one row and the per-profile counts
         would stop summing to the observation count.

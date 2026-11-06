@@ -28,6 +28,17 @@ variables:
     nrt_flag: psal_nrt_flag
     bad_flag_values: [3, 4, 6, 7]
 
+# Where the observation-level data mode lives: `R` (real time), `A` (adjusted
+# in real time) or `D` (delayed mode), as ctddump writes it and nrtqclib
+# passes it through. A profile with a delayed value in any of these columns
+# is published as "contains delayed mode" rather than "NRT only", because its
+# input flags are likely to be an operator's decisions. Pressure is listed
+# too: a profile whose pressure was revised in delayed mode was touched by
+# one. `delayed_values` defaults to [D].
+data_mode:
+  columns: [temp_dm, psal_dm, pres_dm]
+  delayed_values: [D]
+
 # One entry per published dataset. `region` and `product` build the tree in
 # the site's sidebar; datasets sharing a region and product sit together.
 datasets:

@@ -7,7 +7,7 @@ input says nothing worth comparing. Computing that once here, at build time,
 keeps the browser queries to counting and the plots to a colour lookup.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Sequence
 
 import polars as pl
 
@@ -103,7 +103,7 @@ def computed_flag(variable: VariableSpec) -> pl.Expr:
     return pl.col(variable.nrt_flag).cast(pl.Int64, strict=False)
 
 
-def _is_one_of(expression: pl.Expr, values: List[int]) -> pl.Expr:
+def is_one_of(expression: pl.Expr, values: Sequence[object]) -> pl.Expr:
     """
     Whether ``expression`` holds one of ``values``, as a never-null boolean.
 
@@ -112,7 +112,8 @@ def _is_one_of(expression: pl.Expr, values: List[int]) -> pl.Expr:
     aggregation makes polars' streaming engine give up and materialise the
     whole input: on the largest dataset here that is 14 GB of memory against
     0.9 GB for the chain, for the same answer. The flag value lists are three
-    or four entries long, so the chain costs nothing to build.
+    or four entries long, so the chain costs nothing to build. The data mode
+    test in :mod:`nrtqc_diff.data_mode` uses it for the same reason.
 
     :param expression: The flag expression to test.
     :param values: The values that count as a match, possibly none.
@@ -148,11 +149,11 @@ def status_predicates(variable: VariableSpec) -> Dict[str, pl.Expr]:
     :return: An expression per :data:`STATUSES` key, none of them ever null.
     """
     existing = original_flag(variable)
-    bad_existing = _is_one_of(existing, variable.bad_flag_values)
+    bad_existing = is_one_of(existing, variable.bad_flag_values)
     bad_computed = (computed_flag(variable) > FLAG_GOOD).fill_null(False)
     # A flag that would not parse is null by now; one that parsed but says
     # nothing about the observation is caught by the value list.
-    says_nothing = existing.is_null() | _is_one_of(
+    says_nothing = existing.is_null() | is_one_of(
         existing, variable.missing_flag_values
     )
     neither = ~bad_existing & ~bad_computed
