@@ -349,7 +349,7 @@ def _profile_frame(
     disagreement: List[pl.Expr] = []
     for variable in config.variables:
         per_variable = pl.col(f"{variable.name}_n_original_only") + pl.col(
-            f"{variable.name}_n_aiqclib_only"
+            f"{variable.name}_n_nrtqclib_only"
         )
         disagreement.append(
             per_variable.cast(pl.Int32).alias(f"{variable.name}_n_disagree")

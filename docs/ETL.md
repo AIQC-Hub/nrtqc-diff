@@ -1,6 +1,6 @@
 # The build step
 
-`nrtqc-diff build` is the whole Python side of the project. It reads `aiqclib`
+`nrtqc-diff build` is the whole Python side of the project. It reads `nrtqclib`
 NRT QC output, applies the trimming rule, and writes the files documented in
 [`DATA_MODEL.md`](DATA_MODEL.md).
 
@@ -14,10 +14,10 @@ The build is a pure function of the configuration plus the input files. It
 never appends and never reads what a previous run wrote, so deleting
 `site/data/` and rebuilding is always safe and always enough.
 
-`config/test_nrt.yaml` is the same thing against the real `aiqclib` batch
+`config/test_nrt.yaml` is the same thing against the real `nrtqclib` batch
 under `data/`: 8 datasets, 330 million observations, about two minutes and
 430 MB of output. Those inputs are 2.2 GB and are not in git, and
-they are not published either: they stay where the `aiqclib` run left them.
+they are not published either: they stay where the `nrtqclib` run left them.
 What is published is what this build writes. `scripts/data_release.py` uploads
 `site/data/` to a release and the deploy renders that, so the trimming runs
 once here rather than again on every push. See
@@ -65,7 +65,7 @@ variables:
     label: Temperature             # shown in the site
     unit: degC                     # shown on the plot axis
     flag: temp_qc                  # the flag that came with the input
-    nrt_flag: temp_nrt_flag        # the flag aiqclib computed
+    nrt_flag: temp_nrt_flag        # the flag nrtqclib computed
     bad_flag_values: [3, 4, 6, 7]  # input values counted as an anomaly
     missing_flag_values: [0, 9]    # input values that say nothing at all
 
@@ -103,7 +103,7 @@ Notes worth knowing:
 
 ## Input requirements
 
-The input is whatever `aiqclib`'s NRT QC `concat` step wrote, which is the
+The input is whatever `nrtqclib`'s NRT QC `concat` step wrote, which is the
 `nrt_qc/nrt_qc_output.parquet` of a run, not the `qc/nrt_qc_flags.parquet`
 beside it: the latter is the same rows before the roll-up flag columns were
 added. Beyond the configured variables and their two flag columns, the build
@@ -111,7 +111,7 @@ needs `platform_code`, `profile_no`, `observation_no` and `pres`. It copies
 `profile_timestamp`, `longitude`, `latitude` and `filename` when they are
 there and works without them.
 
-The input must be **ordered by `platform_code`**, which an `aiqclib` run
+The input must be **ordered by `platform_code`**, which an `nrtqclib` run
 already is. The build checks this and stops with a message naming the dataset
 rather than publishing a file that is expensive to query.
 
@@ -126,7 +126,7 @@ uv run python scripts/make_demo_data.py
 ```
 
 writes three synthetic datasets under `demo-data/`, in exactly the schema an
-`aiqclib` run produces, seeded so that every agreement category and both
+`nrtqclib` run produces, seeded so that every agreement category and both
 region and product levels have something to show. It writes the item set of
 the `test_nrt` batch plus `qc_position_on_land`, and every one of those checks
 fires in at least one profile, so the QC check panel and the item discovery

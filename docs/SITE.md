@@ -148,15 +148,15 @@ takes what the key leaves, and `.nq-plot` is the full height of that, with a
 and `fitToBox` watches the node, so the plots follow the panel: a taller
 window means taller plots, not more white space.
 
-The lower row is **`aiqclib QC checks that flagged`** (`profileItemBreakdown`):
-which of `aiqclib`'s own checks raised a flag on this profile, and on how many
+The lower row is **`nrtqclib QC checks that flagged`** (`profileItemBreakdown`):
+which of `nrtqclib`'s own checks raised a flag on this profile, and on how many
 observations. It answers the question the plots raise, which is why it sits
 under them rather than with the tables. The code calls this an item firing;
 the panel says it in words a reader who has never seen the code can follow.
 The check is named twice over, in words and as the column it writes under
 them, and the name links to the table on the About page that describes it.
 
-`aiqclib` is in the title because the plots beside it draw both sources at
+`nrtqclib` is in the title because the plots beside it draw both sources at
 once, and a table of flag values headed `QC check` could be read as either of
 them.
 
@@ -223,10 +223,10 @@ would put its page size and its `Next` step past the right edge. The
 container query units that do this are in `dashboard.css`.
 
 **`about.qmd` is the prose page**, and carries one thing worth keeping
-current: a table of the `aiqclib` QC checks, one row per check, with the
-column name it writes. The `aiqclib QC checks that flagged` panel shows those
+current: a table of the `nrtqclib` QC checks, one row per check, with the
+column name it writes. The `nrtqclib QC checks that flagged` panel shows those
 same column names and links to this table, which is how a reader turns
-`temp_qc_spike` into a sentence. It is a summary of the `aiqclib` NRT QC guide
+`temp_qc_spike` into a sentence. It is a summary of the `nrtqclib` NRT QC guide
 it links to; if that library adds or renames a check, this table is the place
 in this repository that goes stale, together with `QC_CHECKS` in `labels.js`.
 
@@ -282,7 +282,7 @@ Adding a category in `flags.py` makes it appear in the legend, the plots and
 both summary tables without touching the site. That extends to which
 categories mean a source flagged something: the build publishes a `flagged`
 marker on each category, and `summary.qmd` filters on it rather than naming
-`agree_bad`, `original_only` and `aiqclib_only`.
+`agree_bad`, `original_only` and `nrtqclib_only`.
 
 ## The data access seam
 

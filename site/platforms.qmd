@@ -140,7 +140,7 @@ app.statusLegend(statuses)
   // mostly observations both sources call good.
   const shaped = platform_rows.map((row) => {
     const n_flagged = flagged.reduce((sum, s) => sum + row[`${name}_${s.key}`], 0);
-    const n_disagree = row[`${name}_original_only`] + row[`${name}_aiqclib_only`];
+    const n_disagree = row[`${name}_original_only`] + row[`${name}_nrtqclib_only`];
     return {
       ...row,
       n_flagged,

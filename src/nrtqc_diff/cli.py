@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nrtqc-diff",
         description=(
-            "Turn aiqclib NRT QC output into the files the static site queries."
+            "Turn nrtqclib NRT QC output into the files the static site queries."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

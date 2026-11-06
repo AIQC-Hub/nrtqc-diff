@@ -1,7 +1,7 @@
 """
-Build web-ready comparisons of existing NRT QC flags against ``aiqclib`` ones.
+Build web-ready comparisons of existing NRT QC flags against ``nrtqclib`` ones.
 
-The package turns the parquet written by ``aiqclib``'s NRT QC module into the
+The package turns the parquet written by ``nrtqclib``'s NRT QC module into the
 small set of files the Quarto site queries in the browser. See
 ``docs/DATA_MODEL.md`` for what those files contain and ``docs/ETL.md`` for
 how to run the build.

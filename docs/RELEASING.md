@@ -46,7 +46,7 @@ so it follows a release rather than a data rebuild.
 
 ### Where the data comes from
 
-The trimming runs where the inputs are, not in the workflow. An `aiqclib`
+The trimming runs where the inputs are, not in the workflow. An `nrtqclib`
 batch is 2.2 GB that the build reads twice to write the 429 MB the site
 serves, and this workflow runs on every push to `main`, so building there
 would spend two minutes and a 2.2 GB download re-deriving byte-identical
@@ -97,7 +97,7 @@ quietly producing a broken site.
 
 ### Publishing a new build of the data
 
-From a checkout whose `data/` holds the `aiqclib` run:
+From a checkout whose `data/` holds the `nrtqclib` run:
 
 ```bash
 uv run nrtqc-diff build -c config/test_nrt.yaml

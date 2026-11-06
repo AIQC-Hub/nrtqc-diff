@@ -14,7 +14,7 @@ import polars as pl
 from nrtqc_diff.config import VariableSpec
 
 #: The flag value the IOC/Argo scheme uses for "good"; anything worse is an
-#: anomaly. The computed ``aiqclib`` flag always follows this scheme, so it
+#: anomaly. The computed ``nrtqclib`` flag always follows this scheme, so it
 #: needs no per-variable value list the way the input flag does.
 FLAG_GOOD: int = 1
 
@@ -24,16 +24,16 @@ AGREE_GOOD: str = "agree_good"
 AGREE_BAD: str = "agree_bad"
 #: Only the flag that came with the input data.
 ORIGINAL_ONLY: str = "original_only"
-#: Only the flag ``aiqclib`` computed.
-AIQCLIB_ONLY: str = "aiqclib_only"
-#: The input carries no usable flag and aiqclib flagged nothing either, so
+#: Only the flag ``nrtqclib`` computed.
+NRTQCLIB_ONLY: str = "nrtqclib_only"
+#: The input carries no usable flag and nrtqclib flagged nothing either, so
 #: there is nothing to compare. This covers both a flag that will not parse
 #: (an empty string, say) and one of the variable's ``missing_flag_values``,
 #: the values of the scheme that carry no judgement: 0 means no QC was
 #: performed and 9 means the value itself is missing. Neither says the
 #: observation is good, so neither may be counted as the two sources agreeing.
-#: An observation whose input flag is missing but which aiqclib did flag is
-#: reported as :data:`AIQCLIB_ONLY` instead: hiding a computed flag because
+#: An observation whose input flag is missing but which nrtqclib did flag is
+#: reported as :data:`NRTQCLIB_ONLY` instead: hiding a computed flag because
 #: the input said nothing would defeat the point of the comparison.
 NO_INPUT_FLAG: str = "no_input_flag"
 
@@ -56,8 +56,8 @@ STATUSES: List[Dict[str, object]] = [
         "flagged": True,
     },
     {
-        "key": AIQCLIB_ONLY,
-        "label": "aiqclib only",
+        "key": NRTQCLIB_ONLY,
+        "label": "nrtqclib only",
         "color": "#cc3355",
         "flagged": True,
     },
@@ -76,7 +76,7 @@ STATUSES: List[Dict[str, object]] = [
 ]
 
 #: The categories that mean the two sources disagree.
-DISAGREEMENT_STATUSES: List[str] = [ORIGINAL_ONLY, AIQCLIB_ONLY]
+DISAGREEMENT_STATUSES: List[str] = [ORIGINAL_ONLY, NRTQCLIB_ONLY]
 
 
 def original_flag(variable: VariableSpec) -> pl.Expr:
@@ -95,7 +95,7 @@ def original_flag(variable: VariableSpec) -> pl.Expr:
 
 def computed_flag(variable: VariableSpec) -> pl.Expr:
     """
-    The ``aiqclib`` flag column as a whole number.
+    The ``nrtqclib`` flag column as a whole number.
 
     :param variable: The variable being compared.
     :return: The flag expression, cast to ``Int64``.
@@ -139,7 +139,7 @@ def status_predicates(variable: VariableSpec) -> Dict[str, pl.Expr]:
 
     The categories in the table of ``docs/DATA_MODEL.md`` are written as a
     priority chain, which is how it reads: the flagged cases are decided
-    before the missing-flag case, so an observation aiqclib flagged is always
+    before the missing-flag case, so an observation nrtqclib flagged is always
     visible as flagged, whatever the input did or did not say about it. Here
     the same chain is written out as five conditions that cannot both hold,
     which is what lets a count be a sum rather than a string comparison.
@@ -160,7 +160,7 @@ def status_predicates(variable: VariableSpec) -> Dict[str, pl.Expr]:
     return {
         AGREE_BAD: bad_existing & bad_computed,
         ORIGINAL_ONLY: bad_existing & ~bad_computed,
-        AIQCLIB_ONLY: ~bad_existing & bad_computed,
+        NRTQCLIB_ONLY: ~bad_existing & bad_computed,
         NO_INPUT_FLAG: neither & says_nothing,
         AGREE_GOOD: neither & ~says_nothing,
     }
@@ -215,7 +215,7 @@ def is_anomaly(variable: VariableSpec) -> pl.Expr:
 
 def item_columns(columns: List[str], variable_names: List[str]) -> List[str]:
     """
-    Pick out the per-item QC flag columns ``aiqclib`` wrote.
+    Pick out the per-item QC flag columns ``nrtqclib`` wrote.
 
     An item writes either one column per variable (``temp_qc_spike``) or one
     for the whole profile (``qc_impossible_date``). Both forms are published,

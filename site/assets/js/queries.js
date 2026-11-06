@@ -290,7 +290,7 @@ export async function profileContingency(entry, profileId, variable) {
  *
  * The item columns are discovered from the file rather than configured, so a
  * dataset built with a different set of QC items needs no change here. The
- * result answers the question the contingency table raises: when aiqclib
+ * result answers the question the contingency table raises: when nrtqclib
  * flagged something the input did not, which test was it?
  *
  * @param {object} entry the dataset entry the profile belongs to.

@@ -1,7 +1,7 @@
 /**
  * Plain names for the things the data calls by column name.
  *
- * The columns this site reads are the `aiqclib` output's own: `temp_qc`,
+ * The columns this site reads are the `nrtqclib` output's own: `temp_qc`,
  * `temp_nrt_flag`, `psal_qc_spike`. Whoever ran the build reads those at a
  * glance and nobody else does, so no panel shows one without words beside it.
  * The words live here, in one module, rather than in whichever page happened
@@ -9,7 +9,7 @@
  *
  * Nothing here is configurable, because none of it is a choice the build
  * makes: the flag scheme is the IOC/Argo one and the check names are
- * `aiqclib`'s. What the build does decide, which input values count as an
+ * `nrtqclib`'s. What the build does decide, which input values count as an
  * anomaly, is read from the variable entry instead of being restated here.
  */
 
@@ -30,7 +30,7 @@ const FLAG_MEANINGS = new Map([
 ]);
 
 /**
- * The checks `aiqclib` runs, keyed by the item part of the column name.
+ * The checks `nrtqclib` runs, keyed by the item part of the column name.
  *
  * The same list is in the table on the About page, which describes what each
  * one looks for; this is the short name and the test number alone, because a
@@ -93,7 +93,7 @@ export function inputFlagNote(value, variable) {
   if (value === null || value === undefined) {
     return (
       "No usable flag came with these observations, so there is nothing to " +
-      "compare unless aiqclib flagged them."
+      "compare unless nrtqclib flagged them."
     );
   }
   const meaning = flagMeaning(value);
@@ -114,7 +114,7 @@ export function inputFlagNote(value, variable) {
  *
  * An item writes either one column per variable (`temp_qc_spike`) or one for
  * the whole profile (`qc_impossible_date`), and the set of items is whatever
- * the `aiqclib` run wrote, so a column this list does not know still has to
+ * the `nrtqclib` run wrote, so a column this list does not know still has to
  * come back with something readable.
  *
  * @param {string} column the column name.

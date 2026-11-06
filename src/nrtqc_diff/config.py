@@ -56,7 +56,7 @@ class VariableSpec:
     :ivar label: The name shown in the site, e.g. ``Temperature``.
     :ivar unit: The unit shown on the plot axis.
     :ivar flag: The existing flag column from the input, e.g. ``temp_qc``.
-    :ivar nrt_flag: The flag ``aiqclib`` computed, e.g. ``temp_nrt_flag``.
+    :ivar nrt_flag: The flag ``nrtqclib`` computed, e.g. ``temp_nrt_flag``.
     :ivar bad_flag_values: Values of :attr:`flag` that mean "anomaly".
     :ivar missing_flag_values: Values of :attr:`flag` that carry no judgement,
                                such as 0 (no QC performed) and 9 (missing
@@ -92,7 +92,7 @@ class DatasetSpec:
     :ivar region: The top level of the site's tree, e.g. ``Baltic Sea``.
     :ivar product: The second level, e.g. ``CORA NRT``.
     :ivar label: The name shown for the dataset itself.
-    :ivar path: The ``aiqclib`` NRT QC output parquet.
+    :ivar path: The ``nrtqclib`` NRT QC output parquet.
     :ivar description: One sentence shown beside the dataset in the site.
     """
 

@@ -184,7 +184,7 @@ app.statusLegend(statuses)
   const shaped = rows.map((row) => {
     const n_flagged = flagged.reduce((sum, s) => sum + row[`${name}_${s.key}`], 0);
     const n_disagree =
-      row[`${name}_original_only`] + row[`${name}_aiqclib_only`];
+      row[`${name}_original_only`] + row[`${name}_nrtqclib_only`];
     return {
       ...row,
       n_flagged,
@@ -236,7 +236,7 @@ app.statusLegend(statuses)
 {
   const name = summary_variable.name;
   const n_disagree =
-    grand[`${name}_original_only`] + grand[`${name}_aiqclib_only`];
+    grand[`${name}_original_only`] + grand[`${name}_nrtqclib_only`];
   return htl.html`<p class="nq-meta">All products, ${summary_variable.label.toLowerCase()}:
     <strong>${app.formatCount(n_disagree)}</strong> observations the two
     sources disagree on, ${perThousand(rate(n_disagree, grand.n_obs))} per

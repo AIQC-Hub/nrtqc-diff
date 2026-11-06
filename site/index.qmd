@@ -163,12 +163,12 @@ platform_profiles = profile_row
 ## Row {height="300px"}
 
 ```{ojs}
-//| title: aiqclib QC checks that flagged
+//| title: nrtqclib QC checks that flagged
 
-// Under the plots, because it answers the question they raise: when aiqclib
+// Under the plots, because it answers the question they raise: when nrtqclib
 // marked something the input did not, which of its checks was it? "Fired" is
 // what the code calls it; this is the same thing said plainly. The title
-// names aiqclib because the page carries two sets of flags, and a panel of
+// names nrtqclib because the page carries two sets of flags, and a panel of
 // flag values headed "QC check" could be read as either of them.
 {
   if (profile_row === false) return app.loadingNote();
@@ -196,7 +196,7 @@ platform_profiles = profile_row
           key: "check",
           label: "QC check",
           align: "left",
-          title: "The aiqclib test that raised the flag, and the column it writes",
+          title: "The nrtqclib test that raised the flag, and the column it writes",
           // The name in words, with the column it writes under it: the same
           // pairing the contingency table heads its axes with. Under rather
           // than beside, because a column of its own pushed the counts off
@@ -207,7 +207,7 @@ platform_profiles = profile_row
           // href is the rendered page, because Quarto rewrites `.qmd` links
           // in markdown and this node is built in the browser.
           render: (value, row) =>
-            htl.html`<div><a href="about.html#the-checks-aiqclib-runs"
+            htl.html`<div><a href="about.html#the-checks-nrtqclib-runs"
               title="${app.checkNote(row.item, variables)}">${value}</a>
               <span class="nq-colname">${row.item}</span></div>`
         },
@@ -222,7 +222,7 @@ platform_profiles = profile_row
       rowKey: "item",
       sortKey: "n",
       selectable: false,
-      empty: `No aiqclib check flagged ${variable.label.toLowerCase()} here.`
+      empty: `No nrtqclib check flagged ${variable.label.toLowerCase()} here.`
     });
     return htl.html`<section class="nq-qc-block">
       <p class="nq-meta">${variable.label}</p>
@@ -360,7 +360,7 @@ platform_profiles = profile_row
 //| title: Contingency
 
 // The cross-tabulation the whole project is about: how the input's flag value
-// and the value aiqclib computed line up, for this profile alone.
+// and the value nrtqclib computed line up, for this profile alone.
 {
   if (profile_row === false) return app.loadingNote();
   const box = document.createElement("div");

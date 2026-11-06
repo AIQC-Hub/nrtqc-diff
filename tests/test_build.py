@@ -8,8 +8,8 @@ from nrtqc_diff.config import BuildConfig, DatasetSpec, VariableSpec
 from nrtqc_diff.flags import (
     AGREE_BAD,
     AGREE_GOOD,
-    AIQCLIB_ONLY,
     NO_INPUT_FLAG,
+    NRTQCLIB_ONLY,
     ORIGINAL_ONLY,
 )
 
@@ -58,7 +58,7 @@ class TestTrimming:
         _, profiles, _ = built
         assert sorted(profiles["platform_code"].to_list()) == [
             "AGREE",
-            "AIQC",
+            "CALC",
             "INPUT",
             "MISSING",
             "NOFLAG",
@@ -79,11 +79,11 @@ class TestStatusCategories:
             ("AGREE", 2, AGREE_BAD),
             ("AGREE", 1, AGREE_GOOD),
             ("INPUT", 1, ORIGINAL_ONLY),
-            ("AIQC", 2, AIQCLIB_ONLY),
+            ("CALC", 2, NRTQCLIB_ONLY),
             ("NOFLAG", 1, NO_INPUT_FLAG),
-            ("NOFLAG", 2, AIQCLIB_ONLY),
+            ("NOFLAG", 2, NRTQCLIB_ONLY),
             ("MISSING", 1, NO_INPUT_FLAG),
-            ("MISSING", 2, AIQCLIB_ONLY),
+            ("MISSING", 2, NRTQCLIB_ONLY),
             ("MISSING", 3, AGREE_GOOD),
         ],
     )
@@ -102,12 +102,12 @@ class TestStatusCategories:
         assert noflag["temp_status"].to_list().count(NO_INPUT_FLAG) == 1
 
     def test_a_computed_flag_survives_a_missing_input_flag(self, built):
-        """Nothing aiqclib flagged may be hidden by the input saying nothing."""
+        """Nothing nrtqclib flagged may be hidden by the input saying nothing."""
         _, _, observations = built
         row = observations.filter(
             (pl.col("platform_code") == "NOFLAG") & (pl.col("observation_no") == 2)
         )
-        assert row["temp_status"].item() == AIQCLIB_ONLY
+        assert row["temp_status"].item() == NRTQCLIB_ONLY
 
 
 class TestProfileCounts:
@@ -119,7 +119,7 @@ class TestProfileCounts:
             zip(profiles["platform_code"].to_list(), profiles["n_disagree"].to_list())
         )
         assert by_platform["INPUT"] == 1
-        assert by_platform["AIQC"] == 1
+        assert by_platform["CALC"] == 1
         assert by_platform["AGREE"] == 0
 
     def test_category_counts_sum_to_the_observation_count(self, built):
@@ -127,7 +127,7 @@ class TestProfileCounts:
         columns = [
             "temp_n_agree_bad",
             "temp_n_original_only",
-            "temp_n_aiqclib_only",
+            "temp_n_nrtqclib_only",
             "temp_n_agree_good",
             "temp_n_no_input_flag",
         ]

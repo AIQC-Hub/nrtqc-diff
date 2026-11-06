@@ -1,13 +1,13 @@
 # nrtqc-diff
 
 A static dashboard showing where the near-real-time QC flags that ship with
-ocean profile data disagree with the flags [`aiqclib`](https://github.com/AIQC-Hub/aiqclib)
+ocean profile data disagree with the flags [`nrtqclib`](https://nrtqclib.readthedocs.io/en/latest/)
 computes for the same observations.
 
 Two halves:
 
 1. A small Python **build step** (`uv run nrtqc-diff build`) that reads
-   `aiqclib` NRT QC output, keeps only the profiles where either source
+   `nrtqclib` NRT QC output, keeps only the profiles where either source
    flagged something, and writes a handful of parquet files plus a catalog.
 2. A **Quarto site** that queries those files in the browser with DuckDB WASM.
    There is no server and no backend: the rendered site is a folder of static
@@ -38,7 +38,7 @@ region to product to profile, and two tabs show what is selected:
    CORA NRT            21 which source flagged    the contingency tables for
                                                   the selected profile
  BAL_CORA_NRT04:5  43   4 under them, which
- BAL_CORA_NRT04:10 35   4 aiqclib checks
+ BAL_CORA_NRT04:10 35   4 nrtqclib checks
  ...                      flagged this profile
 ```
 
@@ -47,7 +47,7 @@ at, and either tab can be read against the other.
 
 The profile plots put the measurement on the x axis and pressure on the y
 axis, increasing downwards, with every point coloured by which source flagged
-it: both, the input only, `aiqclib` only, or neither. They pan and zoom, and
+it: both, the input only, `nrtqclib` only, or neither. They pan and zoom, and
 stop at the edge of the profile's own data rather than drifting off into
 empty space.
 
@@ -61,7 +61,7 @@ bash scripts/fetch_assets.sh              # DuckDB WASM and Plotly, once
 bash scripts/serve.sh                     # render and open the site
 ```
 
-`config/test_nrt.yaml` builds the real `aiqclib` batch from `data/` instead:
+`config/test_nrt.yaml` builds the real `nrtqclib` batch from `data/` instead:
 8 datasets, 330 million observations, about two minutes. Those inputs are
 2.2 GB and are not in git. The deployed site is rendered from what this build
 writes rather than rebuilt in CI: `scripts/data_release.py` publishes

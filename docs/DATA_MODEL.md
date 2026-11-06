@@ -35,18 +35,18 @@ honest about what was left out.
 Every observation falls into exactly one category per variable, computed at
 build time in `src/nrtqc_diff/flags.py` and stored as `{variable}_status`.
 
-| Key | Input flag | aiqclib flag | Meaning |
+| Key | Input flag | nrtqclib flag | Meaning |
 | --- | --- | --- | --- |
 | `agree_bad` | in `bad_flag_values` | above 1 | Both sources flag it |
 | `original_only` | in `bad_flag_values` | 1 | Only the input flags it |
-| `aiqclib_only` | good or missing | above 1 | Only aiqclib flags it |
+| `nrtqclib_only` | good or missing | above 1 | Only nrtqclib flags it |
 | `no_input_flag` | in `missing_flag_values`, or unreadable | 1 | Nothing to compare |
 | `agree_good` | anything else | 1 | Neither flags it |
 
 The order of the table is the order of the test. The flagged cases are
-decided before the missing-flag case, so an observation aiqclib flagged is
+decided before the missing-flag case, so an observation nrtqclib flagged is
 always visible as flagged, whatever the input said. That is why
-`aiqclib_only` covers both "the input called it good" and "the input said
+`nrtqclib_only` covers both "the input called it good" and "the input said
 nothing".
 
 Two per-variable lists decide the rest, because datasets differ in how they
@@ -142,7 +142,7 @@ One row per published profile, across every dataset.
 | `profile_timestamp`, `longitude`, `latitude`, `filename` | varies | Copied when the input carries them |
 | `n_obs` | i64 | Observations in the profile |
 | `n_disagree` | i32 | Disagreements summed over variables; the default sort |
-| `{variable}_n_disagree` | i32 | `original_only` plus `aiqclib_only` |
+| `{variable}_n_disagree` | i32 | `original_only` plus `nrtqclib_only` |
 | `{variable}_n_{category}` | i32 | One column per agreement category |
 
 The per-category columns of a variable sum to `n_obs`, which is what
@@ -159,7 +159,7 @@ One row per published observation.
 | `pres` | f64 | Pressure in decibars, the plots' y axis |
 | `{variable}` | f64 | The measurement, the plots' x axis |
 | `{variable}_qc` | i64 | The input's flag, cast to a whole number |
-| `{variable}_nrt_flag` | i64 | The flag aiqclib computed |
+| `{variable}_nrt_flag` | i64 | The flag nrtqclib computed |
 | `{variable}_status` | str | The agreement category |
 | `qc_{item}`, `{variable}_qc_{item}` | i32 | Every per-item flag column found in the input |
 

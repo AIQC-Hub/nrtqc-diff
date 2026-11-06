@@ -586,7 +586,7 @@ export function contingencyTable(rows, options = {}) {
   const {
     variable,
     rowLabel = "Flag in the input data",
-    columnLabel = "Flag aiqclib computed",
+    columnLabel = "Flag nrtqclib computed",
   } = options;
   const badValues = variable.bad_flag_values ?? [];
 

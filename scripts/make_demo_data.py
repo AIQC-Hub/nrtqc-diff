@@ -1,7 +1,7 @@
 """
 Create synthetic NRT QC output so the site can be built without real data.
 
-The generator writes the same columns an ``aiqclib`` NRT QC run produces, with
+The generator writes the same columns an ``nrtqclib`` NRT QC run produces, with
 enough structure for every part of the site to have something to show: clean
 profiles, spikes only the computed flags catch, stretches only the input flags
 call bad, and a few profiles where the two agree. No real observation is
@@ -90,7 +90,7 @@ KINDS: List[str] = [
 
 #: How far a rolled-over reading jumps, by variable. The magnitudes are the
 #: `digit_rollover` thresholds of the real run, rounded up so the jump is
-#: unambiguous; the demo writes the flags, the thresholds belong to aiqclib.
+#: unambiguous; the demo writes the flags, the thresholds belong to nrtqclib.
 ROLLOVER: Dict[str, float] = {"temp": 12.0, "psal": 6.0}
 
 #: How far a spiked reading departs from its neighbours, by variable. A
@@ -101,7 +101,7 @@ SPIKE: Dict[str, float] = {"temp": 9.0, "psal": 2.0}
 
 def rollup(items: Dict[str, int], variable: str) -> int:
     """
-    The flag ``aiqclib`` publishes for one variable: the worst item flag.
+    The flag ``nrtqclib`` publishes for one variable: the worst item flag.
 
     An item judges either the whole profile (``qc_impossible_date``) or one
     measurement (``temp_qc_spike``), and both feed the roll-up. Reading the
@@ -177,7 +177,7 @@ def build_profile(
             input_flags["temp"], input_flags["psal"] = 4, 4
         if kind == "spike" and index == at + 1:
             # Potential density falling with depth is a property of the pair,
-            # so aiqclib flags temperature and salinity together.
+            # so nrtqclib flags temperature and salinity together.
             items["temp_qc_density_inversion"] = 3
             items["psal_qc_density_inversion"] = 3
         if kind == "gradient" and index == at:
@@ -257,7 +257,7 @@ def build_dataset(name: str, profiles: int, seed: int) -> pl.DataFrame:
     for index in range(profiles):
         platform = f"{name.upper()}{index % 5:02d}"
         rows += build_profile(platform, index + 1, base, rng)
-    # An aiqclib run writes one contiguous block per platform, and the build
+    # An nrtqclib run writes one contiguous block per platform, and the build
     # step requires that ordering rather than sorting hundreds of millions of
     # rows itself. Profiles are generated round robin over five platforms, so
     # sort here to make the demo input look like the real thing.

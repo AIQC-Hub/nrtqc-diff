@@ -204,7 +204,7 @@ function flagStory(row, variable, variables) {
   const lines = [
     `Flag in the input data ${column(variable.flag)}: ` +
       flagWithMeaning(row[variable.flag]),
-    `Flag aiqclib computed ${column(variable.nrt_flag)}: ` +
+    `Flag nrtqclib computed ${column(variable.nrt_flag)}: ` +
       flagWithMeaning(row[variable.nrt_flag]),
   ];
 
@@ -219,7 +219,7 @@ function flagStory(row, variable, variables) {
     lines.push(`${heading}: ${named.join(", ")}`);
   }
   if (decisive.length === 0 && others.length === 0) {
-    lines.push("No aiqclib check flagged this observation.");
+    lines.push("No nrtqclib check flagged this observation.");
   }
   return lines.join("<br>");
 }

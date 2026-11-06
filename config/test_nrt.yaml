@@ -1,4 +1,4 @@
-# Build configuration for the aiqclib `test_nrt` batch.
+# Build configuration for the nrtqclib `test_nrt` batch.
 #
 # This is the real thing, as opposed to `datasets.yaml`, which points at the
 # synthetic demo so that a clean checkout and the CI workflow keep working.
@@ -21,7 +21,7 @@ site:
 
 # `bad_flag_values` covers the values the source calls an anomaly: 3 is
 # probably bad, 4 is bad, 6 and 7 are the dataset-specific bad values. The
-# `nrt_qc_config.yaml` of the aiqclib run counted only [4, 6, 7]; 3 is
+# `nrt_qc_config.yaml` of the nrtqclib run counted only [4, 6, 7]; 3 is
 # included here because a value the source doubts is worth showing.
 #
 # `missing_flag_values` covers the values that carry no judgement at all: 0 is
