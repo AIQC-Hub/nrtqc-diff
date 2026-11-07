@@ -6,19 +6,28 @@ message("NRT and delayed mode")
 
 rule <- meta$rules$estimated_delayed
 
+# Profiles at sea only: the land ones are the Depth page's, and every
+# analysis after it leaves them out.
 grouped <- read_table("dm_groups")
 if (!is.null(grouped)) {
+  sea_colours <- group_colours[names(group_colours) != "On land"]
   counts <- grouped |>
+    filter(group != "land") |>
     with_datasets() |>
     group_by(short, group) |>
     summarise(n_profiles = sum(n_profiles), .groups = "drop") |>
-    mutate(group = group_label(group))
-  plot <- ggplot(counts, aes(n_profiles, forcats::fct_rev(short), fill = group)) +
+    group_by(short) |>
+    mutate(row = paste0(short, " (", comma(sum(n_profiles)), ")")) |>
+    ungroup() |>
+    arrange(short) |>
+    mutate(row = factor(row, levels = rev(unique(row))),
+           group = factor(as.character(group_label(group)), levels = names(sea_colours)))
+  plot <- ggplot(counts, aes(n_profiles, row, fill = group)) +
     geom_col(width = 0.7, colour = "white", linewidth = 0.3,
              position = position_fill(reverse = TRUE)) +
-    scale_fill_manual(values = group_colours, drop = FALSE) +
+    scale_fill_manual(values = sea_colours) +
     scale_x_continuous(labels = label_percent(), expand = expansion(0)) +
-    labs(x = "Profiles", y = NULL)
+    labs(x = "Profiles at sea", y = NULL)
   save_figure(plot, "dm_groups", height = 70)
 }
 

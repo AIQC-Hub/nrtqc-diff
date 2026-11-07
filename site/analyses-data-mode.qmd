@@ -42,26 +42,35 @@ meta ? md`**The rule.** A profile marked NRT${rule.groups.includes("unknown") ? 
 
 ## The groups
 
-Every profile is filed under exactly one group, decided in this order: on
-land (see [Depth](analyses-depth.qmd)), containing delayed mode, estimated
+Profiles the bathymetry puts on land are left out first: they are the
+subject of the [Depth](analyses-depth.qmd) page, and nothing on this page
+or the next counts them. Every profile at sea is then filed under exactly
+one group, decided in this order: containing delayed mode, estimated
 delayed mode, data mode unknown, and NRT. Only the last is compared item by
 item on [Flag differences](analyses-flags.qmd).
 
 ```{ojs}
 groupsTable = meta ? app.loadAnalysisTable("dm_groups") : null
+// The groups at sea that hold any profile: an empty one would be a blank column.
+seaGroups = meta && groupsTable
+  ? meta.groups.filter((g) => g.key !== "land" && groupsTable.some((r) => r.group === g.key && r.n_profiles > 0))
+  : []
 groupRows = groupsTable
-  ? app.widen(groupsTable, { index: ["dataset_id"], column: "group", value: "n_profiles" }).sort(byDataset)
+  ? app.widen(groupsTable.filter((r) => r.group !== "land"), { index: ["dataset_id"], column: "group", value: "n_profiles" })
+      .map((r) => ({ ...r, n_sea: seaGroups.reduce((sum, g) => sum + (r[g.key] ?? 0), 0) }))
+      .sort(byDataset)
   : []
 meta ? table(groupRows, [
   { key: "dataset_id", label: "Product", align: "left", format: name },
-  ...meta.groups.map((g) => ({ key: g.key, label: g.label, title: g.description }))
+  { key: "n_sea", label: "Profiles at sea" },
+  ...seaGroups.map((g) => ({ key: g.key, label: g.label, title: g.description }))
 ]) : html``
 ```
 
 ```{ojs}
 meta ? app.analysisFigure(
   "dm_groups",
-  "Each product's profiles by the group the analyses file them under.",
+  "Each product's profiles at sea by the group the analyses file them under; the number of profiles at sea is in brackets. Profiles on land are left out (see Depth): a small share of most products, but more in the Baltic.",
   "Stacked bars of the share of profiles in each group, per product."
 ) : html``
 ```

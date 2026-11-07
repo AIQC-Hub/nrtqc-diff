@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   whole degrees, at the shore (at most 5 m up and 1 km from the coast),
   low but further from the coast, or higher, a wrong position. It replaces
   the scatter of height against distance to the coast.
+- The NRT and delayed mode page leaves profiles on land out of its groups
+  table and figure, which now cover the profiles at sea only.
 
 ### Fixed
 

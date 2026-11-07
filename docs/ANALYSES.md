@@ -107,6 +107,10 @@ Every profile is filed under exactly one group, decided in this order:
 | `unknown` | No delayed mode observation, but one with no data mode. |
 | `nrt` | Everything else: at sea, real time throughout, not estimated. The item tables are computed over this group alone. |
 
+The land group is the Depth page's subject. The NRT and delayed mode page
+shows the other groups only, over the profiles at sea, and the analyses
+after it never count land profiles.
+
 A usable input flag is one that is present and not among the variable's
 `missing_flag_values` (0 and 9). The share is bimodal on this batch, with a
 trough between about 50% and 90%, which is why 0.6 is the default and why
