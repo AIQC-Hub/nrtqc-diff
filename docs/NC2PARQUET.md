@@ -45,6 +45,98 @@ where they explain a defect.
 | `temp_to_psal` | rule | No | |
 | (none) | | Frozen profile test, off by default | Does not compare a profile with the previous one as written |
 
+## On our Arctic data
+
+The rules above, applied to the 247.5 million observations of our three
+Arctic datasets (`ar_ar`, `ar_gl`, `cora_ar`), with `nc2parquet` run as
+`set_nrtqc.py` runs it by default: range, stuck value, and spike and
+gradient, with density off. The `nrtqclib` side is its output from our runs.
+
+### Where both run a test
+
+`nc2parquet` first drops 1,797,790 rows that repeat a pressure in their
+profile, so these counts are over the 245.7 million rows it keeps. Each cell
+is a number of observations:
+
+| Test | Variable | Both flag | Only `nrtqclib` | Only `nc2parquet` |
+| --- | --- | --- | --- | --- |
+| Range | Temperature | 1,579,798 | 477 | 0 |
+| Range | Salinity | 1,735,487 | 0 | 0 |
+| Stuck value | Temperature | 967,306 | 2,454 | 60 |
+| Stuck value | Salinity | 22,844 | 1,686 | 3,569 |
+| Spike or gradient | Temperature | 3,175 | 78 | 5 |
+| Spike or gradient | Salinity | 32,482 | 137 | 24 |
+| Density (off in `nc2parquet`) | Both | 429,624 | 577,155 | 338,747 |
+
+Where `nc2parquet` runs a test by default, it agrees with `nrtqclib` on all
+but a fraction of a percent:
+
+* **Range:** the -1.93 against -1.92 °C lower bound (see
+  [`regional_range`](#regional_range)).
+* **Stuck value:** 1,057 temperature and 695 salinity profiles fail only in
+  `nrtqclib`, being too short for `nc2parquet`'s more-than-5-rows rule. 5 and
+  76 fail only in `nc2parquet`: profiles with a single non-null value among
+  more than 5 rows, which `nrtqclib` does not judge.
+* **Spike and gradient:** taking neighbours in pressure order rather than
+  recorded order changes almost nothing here, since these profiles are
+  recorded with increasing pressure. A re-implementation of `nrtqclib`'s rule
+  reproduced its spike and gradient columns exactly, so these counts measure
+  the ordering and the dropped rows, not differences in the code.
+
+Density would disagree widely if it were turned on. In a sample (an eighth of
+`ar_ar`, 10 million rows):
+
+* 23,615 pairs fail `nc2parquet`'s rule. 10,873 also fail `nrtqclib`'s. In
+  the other 12,742, `nrtqclib` has no density for one of the levels, because
+  its salinity is outside [2, 40] (all but one pair); the range test flags
+  that salinity already. `nc2parquet` computes a density from it anyway, so
+  the temperature at that level, and both variables at the neighbouring
+  level, are flagged as well. This is where most of the 338,747 come from.
+* 14,901 pairs fail only `nrtqclib`'s rule. 13,769 are inversions between
+  0.03 and 0.05 kg/m³, under `nc2parquet`'s threshold. 1,132 are larger, but
+  hidden by the pressure term of in-situ density.
+
+### What the items nc2parquet lacks account for
+
+Over all 247.5 million observations. "Alone" counts the observations where
+the item fails and none of range, stuck value, spike or gradient does, so
+they would be good in `nc2parquet`. The alone counts overlap: an
+observation can fail more than one of these items.
+
+| `nrtqclib` item | Temperature: fail | Temperature: alone | Salinity: fail | Salinity: alone |
+| --- | --- | --- | --- | --- |
+| `impossible_date` | 0 | 0 | 0 | 0 |
+| `impossible_location` | 0 | 0 | 0 | 0 |
+| `pressure_increasing` | 1,797,790 | 1,797,759 | 1,797,790 | 1,797,567 |
+| `digit_rollover` | 1,931 | 260 | 14,857 | 1,918 |
+| `density_inversion` | 1,015,510 | 994,947 | 1,015,510 | 999,037 |
+| `temp_to_psal` | | | 4,376,634 | 3,625,317 |
+
+The rows `nc2parquet` drops as repeated pressures number exactly as many as
+`nrtqclib`'s `pressure_increasing` failures (1,797,790), and every dropped
+row has a bad `nrtqclib` flag. Where `nrtqclib` flags a repeated pressure,
+`nc2parquet` removes the row.
+
+### The final flags
+
+| Variable | Bad in `nrtqclib` | Both | Only `nrtqclib` | Dropped by `nc2parquet` | Only `nc2parquet` |
+| --- | --- | --- | --- | --- | --- |
+| Temperature | 4,376,634 | 1,590,287 | 988,557 | 1,797,790 | 63 |
+| Salinity | 5,406,566 | 1,777,626 | 1,831,150 | 1,797,790 | 3,547 |
+
+`nc2parquet` as run by default marks about a third of the observations
+`nrtqclib` marks bad, and almost nothing that `nrtqclib` passes. The rest
+are the items it does not run:
+
+* **Temperature:** density inversion (about 1.0 million) and the repeated
+  pressures it drops (1.8 million).
+* **Salinity:** the same, plus `temp_to_psal`, which copies every bad
+  temperature flag to salinity, whatever test set it.
+
+With `nc2parquet`'s density test turned on, the temperature split becomes
+2,011,592 both, 567,252 only `nrtqclib` and 337,060 only `nc2parquet`; for
+salinity, 2,193,610, 1,415,166 and 4,873.
+
 ## How the two run
 
 These differences apply to every test, before any item's own logic.
@@ -195,7 +287,9 @@ it.
 
 **nc2parquet.** Not implemented. Every profile is sorted by pressure before
 testing, and in `set_nrtqc.py` observations with a repeated pressure are
-dropped, so nothing of this kind is ever flagged.
+dropped, so nothing of this kind is ever flagged. In our Arctic data the
+dropped rows match `nrtqclib`'s failures in number (1,797,790); see
+[On our Arctic data](#on-our-arctic-data).
 
 ### spike
 
@@ -246,7 +340,8 @@ profile is flagged, missing values included. The count is different:
   `nrtqclib` judges any profile with 2 values.
 * In `set_nrtqc.py` the count is the number of **rows** in the profile,
   missing values included. A profile with five identical values and one
-  missing value counts as six, and fails.
+  missing value counts as six, and fails. So does a profile with a single
+  non-null value among six or more rows, which `nrtqclib` never judges.
 * In `process_profiles.py` it is the largest `profile_no` in the profile. In
   `nc2parquet`'s converted files, `profile_no` is the profile's position in
   its source file, not a count of observations, so the threshold is compared
@@ -346,8 +441,12 @@ running `nc2parquet`'s own range function over 248 million rows. To check
 the replica, both were run on 1,500 random profiles from each of `ar_ar`,
 `bo_bo`, `mo_gl` and `cora_mo` (about 1.7 million observations; the
 non-Arctic datasets put fallback regions and `ARC` in the same batches): they
-gave the same flag on every observation, for both variables. The `nrtqclib` side
-is its output from our runs, and for the density examples, the `aiqclib` item
-class run with our runs' parameters. Neither the copies nor the scripts are
+gave the same flag on every observation, for both variables. The counts in
+[On our Arctic data](#on-our-arctic-data) re-implement `nc2parquet`'s rules
+in a separate script over the full Arctic files (the range replica checked as
+above; the spike and gradient code checked by reproducing `nrtqclib`'s own
+columns exactly in recorded order). The `nrtqclib` side is its output from
+our runs, and for the density examples, the `aiqclib` item class run with
+our runs' parameters. Neither the copies nor the scripts are
 kept; nothing from `nc2parquet` is in this repository except what this page
 describes.
