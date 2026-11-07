@@ -366,136 +366,27 @@ What the coverage shows:
   largest gap is one platform in one recent year, a platform CORA has
   otherwise.
 
-### Observations: what each pair holds
+### The pairs hold the same observations
 
-A pair is one cast in two versions. CORA's reprocessing reviews its
-flags, but the cast should keep its observations, so the two versions
-should hold the same number of them.
-
-```{ojs}
-meta ? app.analysisFigure(
-  "conversion_match",
-  "The pairs of each NRT product and the CORA of its region, by whether the two versions hold the same number of observations. Pairs under the same platform code and under another are shown apart; the number of pairs is in brackets.",
-  "Stacked bars per NRT product and kind of pair of the share of pairs with the same number of observations, more in NRT, or more in CORA."
-) : html``
-```
+A pair is one cast in two versions. CORA's reprocessing reviews its flags,
+but the cast should keep its observations, so the two versions should hold
+the same number of them. Under the same platform code, nearly every pair
+does. Under another code, many do not, the Arctic profilers above all:
+the two products carry these instruments' records sampled at different
+levels, so they are the same casts in different versions rather than
+copies.
 
 ```{ojs}
 matches = meta ? app.loadAnalysisTable("conversion_match") : null
-codeName = (v) => (v === "same_platform" ? "Same" : "Another")
+pairShare = (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})`
 meta ? table((matches ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}|${r.coverage}` })).sort(byDataset), [
   { key: "dataset_id", label: "Product", align: "left", format: name },
-  { key: "coverage", label: "Platform code", align: "left", format: codeName },
+  { key: "coverage", label: "Platform code", align: "left", format: (v) => (v === "same_platform" ? "Same" : "Another") },
   { key: "n_matched", label: "Pairs" },
-  { key: "n_same_obs", label: "Same observations", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})` },
-  { key: "n_more_in_dataset", label: "NRT has more", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})` },
-  { key: "n_more_in_compared", label: "CORA has more", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})` }
+  { key: "n_same_obs", label: "Same observations", format: pairShare },
+  { key: "n_more_in_dataset", label: "NRT has more", format: pairShare },
+  { key: "n_more_in_compared", label: "CORA has more", format: pairShare }
 ]) : html``
-```
-
-Under the same platform code, nearly every pair holds the same number of
-observations. Under another code, most pairs do not: the two products carry
-these instruments' records at different vertical sampling, so the
-two versions of a cast hold different levels throughout.
-
-#### Where the observations differ
-
-The pairs whose numbers of observations differ, compared level by level.
-The levels of the two versions are matched by pressure, within 0.05 dbar:
-a pressure converted from depth can differ in its last digits between the
-two versions, so exact pressures would split one level in two. A level
-held twice in one version and once in the other counts as one extra level.
-First, how the two versions of each such pair relate: one is the other
-with levels removed, one holds every level of the other exactly twice, or
-each has levels the other lacks.
-
-```{ojs}
-meta ? app.analysisFigure(
-  "conversion_match_kinds",
-  "Pairs with different numbers of observations, by how the levels of their two versions relate, under the same platform code and under another. The number is the pairs of the product.",
-  "Stacked bars per NRT product, in two panels by platform code, of mismatched pairs by how the two versions' levels relate."
-) : html``
-```
-
-Then, for the pairs under the same code, the levels found in one version
-only: where they sit against the levels the two versions share (above the
-shallowest, between, below the deepest, or in a pair with no level in
-common), and what they hold. "No value" is a level where no compared
-variable has a value; "repeat" is a second level at a pressure the other
-version holds once.
-
-```{ojs}
-meta ? app.analysisFigure(
-  "conversion_match_levels",
-  "Levels found in only one version of a pair under the same platform code, by where they sit against the shared levels and what they hold, as a share of the row. Each row is one side of one NRT product's comparison with the CORA of its region; the number of levels is in brackets.",
-  "Stacked bars per NRT product and side of levels in one version only, in four panels by position."
-) : html``
-```
-
-```{ojs}
-matchKinds = meta ? app.loadAnalysisTable("conversion_match_kinds") : null
-kindKeys = [
-  ["compared_removed", "CORA lacks levels NRT has"],
-  ["dataset_removed", "NRT lacks levels CORA has"],
-  ["compared_doubled", "CORA holds every level twice"],
-  ["dataset_doubled", "NRT holds every level twice"],
-  ["both_differ", "Each has levels the other lacks"]
-]
-meta ? table(
-  matchKinds
-    ? app.widen(matchKinds, { index: ["dataset_id", "coverage"], column: "kind", value: "n_pairs" })
-        .map((r) => ({ ...r, key: `${r.dataset_id}|${r.coverage}` }))
-        .sort((a, b) => byDataset(a, b) || (a.coverage < b.coverage ? 1 : -1))
-    : [],
-  [
-    { key: "dataset_id", label: "Product", align: "left", format: name },
-    { key: "coverage", label: "Platform code", align: "left", format: codeName },
-    ...kindKeys.map(([key, label]) => ({ key, label }))
-  ]
-) : html``
-```
-
-What the comparison shows, for the pairs under the same code:
-
-- **CORA is the NRT profile with levels removed.** The commonest relation
-  in every product, and nearly the only one in the Baltic. What CORA leaves
-  out is mostly levels with no value: empty levels at the top and bottom of
-  the Arctic regional profiles, and inside the Baltic ones. In the Arctic
-  regional product it also leaves out deepest levels that do hold a value.
-- **CORA holds every level twice.** In the Arctic part of the global
-  product, a group of pairs where each level of the NRT version appears
-  twice in CORA, at the same pressure; in the case looked at in detail,
-  with the same values too. These tables cannot tell whether CORA's files hold the
-  cast twice or the conversion reads it twice; it is worth checking in
-  ctddump. The Mediterranean part of the global product has the same in
-  the other direction: pairs where NRT holds every level twice.
-- **Levels with good values that one version lacks.** Between the shared
-  levels in the global products, in both directions: the two versions of
-  these casts are sampled at different levels.
-
-The platforms with pairs whose observations differ, per product:
-
-```{ojs}
-matchPlatforms = meta ? app.loadAnalysisTable("conversion_match_platforms") : null
-viewof matchDataset = meta && matchPlatforms
-  ? Inputs.select([...new Set(matchPlatforms.map((r) => r.dataset_id))], { label: "Product", format: name })
-  : html``
-```
-
-```{ojs}
-meta && matchPlatforms ? table(
-  matchPlatforms.filter((r) => r.dataset_id === matchDataset).map((r) => ({ ...r, key: r.platform_code })),
-  [
-    { key: "platform_code", label: "Platform (NRT code)", align: "left", format: (v) => v },
-    { key: "n_matched", label: "Pairs" },
-    { key: "n_mismatched", label: "Different observations" },
-    { key: "share", label: "Share", format: (_, r) => app.formatShare(r.n_mismatched, r.n_matched) },
-    { key: "n_more_in_dataset", label: "NRT has more" },
-    { key: "n_more_in_compared", label: "CORA has more" },
-    { key: "median_difference", label: "Median difference", title: "Of the pairs whose observations differ: observations in NRT minus observations in CORA", format: (v) => (v === null ? "" : (v > 0 ? `+${v}` : `${v}`)) }
-  ],
-  { sortKey: "n_mismatched", descending: true }
-) : html``
 ```
 
 ## Overlap between NRT products

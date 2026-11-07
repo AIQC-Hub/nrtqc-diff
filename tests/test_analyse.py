@@ -11,7 +11,6 @@ import yaml
 from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
     check_conversion_steps,
-    compare_levels,
     land_causes,
     match_tables,
     overlap_table,
@@ -337,8 +336,6 @@ def test_matched_profiles_are_compared_with_the_delayed_product(tmp_path):
     assert summary["n_more_in_dataset"] == 1
     assert summary["n_more_in_compared"] == 1
     assert summary["coverage"] == "same_platform"
-    assert "conversion_match_levels" not in tables  # no scans given
-    assert tables["conversion_match_platforms"]["platform_code"].to_list() == ["P", "Q"]
 
 
 def test_each_nrt_profile_is_filed_by_whether_the_delayed_product_has_it(tmp_path):
@@ -414,53 +411,6 @@ def test_land_profiles_are_filed_by_their_likely_cause():
     assert causes["cause"].to_list() == ["whole_degrees", "shore", "low_far", "inland"]
     assert causes["n_profiles"].to_list() == [1, 1, 1, 2]
     assert causes["n_positions"].to_list() == [1, 1, 1, 1]
-
-
-def _levels_frame(rows):
-    """Rows of ``(pair, pressure, has a value, flagged bad)``, one per level."""
-    return pl.DataFrame(
-        rows, schema=["pair", "_pres", "_value", "_bad"], orient="row"
-    ).with_columns(pl.col("pair").cast(pl.Int64), pl.col("_pres").cast(pl.Float64))
-
-
-def test_levels_in_one_version_only_are_placed_and_described():
-    nrt = _levels_frame(
-        [
-            (0, 1.0, True, False),
-            (0, 2.0, True, False),
-            (0, 3.0, False, False),
-            (1, 1.0, True, False),
-            (1, 2.0, True, False),
-            (2, 1.0, True, False),
-            (2, 1.5, True, False),
-        ]
-    )
-    cora = _levels_frame(
-        [
-            # The same levels, with pressures a conversion apart.
-            (0, 1.0001, True, False),
-            (0, 1.9999, True, False),
-            (1, 1.0, True, False),
-            (1, 1.0, True, False),
-            (1, 2.0, True, False),
-            (1, 2.0, True, False),
-            (2, 1.0, True, False),
-            (2, 1.6, True, True),
-        ]
-    )
-    result = compare_levels(nrt, cora)
-    kinds = dict(zip(result["kinds"]["kind"], result["kinds"]["n_pairs"]))
-    assert kinds == {"compared_removed": 1, "compared_doubled": 1, "both_differ": 1}
-    levels = {
-        (r["side"], r["position"], r["content"]): r["n_levels"]
-        for r in result["levels"].iter_rows(named=True)
-    }
-    assert levels == {
-        ("dataset", "bottom", "no_value"): 1,
-        ("dataset", "bottom", "good_value"): 1,
-        ("compared", "inside", "repeat"): 2,
-        ("compared", "bottom", "flagged_bad"): 1,
-    }
 
 
 def _two_dataset_config(tmp_path, delayed=None):

@@ -21,7 +21,7 @@ and seastamp reports beside it (see the `analyses` section of
 `config/test_nrt.yaml`):
 
 ```bash
-uv run nrtqc-diff analyse -c config/test_nrt.yaml   # about 2.5 minutes, 4 GB
+uv run nrtqc-diff analyse -c config/test_nrt.yaml   # about 2 minutes, 3.5 GB
 Rscript analysis/run_all.R                          # about 15 seconds
 quarto render site
 ```
@@ -52,8 +52,7 @@ The Python step is careful about memory in two ways, both measured:
   them one at a time instead, which took its peak on the Arctic NRT file
   from 5.9 GB to 2.7 GB.
 
-The full batch peaks at about 4 GB, most of it the level comparison of
-the NRT and CORA pairs. To check a change against that, run it
+The full batch peaks at about 3.5 GB. To check a change against that, run it
 under a memory limit, for example `systemd-run --user --scope -p MemoryMax=8G`.
 
 ### R packages
@@ -138,9 +137,6 @@ name or columns.
 | `conversion_coverage` | NRT dataset, CORA dataset of its region | CORA's period (first and last date) and the NRT profiles in each coverage class (see below) |
 | `conversion_coverage_years` | NRT dataset, CORA dataset, year, coverage class | NRT profiles |
 | `conversion_match` | NRT dataset, CORA dataset, coverage class | pairs of the same cast (`same_platform` or `other_platform`): how many, how many with the same number of observations, and on which side there are more |
-| `conversion_match_kinds` | NRT dataset, CORA dataset, coverage class, kind | pairs whose numbers of observations differ, by how their versions' levels relate: `compared_removed` (CORA is NRT with levels removed), `dataset_removed`, `compared_doubled` (CORA holds every level twice), `dataset_doubled`, `both_differ` |
-| `conversion_match_levels` | NRT dataset, CORA dataset, coverage class, side, position, content | levels in one version only (`side`), by `position` against the shared levels (`top`, `inside`, `bottom`, `no_common`) and `content` (`no_value`, `flagged_bad`, `repeat`, `good_value`), with the pairs they are in |
-| `conversion_match_platforms` | NRT dataset, CORA dataset, platform | platforms (by their NRT code) with pairs whose observations differ, with the median difference |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
 | `depth_summary` | dataset | profiles, land profiles, and what the input flagged on them |
 | `depth_land_margin` | dataset, margin | land profiles at least that many metres up |
@@ -194,16 +190,8 @@ The coverage is `same_platform` plus `other_platform` over the profiles in
 CORA's period. Those two classes are the pairs. A pair under another code
 is often one instrument named two ways (an ice-tethered profiler by its own
 number in one product and a WMO number in the other), and its two versions
-are usually sampled at different levels, so the pair tables keep the
+are usually sampled at different levels, so `conversion_match` keeps the
 classes apart.
-
-The pairs whose numbers of observations differ are then compared level by
-level, reading only their observations from the two files, each file once.
-Levels are matched by pressure within 0.05 dbar: a pressure converted from
-depth differs in its last digits between the versions, so exact or rounded
-pressures split one level in two (in the Baltic, most of the apparent
-differences). Both versions' pressures are sorted together and a new level
-starts at a gap of more than the tolerance, which keeps repeats countable.
 
 ## The figures
 
@@ -213,7 +201,7 @@ the theme, the palettes and `save_figure()`.
 
 | Script | Figures |
 | --- | --- |
-| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_coverage`, `conversion_coverage_years`, `conversion_match`, `conversion_match_kinds`, `conversion_match_levels` (same platform code only) |
+| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_coverage`, `conversion_coverage_years` |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_cause` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |

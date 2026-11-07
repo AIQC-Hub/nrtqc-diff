@@ -31,9 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   its region holds: every NRT profile in CORA's period is filed as found
   under the same platform code, found under another, nearby, on a platform
   CORA has, or on a platform it lacks, overall and year by year. The pairs
-  found are then checked for the same number of observations, and those
-  that differ are compared level by level: which levels one version lacks,
-  where they sit, and what they hold. Profiles are matched within 0.001°
+  found are then checked for the same number of observations. Profiles are
+  matched within 0.001°
   rather than on rounded positions, which ctddump's rounding splits at a
   boundary.
 
