@@ -11,6 +11,7 @@ site/
 ├── summary.qmd           every region and product at once
 ├── platforms.qmd         one product's platforms, each opening to its profiles
 ├── about.qmd             what the comparison means
+├── analyses-*.qmd        the Analyses menu: figures and tables made locally
 ├── assets/
 │   ├── dashboard.css     styling for the nq- widgets
 │   └── js/
@@ -19,7 +20,8 @@ site/
 │       ├── queries.js    every SQL statement
 │       ├── views.js      tree, tables, profile list, contingency, legend, bars
 │       ├── labels.js     the column names and flag values, said in words
-│       └── plots.js      the profile plots
+│       ├── plots.js      the profile plots
+│       └── analyses.js   the Analyses pages' tables and figures
 ├── data/                 written by the build step  (gitignored)
 ├── libs/                 vendored by scripts/fetch_assets.sh  (gitignored)
 └── _site/                rendered output  (gitignored)
@@ -269,6 +271,13 @@ same column names and links to this table, which is how a reader turns
 `temp_qc_spike` into a sentence. It is a summary of the `nrtqclib` NRT QC guide
 it links to; if that library adds or renames a check, this table is the place
 in this repository that goes stale, together with `QC_CHECKS` in `labels.js`.
+
+**The Analyses pages** (`analyses-conversion`, `analyses-depth`,
+`analyses-data-mode`, `analyses-flags`) are a different kind of page. They
+query nothing: their figures were drawn in R and their tables computed in
+Python where the data is, and the pages fetch both from `data/analyses/`
+with `analyses.js`. Without them, as in the demo build, each page says the
+analyses were not published. `docs/ANALYSES.md` describes how they are made.
 
 ## Conventions
 

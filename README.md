@@ -13,6 +13,11 @@ Two halves:
    There is no server and no backend: the rendered site is a folder of static
    files that can be served from GitHub Pages or any file host.
 
+The site's **Analyses** pages are made separately, where the data is:
+`uv run nrtqc-diff analyse` writes small tables and `Rscript
+analysis/run_all.R` draws figures from them with ggplot2, as SVG for the
+site and PDF for a manuscript. See [`docs/ANALYSES.md`](docs/ANALYSES.md).
+
 ## What the site shows
 
 **Regions and products** is the overview: one row per region and product, how
@@ -86,6 +91,8 @@ own NRT QC output and rebuild. Nothing else changes.
 - Python 3.12+ with [`uv`](https://docs.astral.sh/uv/)
 - [Quarto](https://quarto.org) 1.9 or newer
 - A browser with WebAssembly, which is every current browser
+- For the Analyses figures only: R 4.3+ with the packages in
+  `analysis/DESCRIPTION`
 
 ## Documentation
 
@@ -93,6 +100,7 @@ own NRT QC output and rebuild. Nothing else changes.
 | --- | --- |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | The published files and their schemas |
 | [`docs/ETL.md`](docs/ETL.md) | Running and extending the build step |
+| [`docs/ANALYSES.md`](docs/ANALYSES.md) | The Analyses pages: tables in Python, figures in R |
 | [`docs/SITE.md`](docs/SITE.md) | How the site is put together |
 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Dev setup, tests, git workflow |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Versioning and deployment |

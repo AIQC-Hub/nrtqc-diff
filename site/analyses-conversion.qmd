@@ -1,0 +1,168 @@
+---
+title: "Data conversion"
+format:
+  html:
+    page-layout: full
+execute:
+  echo: false
+---
+
+Every input here starts as NetCDF files of a Copernicus Marine in situ
+product. [ctddump](https://aiqc-hub.github.io/ctddump/) converts them to one
+flat table per product, then cleans and de-duplicates it in four steps.
+[seastamp](https://aiqc-hub.github.io/seastamp/) adds the distance to the
+coast and the sea floor depth, and nrtqclib runs its tests on the result. This
+page follows the profiles through those steps, from the reports ctddump
+writes as it goes. A full ctddump report for one product is
+[published as an example](https://aiqc-hub.github.io/ctddump-report-example/nrt_ar_ar.html).
+
+```{ojs}
+//| output: false
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+meta = app.loadAnalyses()
+name = (id) => app.datasetName(meta, id)
+byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
+table = app.analysisTable
+```
+
+```{ojs}
+meta === null ? app.analysesMissing() : html``
+```
+
+## The steps
+
+ctddump drops, in this order: profiles whose time or position its source
+flags as bad, profiles with no value in any variable, profiles outside the
+product's region (the global product covers the world, and only its part
+of the region is kept), and duplicate profiles. Duplicates are profiles of
+one platform at the same time and place, or of different platforms with the
+same values. The last step is what reached the nrtqclib output, which should
+equal what ctddump kept: seastamp adds columns, not rows.
+
+```{ojs}
+steps = meta ? app.loadAnalysisTable("conversion_steps") : null
+stepNames = steps ? [...new Map(steps.map((r) => [r.step, r.step_label]))] : []
+stepRows = steps
+  ? app.widen(steps, { index: ["dataset_id"], column: "step", value: "n_profiles" })
+      .sort(byDataset)
+      .map((row) => ({ ...row, key: row.dataset_id, name: name(row.dataset_id) }))
+  : []
+meta ? app.analysisFigure(
+  "conversion_steps",
+  "Profiles left after each ctddump step, as a share of the profiles converted. The last point is what reached the nrtqclib output.",
+  "Line chart of the share of profiles kept after each step, one panel per region."
+) : html``
+```
+
+```{ojs}
+stepHeadings = ({
+  convert: "Converted", dropqc: "After QC", dropna: "After all missing",
+  filter: "In region", dedup: "Without duplicates", nrtqc: "In nrtqclib"
+})
+meta ? table(stepRows, [
+  { key: "name", label: "Product", align: "left", format: (v) => v },
+  ...stepNames.map(([key, label]) => ({ key, label: stepHeadings[key] ?? label, title: label })),
+  { key: "kept", label: "Kept", format: (_, row) => app.formatShare(row[stepNames.at(-1)?.[0]], row.convert) }
+]) : html``
+```
+
+## The source files
+
+How many files each product has, how many carry each variable ctddump reads,
+and the data mode their global attributes declare. `M` (mixed) means the
+levels of a file are in different modes: ctddump then needs a data mode per
+level to know which, and writes an empty mode when the file has none.
+
+```{ojs}
+files = meta ? app.loadAnalysisTable("conversion_files") : null
+fileModes = meta ? app.loadAnalysisTable("conversion_file_data_mode") : null
+fileRows = files
+  ? app.widen(files, { index: ["dataset_id", "n_files"], column: "item", value: "n_with" })
+      .map((row) => {
+        const modes = (fileModes ?? []).filter((m) => m.dataset_id === row.dataset_id);
+        const count = (mode) => modes.filter((m) => (m.data_mode ?? "") === mode).reduce((s, m) => s + m.n_files, 0);
+        return { ...row, key: row.dataset_id, name: name(row.dataset_id),
+                 R: count("R"), D: count("D"), M: count("M"), none: count("") };
+      })
+      .sort(byDataset)
+  : []
+meta ? table(fileRows, [
+  { key: "name", label: "Product", align: "left", format: (v) => v },
+  { key: "n_files", label: "Files" },
+  ...["temp", "psal", "pres", "deph", "time_qc", "position_qc"].map((item) => ({
+    key: item, label: `With ${item.toUpperCase()}`,
+    format: (v, row) => app.formatShare(v, row.n_files)
+  })),
+  { key: "R", label: "Mode R" },
+  { key: "D", label: "Mode D" },
+  { key: "M", label: "Mode M" },
+  { key: "none", label: "No mode" }
+]) : html``
+```
+
+## Data modes
+
+The data mode of every temperature observation, as converted and as kept. A
+profile with a delayed mode observation is compared separately on the rest
+of the site, because its input flags are likely to be an operator's: see
+[NRT and delayed mode](analyses-data-mode.qmd). CORA is filed there whole
+whatever its data mode says, because CORA's flags come from its own
+reprocessing.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_data_mode",
+  "Temperature observations by data mode, as converted and as kept by ctddump. Unknown means the file gives no usable mode.",
+  "Stacked bars of the data mode share per product, before and after cleaning."
+) : html``
+```
+
+## Duplicates and overlap between products
+
+```{ojs}
+dups = meta ? app.loadAnalysisTable("conversion_duplicates") : null
+meta ? table((dups ?? []).sort(byDataset).map((r) => ({ ...r, key: r.dataset_id, name: name(r.dataset_id) })), [
+  { key: "name", label: "Product", align: "left", format: (v) => v },
+  { key: "n_profiles", label: "Profiles" },
+  { key: "n_duplicate_profiles", label: "Duplicates" },
+  { key: "share", label: "Share", format: (_, r) => app.formatShare(r.n_duplicate_profiles, r.n_profiles) },
+  { key: "n_platforms_with_duplicates", label: "Platforms with any" },
+  { key: "n_platforms", label: "Platforms" }
+]) : html``
+```
+
+ctddump also matches the products of one region profile by profile. A row
+reads from the reference's side: how many of its profiles the other product
+also has, and how often a matched profile has the same number of
+observations in both.
+
+```{ojs}
+compare = meta ? app.loadAnalysisTable("conversion_compare") : null
+meta ? table((compare ?? []).map((r) => ({ ...r, key: `${r.reference_id}|${r.compared_id}` })), [
+  { key: "reference_id", label: "Reference", align: "left", format: name },
+  { key: "compared_id", label: "Compared with", align: "left", format: name },
+  { key: "ref_profiles", label: "Profiles" },
+  { key: "matched_profiles", label: "Matched" },
+  { key: "profile_cov_pct", label: "Matched %", format: (v) => (v === null ? "" : `${v.toFixed(1)}%`) },
+  { key: "nobs_agree_pct", label: "Same length %", format: (v) => (v === null ? "" : `${v.toFixed(1)}%`) }
+]) : html``
+```
+
+## Other parameters
+
+What else the source files carry. ctddump reads temperature, salinity and
+pressure (and depth, where pressure is missing) and leaves the rest.
+
+```{ojs}
+extra = meta ? app.loadAnalysisTable("conversion_extra_parameters") : null
+extraRows = extra
+  ? [...new Set(extra.map((r) => r.dataset_id))].map((id) => ({
+      key: id, dataset_id: id, name: name(id),
+      parameters: extra.filter((r) => r.dataset_id === id).map((r) => `${r.parameter} (${r.n_files})`).join(", ")
+    })).sort(byDataset)
+  : []
+meta ? table(extraRows, [
+  { key: "name", label: "Product", align: "left", format: (v) => v },
+  { key: "parameters", label: "Parameters (files)", align: "left", format: (v) => v, wrap: true }
+]) : html``
+```

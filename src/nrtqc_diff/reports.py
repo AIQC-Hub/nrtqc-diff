@@ -15,6 +15,7 @@ product), is scanned line by line for the two things the analyses need.
 
 import os
 import re
+from collections import Counter
 from typing import Dict, List, Optional
 
 import polars as pl
@@ -243,20 +244,23 @@ def extra_parameter_table(config: BuildConfig, reports: str) -> pl.DataFrame:
         table = _read_tsv(path)
         if "extra_params" not in table.columns:
             continue
-        counts = (
-            table.select(
-                pl.col("extra_params").fill_null("").str.split(",").alias("parameter")
+        # ctddump separates them with semicolons; commas are accepted too.
+        # A file lists each parameter once, so a count is a count of files.
+        counts: Counter = Counter()
+        for cell in table["extra_params"].fill_null(""):
+            names = {name.strip() for name in re.split(r"[;,]", cell)}
+            counts.update(name for name in names if name)
+        if counts:
+            frames.append(
+                pl.DataFrame(
+                    {
+                        "parameter": list(counts),
+                        "n_files": [int(n) for n in counts.values()],
+                    }
+                )
+                .sort(["n_files", "parameter"], descending=[True, False])
+                .select(_label_columns(spec) + [pl.all()])
             )
-            .explode("parameter")
-            .with_columns(pl.col("parameter").str.strip_chars())
-            .filter(pl.col("parameter") != "")
-            .group_by("parameter")
-            .len("n_files")
-            .with_columns(pl.col("n_files").cast(pl.Int64))
-            .sort(["n_files", "parameter"], descending=[True, False])
-        )
-        if counts.height:
-            frames.append(counts.select(_label_columns(spec) + [pl.all()]))
     return _concat(frames)
 
 

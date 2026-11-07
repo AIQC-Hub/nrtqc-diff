@@ -73,6 +73,12 @@ def analysed(tmp_path):
     pl.DataFrame(rows).write_parquet(tmp_path / "input.parquet")
 
     reports = tmp_path / "ctddump" / "report"
+    header_report = reports / "header"
+    header_report.mkdir(parents=True)
+    (header_report / "src.yaml.tsv").write_text(
+        "filename\thas_temp\textra_params\nA\ttrue\tDOX1;CNDC\nB\tfalse\tDOX1\n",
+        encoding="utf-8",
+    )
     header = "platform_code\tn_profiles\tn_obs\ttemp_dm_r\ttemp_dm_d\n"
     for step, profiles in (("convert", 9), ("dedup/dedup", 6)):
         folder = reports / step
@@ -213,6 +219,10 @@ def test_the_reports_are_read_and_the_output_step_added(analysed):
         "": 1,
     }
     assert table(analysed, "depth_stamp")["item"].to_list() == ["land"]
+    extra = table(analysed, "conversion_extra_parameters")
+    assert dict(zip(extra["parameter"], extra["n_files"])) == {"DOX1": 2, "CNDC": 1}
+    files = table(analysed, "conversion_files")
+    assert dict(zip(files["item"], files["n_with"])) == {"temp": 1}
 
 
 def test_meta_lists_the_tables_and_rules(analysed):

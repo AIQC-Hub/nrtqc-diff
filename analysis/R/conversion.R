@@ -64,6 +64,7 @@ if (!is.null(modes)) {
     scale_fill_manual(values = data_mode_colours, drop = FALSE) +
     scale_x_continuous(labels = label_percent(), breaks = c(0, 0.5, 1),
                        expand = expansion(0)) +
-    labs(x = "Temperature observations", y = NULL)
+    labs(x = "Temperature observations", y = NULL) +
+    theme(panel.spacing.x = unit(8, "mm"))
   save_figure(plot, "conversion_data_mode", height = 70)
 }

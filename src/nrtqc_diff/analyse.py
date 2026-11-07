@@ -954,7 +954,14 @@ def _write(
             for d in config.datasets
         ],
         "variables": [
-            {"name": v.name, "label": v.label, "unit": v.unit} for v in config.variables
+            {
+                "name": v.name,
+                "label": v.label,
+                "unit": v.unit,
+                "bad_flag_values": v.bad_flag_values,
+                "missing_flag_values": v.missing_flag_values,
+            }
+            for v in config.variables
         ],
         "statuses": STATUSES,
         "groups": ANALYSIS_GROUPS,

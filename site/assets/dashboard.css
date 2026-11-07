@@ -727,3 +727,35 @@
   font-size: 0.8rem;
   margin: 0.25rem 0 0;
 }
+
+/* ------------------------------------------------------------ analyses --- */
+
+/* The Analyses pages show figures the R scripts drew, at the width they were
+   drawn for, and tables that scroll inside a box rather than down the page. */
+
+.nq-figure {
+  margin: 1rem 0 1.5rem;
+  max-width: 54rem;
+}
+
+.nq-figure img {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.nq-figure figcaption {
+  color: var(--nq-muted);
+  font-size: 0.85rem;
+  margin-top: 0.4rem;
+}
+
+.nq-analysis-table .nq-table-wrap {
+  margin: 0.5rem 0 1.5rem;
+  max-height: 28rem;
+}
+
+.nq-table td.nq-wrap {
+  min-width: 24rem;
+  white-space: normal;
+}

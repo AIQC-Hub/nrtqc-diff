@@ -1,0 +1,185 @@
+---
+title: "Flag differences in NRT"
+format:
+  html:
+    page-layout: full
+execute:
+  echo: false
+---
+
+What is left after the two previous pages: profiles at sea, marked NRT, and
+not estimated to carry delayed mode flags. Both flags on them should come
+from automated tests, so where they disagree, the tests differ. Either one
+side runs a test the other does not, or both run it with different logic or
+thresholds.
+
+The two sides of a disagreement can be read to different depths. nrtqclib
+records which of its checks failed, so an observation only nrtqclib flags
+can be traced to the check, or checks, behind it. The input carries one
+flag per variable and nothing about how it was reached, so an observation
+only the input flags is described by where it is and which value the input
+gave it.
+
+```{ojs}
+//| output: false
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+meta = app.loadAnalyses()
+name = (id) => app.datasetName(meta, id)
+table = app.analysisTable
+byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
+variableLabel = (n) => meta.variables.find((v) => v.name === n)?.label ?? n
+statusLabel = (k) => meta.statuses.find((s) => s.key === k)?.label ?? k
+status = meta ? app.loadAnalysisTable("items_status") : null
+totals = new Map((status ?? []).reduce((m, r) => {
+  const key = `${r.dataset_id}|${r.variable}`;
+  m.set(key, (m.get(key) ?? 0) + r.n_obs);
+  return m;
+}, new Map()))
+```
+
+```{ojs}
+meta === null ? app.analysesMissing() : html``
+```
+
+## How often they disagree
+
+```{ojs}
+meta ? app.analysisFigure(
+  "items_status",
+  "Observations flagged by both sources, by the input alone and by nrtqclib alone, per 1,000 observations of NRT profiles at sea.",
+  "Bars of the three flagged categories per product and variable."
+) : html``
+```
+
+```{ojs}
+statusRows = status
+  ? app.widen(status, { index: ["dataset_id", "variable"], column: "status", value: "n_obs" })
+      .sort((a, b) => byDataset(a, b) || a.variable.localeCompare(b.variable) * -1)
+  : []
+meta ? table(statusRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "total", label: "Observations", format: (_, r) => app.formatCount(totals.get(`${r.dataset_id}|${r.variable}`)) },
+  ...meta.statuses.map((s) => ({
+    key: s.key, label: `${s.label} per 1,000`,
+    format: (v, r) => app.formatRate(app.perThousandOf(v, totals.get(`${r.dataset_id}|${r.variable}`)))
+  }))
+]) : html``
+```
+
+## Which nrtqclib checks account for what only nrtqclib flags
+
+An observation can fail more than one check. The dark part of a bar is the
+observations this check alone flagged, which nothing else in nrtqclib would
+have caught; the light part is those it flagged together with other checks.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "items_attribution",
+  "Observations only nrtqclib flags, per 1,000 observations, by the check that failed. Checks that never contributed are left out. Note the different scales across products.",
+  "Bar charts per product and variable of nrtqclib-only observations by check."
+) : html``
+```
+
+```{ojs}
+byItem = meta ? app.loadAnalysisTable("items_by_item") : null
+viewof itemDataset = meta && byItem
+  ? Inputs.select([...new Set(byItem.map((r) => r.dataset_id))], { label: "Product", format: name })
+  : html``
+```
+
+```{ojs}
+meta && byItem ? table(
+  byItem.filter((r) => r.dataset_id === itemDataset && r.n_fail > 0),
+  [
+    { key: "variable", label: "Variable", align: "left", format: variableLabel },
+    { key: "item", label: "Check", align: "left", format: (_, r) => app.qcCheck(r.column, meta.variables).label },
+    { key: "column", label: "Column", align: "left", format: (v) => v },
+    { key: "n_fail", label: "Failed" },
+    { key: "n_fail_agree_bad", label: "Also flagged by the input" },
+    { key: "n_fail_nrtqclib_only", label: "Only nrtqclib" },
+    { key: "n_alone_nrtqclib_only", label: "This check alone" }
+  ]
+) : html``
+```
+
+The commonest sets of failing checks behind the observations only nrtqclib
+flags, over every NRT product together. A column is one set; the dots below
+it say which checks are in it.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "items_combinations",
+  "The ten commonest sets of failing nrtqclib checks among observations only nrtqclib flags, pooled over the NRT products.",
+  "UpSet charts, one per variable, of check combinations."
+) : html``
+```
+
+## Where in the water column
+
+```{ojs}
+meta ? app.analysisFigure(
+  "items_depth",
+  "Observations flagged by one source alone, per 1,000 observations in each pressure band. Colour is the product and line type the region.",
+  "Line charts of disagreement rates against pressure, per variable and source."
+) : html``
+```
+
+## What the input called the values only it flags
+
+The input flag of each observation it flags and nrtqclib does not. A value
+the input calls probably bad (3) is a softer disagreement than one it calls
+bad (4).
+
+```{ojs}
+flagsTable = meta ? app.loadAnalysisTable("items_original_flags") : null
+originalOnly = flagsTable
+  ? app.widen(
+      flagsTable.filter((r) => r.nrtqclib_bad === false &&
+        (meta.variables.find((v) => v.name === r.variable)?.bad_flag_values ?? []).includes(r.original_flag)),
+      { index: ["dataset_id", "variable"], column: "original_flag", value: "n_obs", name: (v) => `f${v}` }
+    ).sort((a, b) => byDataset(a, b) || a.variable.localeCompare(b.variable) * -1)
+  : []
+flagKeys = [...new Set(originalOnly.flatMap((r) => Object.keys(r).filter((k) => /^f\d+$/.test(k))))].sort()
+meta ? table(originalOnly, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  ...flagKeys.map((k) => ({ key: k, label: app.flagWithMeaning(Number(k.slice(1))) }))
+]) : html``
+```
+
+## By platform
+
+The platforms of one product, with their rates of each kind of
+disagreement. Sort by a column to find the platforms a disagreement comes
+from; the [Platforms](platforms.qmd) page opens their profiles.
+
+```{ojs}
+platforms = meta ? app.loadAnalysisTable("items_platforms") : null
+viewof platformDataset = meta && platforms
+  ? Inputs.select([...new Set(platforms.map((r) => r.dataset_id))], { label: "Product", format: name })
+  : html``
+```
+
+```{ojs}
+meta && platforms ? table(
+  platforms.filter((r) => r.dataset_id === platformDataset).map((r) => {
+    const row = { ...r };
+    for (const v of meta.variables) {
+      row[`${v.name}_oo`] = app.perThousandOf(r[`${v.name}_n_original_only`], r.n_obs);
+      row[`${v.name}_no`] = app.perThousandOf(r[`${v.name}_n_nrtqclib_only`], r.n_obs);
+    }
+    return row;
+  }),
+  [
+    { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
+    { key: "n_profiles", label: "Profiles" },
+    { key: "n_obs", label: "Observations" },
+    ...meta.variables.flatMap((v) => [
+      { key: `${v.name}_oo`, label: `${v.label}: original only per 1,000`, format: app.formatRate },
+      { key: `${v.name}_no`, label: `nrtqclib only per 1,000`, format: app.formatRate }
+    ])
+  ],
+  { sortKey: "n_obs", descending: true }
+) : html``
+```

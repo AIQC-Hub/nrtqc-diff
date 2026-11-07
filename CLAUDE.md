@@ -12,6 +12,7 @@ See `README.md` for the workflow and `docs/` for the details:
 | --- | --- |
 | `docs/DATA_MODEL.md` | The published files, their schemas, the trimming rule |
 | `docs/ETL.md` | Running and extending the build step |
+| `docs/ANALYSES.md` | The Analyses pages: `nrtqc-diff analyse` tables, R figures |
 | `docs/SITE.md` | Quarto/OJS conventions, page contracts, the data access seam |
 | `docs/CONTRIBUTING.md` | Dev setup, tests, lint, git workflow |
 | `docs/RELEASING.md` | Version bumps, data releases, deploying the site |
@@ -33,6 +34,21 @@ uv run nrtqc-diff build --config config/datasets.yaml   # writes site/data/
 bash scripts/fetch_assets.sh                            # writes site/libs/
 bash scripts/serve.sh                                   # renders and previews
 ```
+
+## Analyses (tables in Python, figures in R)
+
+```bash
+uv run nrtqc-diff analyse -c config/test_nrt.yaml   # site/data/analyses/tables
+Rscript analysis/run_all.R                          # site/data/analyses/figures
+```
+
+- **R never reads observations.** Anything that touches the NRT QC output is
+  computed in `src/nrtqc_diff/analyse.py` and written as a small CSV table;
+  the R scripts read only those. Large data in R/ggplot2 has crashed the
+  machine before.
+- Polars passes must stay streaming: no cast before `first()` inside an
+  aggregation, and no `collect_all` over large scans. Check memory on the
+  real batch before committing a new pass (the full run peaks near 3 GB).
 
 ## Tests, lint, format
 

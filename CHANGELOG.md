@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Analyses pages**, under a new Analyses menu between Platforms and About:
+  Data conversion (what ctddump kept at each step), Depth (profiles the
+  bathymetry puts on land, and what the input's QC said about them), NRT and
+  delayed mode (with a new estimated delayed mode group for NRT profiles
+  whose flags look like an operator's), and Flag differences in NRT (which
+  nrtqclib checks account for the disagreements, over NRT profiles at sea).
+- `nrtqc-diff analyse` writes the tables behind them from the NRT QC output
+  and the ctddump and seastamp reports, and `analysis/run_all.R` draws the
+  figures in R with ggplot2, as SVG for the site and PDF for a manuscript.
+  See `docs/ANALYSES.md`.
+- An optional `analyses` section in the build configuration, and a `source`
+  key per dataset naming its ctddump and seastamp file stem.
+- `scripts/data_release.py` publishes and fetches `site/data/analyses/` with
+  the rest of the data, when it is there.
+
 ## [0.8.0] - 2026-11-07
 
 ### Changed

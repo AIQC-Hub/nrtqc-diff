@@ -1,0 +1,174 @@
+---
+title: "NRT and delayed mode"
+format:
+  html:
+    page-layout: full
+execute:
+  echo: false
+---
+
+A flag set in delayed mode is likely to be an operator's decision rather
+than an automated test's, so comparing it with nrtqclib asks a different
+question from comparing two sets of NRT flags. The rest of the site already
+keeps profiles with a delayed mode observation apart, by the data mode the
+files declare. This page adds a group the files do not declare: **profiles
+marked NRT whose flags look like delayed mode ones.**
+
+The sign is the share of a profile's observations that the input flags and
+nrtqclib does not. An automated test rarely rejects most of a profile; an
+operator who judges a cast bad often rejects all of it. Delayed mode
+profiles show it, and so do some profiles marked real time.
+
+```{ojs}
+//| output: false
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+meta = app.loadAnalyses()
+name = (id) => app.datasetName(meta, id)
+table = app.analysisTable
+byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
+rule = meta ? meta.rules.estimated_delayed : null
+groupLabel = (key) => meta.groups.find((g) => g.key === key)?.label ?? key
+modeLabel = (key) => meta.data_modes.find((m) => m.key === key)?.label ?? key
+percent = (value) => `${Math.round(100 * value)}%`
+```
+
+```{ojs}
+meta === null ? app.analysesMissing() : html``
+```
+
+```{ojs}
+meta ? md`**The rule.** A profile marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} is estimated to be delayed mode when at least ${percent(rule.min_share)} of its observations with a usable input flag are flagged by the input and not by nrtqclib, in either variable. A variable counts only with at least ${rule.min_observations} such observations, so a profile of two flagged values out of two is not called. The threshold is a setting of the analysis; the table further down shows how the count moves with it.` : html``
+```
+
+## The groups
+
+Every profile is filed under exactly one group, decided in this order: on
+land (see [Depth](analyses-depth.qmd)), containing delayed mode, estimated
+delayed mode, data mode unknown, and NRT. Only the last is compared item by
+item on [Flag differences](analyses-flags.qmd).
+
+```{ojs}
+groupsTable = meta ? app.loadAnalysisTable("dm_groups") : null
+groupRows = groupsTable
+  ? app.widen(groupsTable, { index: ["dataset_id"], column: "group", value: "n_profiles" }).sort(byDataset)
+  : []
+meta ? table(groupRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  ...meta.groups.map((g) => ({ key: g.key, label: g.label, title: g.description }))
+]) : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "dm_groups",
+  "Each product's profiles by the group the analyses file them under.",
+  "Stacked bars of the share of profiles in each group, per product."
+) : html``
+```
+
+## The share flagged by the input alone
+
+```{ojs}
+meta ? app.analysisFigure(
+  "dm_share",
+  `Profiles by the share of their observations flagged by the input alone, coloured by the data mode their files declare. Profiles with no such observation, most of every product, are left out and counted in the table below. The dashed line is the threshold, ${percent(rule.min_share)}.`,
+  "Histograms of the input-only share per product, split by declared data mode."
+) : html``
+```
+
+The shares are two humps: profiles where the input flags a few values
+nrtqclib does not, and profiles where it flags nearly all of them. The
+trough between them is where the threshold belongs, and the count of
+profiles at or above it barely moves across it.
+
+```{ojs}
+thresholds = meta ? app.loadAnalysisTable("dm_threshold") : null
+hist = meta ? app.loadAnalysisTable("dm_share_hist") : null
+thresholdRows = thresholds
+  ? app.widen(thresholds, { index: ["dataset_id", "data_mode", "n_eligible"], column: "threshold", value: "n_profiles", name: (t) => `t${t}` })
+      .map((row) => ({
+        ...row,
+        zero: (hist ?? []).filter((h) => h.dataset_id === row.dataset_id && h.data_mode === row.data_mode && h.bin_hi === 0)
+          .reduce((s, h) => s + h.n_profiles, 0)
+      }))
+      .sort((a, b) => byDataset(a, b) || a.data_mode.localeCompare(b.data_mode))
+  : []
+thresholdKeys = thresholds ? [...new Set(thresholds.map((t) => t.threshold))].sort((a, b) => a - b) : []
+meta ? table(thresholdRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "data_mode", label: "Declared", align: "left", format: modeLabel },
+  { key: "n_eligible", label: "With a share", title: `Profiles with at least ${rule.min_observations} observations with a usable input flag in a variable` },
+  { key: "zero", label: "Share 0" },
+  ...thresholdKeys.map((t) => ({ key: `t${t}`, label: `At or above ${percent(t)}` }))
+]) : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "dm_threshold",
+  "Profiles at or above each threshold. Dashed: profiles marked NRT or with no data mode, the ones the rule files as estimated delayed mode. Solid: profiles already in delayed mode that the same rule would catch, which says how much of delayed mode the rule can see at all.",
+  "Line charts of profile counts against the threshold, per region."
+) : html``
+```
+
+## What leaving them out changes
+
+The flag agreement of each group, per 1,000 of its observations. The
+estimated group is chosen for its input-only flags, so its "original only"
+rates are high by construction. The row to read is NRT: what its rates
+would have been with the estimated profiles in it is the two rows
+combined, and the estimated ones hold most of the input-only flags of the
+profiles marked NRT. The delayed mode group is not a yardstick for the
+estimate: most declared delayed mode profiles have no input-only flag at
+all, as the histogram shows.
+
+```{ojs}
+rateRows = groupsTable
+  ? groupsTable
+      .filter((r) => r.group !== "land")
+      .map((r) => {
+        const row = { dataset_id: r.dataset_id, group: r.group, n_profiles: r.n_profiles, n_obs: r.n_obs };
+        for (const v of meta.variables) {
+          for (const s of ["original_only", "nrtqclib_only", "agree_bad"]) {
+            row[`${v.name}_${s}`] = app.perThousandOf(r[`${v.name}_n_${s}`], r.n_obs);
+          }
+        }
+        return row;
+      })
+  : []
+groupRates = [...rateRows].sort((a, b) => byDataset(a, b) || meta.groups.findIndex((g) => g.key === a.group) - meta.groups.findIndex((g) => g.key === b.group))
+meta ? table(groupRates, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "group", label: "Group", align: "left", format: groupLabel },
+  { key: "n_profiles", label: "Profiles" },
+  ...meta.variables.flatMap((v) => [
+    { key: `${v.name}_original_only`, label: `${v.label}: original only`, format: app.formatRate },
+    { key: `${v.name}_nrtqclib_only`, label: `nrtqclib only`, format: app.formatRate },
+    { key: `${v.name}_agree_bad`, label: `both`, format: app.formatRate }
+  ])
+]) : html``
+```
+
+## Where they come from
+
+If the estimate picks up reprocessing rather than chance, its profiles
+should gather on a few platforms instead of spreading thinly. For each
+platform with any: how many of its profiles could be estimated (marked NRT
+or with no data mode), how many were, and how many it has in declared
+delayed mode.
+
+```{ojs}
+platforms = meta ? app.loadAnalysisTable("dm_estimated_platforms") : null
+meta ? table((platforms ?? []).sort((a, b) => b.n_estimated - a.n_estimated), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
+  { key: "n_profiles", label: "Profiles at sea" },
+  { key: "n_candidates", label: "NRT or unknown" },
+  { key: "n_estimated", label: "Estimated" },
+  { key: "share", label: "Share", format: (_, r) => app.formatShare(r.n_estimated, r.n_candidates) },
+  { key: "n_delayed", label: "Declared delayed" }
+]) : html``
+```
+
+Every estimated profile is listed in
+[the table this page reads](data/analyses/tables/dm_estimated_profiles.csv).
