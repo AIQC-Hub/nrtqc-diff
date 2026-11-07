@@ -10,6 +10,7 @@ import yaml
 
 from nrtqc_diff.analyse import (
     check_conversion_steps,
+    compare_levels,
     match_tables,
     overlap_table,
     run_analyses,
@@ -324,8 +325,6 @@ def test_matched_profiles_are_compared_with_the_delayed_product(tmp_path):
             "longitude": [1.0, 1.0, 5.0, 1.0, 1.0, 5.0],
             "latitude": [50.0] * 6,
             "n_obs": [10, 11, 20, 10, 10, 25],
-            "pres_min": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-            "pres_max": [10.0, 11.0, 20.0, 10.0, 10.0, 20.0],
         }
     )
     tables = match_tables(profiles, _two_dataset_config(tmp_path, delayed="b"))
@@ -340,12 +339,55 @@ def test_matched_profiles_are_compared_with_the_delayed_product(tmp_path):
         "+1": 1,
         "-9 to -2": 1,
     }
-    ends = tables["conversion_match_ends"]
-    assert dict(zip(ends["more_in"] + ":" + ends["end"], ends["n_profiles"])) == {
-        "dataset:bottom": 1,
-        "compared:inside": 1,
-    }
+    assert "conversion_match_levels" not in tables  # no scans given
     assert tables["conversion_match_platforms"]["platform_code"].to_list() == ["P", "Q"]
+
+
+def _levels_frame(rows):
+    """Rows of ``(pair, pressure, has a value, flagged bad)``, one per level."""
+    return pl.DataFrame(
+        rows, schema=["pair", "_pres", "_value", "_bad"], orient="row"
+    ).with_columns(pl.col("pair").cast(pl.Int64), pl.col("_pres").cast(pl.Float64))
+
+
+def test_levels_in_one_version_only_are_placed_and_described():
+    nrt = _levels_frame(
+        [
+            (0, 1.0, True, False),
+            (0, 2.0, True, False),
+            (0, 3.0, False, False),
+            (1, 1.0, True, False),
+            (1, 2.0, True, False),
+            (2, 1.0, True, False),
+            (2, 1.5, True, False),
+        ]
+    )
+    cora = _levels_frame(
+        [
+            # The same levels, with pressures a conversion apart.
+            (0, 1.0001, True, False),
+            (0, 1.9999, True, False),
+            (1, 1.0, True, False),
+            (1, 1.0, True, False),
+            (1, 2.0, True, False),
+            (1, 2.0, True, False),
+            (2, 1.0, True, False),
+            (2, 1.6, True, True),
+        ]
+    )
+    result = compare_levels(nrt, cora)
+    kinds = dict(zip(result["kinds"]["kind"], result["kinds"]["n_pairs"]))
+    assert kinds == {"compared_removed": 1, "compared_doubled": 1, "both_differ": 1}
+    levels = {
+        (r["side"], r["position"], r["content"]): r["n_levels"]
+        for r in result["levels"].iter_rows(named=True)
+    }
+    assert levels == {
+        ("dataset", "bottom", "no_value"): 1,
+        ("dataset", "bottom", "good_value"): 1,
+        ("compared", "inside", "repeat"): 2,
+        ("compared", "bottom", "flagged_bad"): 1,
+    }
 
 
 def _two_dataset_config(tmp_path, delayed=None):

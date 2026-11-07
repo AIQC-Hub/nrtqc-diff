@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   CORA: how many pairs differ in their number of observations, by how much,
   on which side, and at which end of the profile. Profiles are matched
   within 0.001° rather than on rounded positions, which ctddump's rounding
-  splits at a boundary.
+  splits at a boundary. The mismatched pairs are compared level by level:
+  which levels one version lacks, where they sit, and what they hold.
 
 - The Depth page's coast scatter draws one point per position, sized by
   its land profiles, marks positions given in whole degrees, and explains

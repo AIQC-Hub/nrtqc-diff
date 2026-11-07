@@ -336,28 +336,78 @@ meta ? app.analysisFigure(
 ) : html``
 ```
 
-Where in the profile the two versions differ: in the deepest observation,
-the shallowest, both, or neither, in which case the ends agree and the
-difference is between them.
+#### Level by level
+
+The mismatched pairs, compared level by level. The levels of the two
+versions are matched by pressure, within 0.05 dbar: a pressure converted
+from depth can differ in its last digits between the two versions, so
+exact pressures would split one level in two. A level held twice in one
+version and once in the other counts as one extra level.
+
+First, how the two versions of each mismatched pair relate: one is the
+other with levels removed, one holds every level of the other exactly
+twice, or each has levels the other lacks.
 
 ```{ojs}
 meta ? app.analysisFigure(
-  "conversion_match_ends",
-  "Mismatched pairs by which end of the profile differs between the two versions, split by the side with more observations. An end differs when its pressures are more than 0.5 dbar apart. The number is the pairs in the row.",
-  "Stacked bars per NRT product and side of mismatched pairs by the end that differs."
+  "conversion_match_kinds",
+  "Mismatched pairs by how the levels of their two versions relate. The number is the mismatched pairs of the product.",
+  "Stacked bars per NRT product of mismatched pairs by how the two versions' levels relate."
 ) : html``
 ```
 
-Three patterns stand out:
+Then the levels found in one version only: where they sit against the
+levels the two versions share (above the shallowest, between, below the
+deepest, or in a pair with no level in common), and what they hold. "No
+value" is a level where no compared variable has a value; "repeat" is a
+second level at a pressure the other version holds once.
 
-- **One more observation in NRT, at the bottom.** The commonest mismatch:
-  the CORA version lacks the deepest observation of the NRT one.
-- **Many more in CORA, with the same ends.** Mostly in the Arctic part of
-  the global NRT product: hundreds more observations over the same depth
-  range, which suggests the NRT version is a thinned copy of the cast and
-  CORA holds it at full vertical resolution.
-- **A few more in NRT, with the same ends.** Observations missing from
-  inside the CORA version, as in much of the Baltic.
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_match_levels",
+  "Levels found in only one version of a mismatched pair, by where they sit against the shared levels and what they hold, as a share of the row. Each row is one side of one NRT product's comparison with the CORA of its region; the number of levels is in brackets.",
+  "Stacked bars per NRT product and side of levels in one version only, in four panels by position."
+) : html``
+```
+
+```{ojs}
+matchKinds = meta ? app.loadAnalysisTable("conversion_match_kinds") : null
+kindKeys = [
+  ["compared_removed", "CORA lacks levels NRT has"],
+  ["dataset_removed", "NRT lacks levels CORA has"],
+  ["compared_doubled", "CORA holds every level twice"],
+  ["dataset_doubled", "NRT holds every level twice"],
+  ["both_differ", "Each has levels the other lacks"]
+]
+meta ? table(
+  matchKinds
+    ? app.widen(matchKinds, { index: ["dataset_id"], column: "kind", value: "n_pairs" })
+        .map((r) => ({ ...r, key: r.dataset_id })).sort(byDataset)
+    : [],
+  [
+    { key: "dataset_id", label: "Product", align: "left", format: name },
+    ...kindKeys.map(([key, label]) => ({ key, label }))
+  ]
+) : html``
+```
+
+What the comparison shows:
+
+- **CORA is the NRT profile with levels removed.** The commonest relation
+  in every product, and nearly the only one in the Baltic. What CORA leaves
+  out is mostly levels with no value: empty levels at the top and bottom of
+  the Arctic regional profiles, and inside the Baltic ones. In the Arctic
+  regional product it also leaves out deepest levels that do hold a value.
+- **CORA holds every level twice.** In the Arctic part of the global
+  product, a group of pairs where each level of the NRT version appears
+  twice in CORA, at the same pressure; in the case looked at in detail,
+  with the same values too. These tables cannot tell whether CORA's files hold the
+  cast twice or the conversion reads it twice; it is worth checking in
+  ctddump. The Mediterranean part of the global product has the same in
+  the other direction: pairs where NRT holds every level twice.
+- **Levels with good values that one version lacks.** Between the shared
+  levels in the global products, in both directions: the two versions of
+  these casts are sampled at different levels.
 
 The platforms with mismatched pairs, per product:
 

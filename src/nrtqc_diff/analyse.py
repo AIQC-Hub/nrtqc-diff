@@ -33,7 +33,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import polars as pl
 
@@ -70,7 +70,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 3
+ANALYSES_FORMAT: int = 4
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -208,7 +208,9 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     overlap = overlap_table(profiles, config)
     if overlap.height:
         tables["conversion_overlap"] = overlap
-    tables.update(match_tables(profiles, config))
+    tables.update(
+        match_tables(profiles, config, {d.id: _scan(d, spec) for d in config.datasets})
+    )
 
     meta = _write(tables, config, spec)
     if verbose:
@@ -282,7 +284,6 @@ def profile_summary(
         pl.len().cast(pl.Int64).alias("n_obs"),
         elevation(spec).max().alias("elevation"),
         pl.col("pres").cast(pl.Float64, strict=False).max().alias("pres_max"),
-        pl.col("pres").cast(pl.Float64, strict=False).min().alias("pres_min"),
     ]
     aggregations += [pl.col(c).first() for c in OPTIONAL_FIRST_COLUMNS if c in names]
     if "dist_to_coast" in names:
@@ -905,10 +906,6 @@ MATCH_TOLERANCE_DEG: float = 0.001
 #: stops early once a round finds nothing new.
 MATCH_ROUNDS: int = 5
 
-#: Pressure (dbar) by which the shallowest or deepest observation of two
-#: matched profiles must differ for an end to count as different.
-MATCH_PRESSURE_TOLERANCE: float = 0.5
-
 #: Classes of the difference in observations between matched profiles, as
 #: ``(label, lowest, highest)`` with None for unbounded.
 MATCH_DIFFERENCE_BINS: List[tuple] = [
@@ -927,8 +924,6 @@ _MATCH_COLUMNS: List[str] = [
     "platform_code",
     "profile_no",
     "n_obs",
-    "pres_min",
-    "pres_max",
     "profile_timestamp",
 ]
 
@@ -1110,25 +1105,201 @@ def _difference_bin() -> pl.Expr:
     return expr.otherwise(pl.lit(None, pl.Utf8))
 
 
-def _differing_end() -> pl.Expr:
-    """Which end of two matched profiles differs: top, bottom, both or neither."""
-    top = (pl.col("pres_min") - pl.col("pres_min_c")).abs() > MATCH_PRESSURE_TOLERANCE
-    bottom = (
-        pl.col("pres_max") - pl.col("pres_max_c")
-    ).abs() > MATCH_PRESSURE_TOLERANCE
+#: Pressures (dbar) of two versions of a cast closer than this are the same
+#: level. A pressure converted from depth can differ in its last digits
+#: between the two (0.0001 dbar near the surface, more at depth), so exact
+#: or rounded pressures would split one level in two; real levels are
+#: normally 0.1 dbar or more apart.
+LEVEL_PRESSURE_TOLERANCE: float = 0.05
+
+
+def _levels(
+    scan: pl.LazyFrame, keys: pl.DataFrame, config: BuildConfig
+) -> pl.DataFrame:
+    """
+    The levels of some profiles of one dataset, reduced to what is compared.
+
+    One row per level: its pressure, whether it holds a value of a compared
+    variable, and whether the input flagged it bad. The profiles are picked
+    by a join on ``keys``, which holds a few thousand pairs at most, so the
+    scan streams the file once.
+
+    :param scan: The dataset.
+    :param keys: ``pair``, ``platform_code`` and ``profile_no`` to fetch.
+    :param config: The build configuration, for the variables.
+    :return: ``pair``, ``_pres``, ``_value`` and ``_bad``.
+    """
+    value = pl.any_horizontal(
+        [
+            pl.col(v.name).cast(pl.Float64, strict=False).is_not_null()
+            & pl.col(v.name).cast(pl.Float64, strict=False).is_not_nan()
+            for v in config.variables
+        ]
+    )
+    bad = pl.any_horizontal(
+        [is_one_of(original_flag(v), v.bad_flag_values) for v in config.variables]
+    )
     return (
-        pl.when(top & bottom)
-        .then(pl.lit("both_ends"))
-        .when(top)
-        .then(pl.lit("top"))
-        .when(bottom)
-        .then(pl.lit("bottom"))
-        .otherwise(pl.lit("inside"))
+        scan.with_columns(pl.col("platform_code").cast(pl.Utf8))
+        .join(keys.lazy(), on=["platform_code", "profile_no"], how="inner")
+        .select(
+            "pair",
+            pl.col("pres").cast(pl.Float64, strict=False).alias("_pres"),
+            value.alias("_value"),
+            bad.fill_null(False).alias("_bad"),
+        )
+        .collect(engine="streaming")
     )
 
 
+def _level_groups(mine: pl.DataFrame, theirs: pl.DataFrame) -> pl.DataFrame:
+    """
+    The levels of both versions of each pair, grouped where they coincide.
+
+    Both versions' pressures are sorted together; a new group starts where
+    the gap to the previous pressure is more than
+    :data:`LEVEL_PRESSURE_TOLERANCE`. A group then holds a level of each
+    version that is the same level, plus any repeats.
+
+    :return: One row per pair and group: ``_p`` (its shallowest pressure),
+             ``_n`` and ``_n_c`` (its levels in each version), and
+             ``_value``, ``_bad``, ``_value_c``, ``_bad_c``.
+    """
+    both = (
+        pl.concat(
+            [
+                mine.with_columns(pl.lit(0).alias("_side")),
+                theirs.with_columns(pl.lit(1).alias("_side")),
+            ]
+        )
+        .drop_nulls("_pres")
+        .sort("pair", "_pres")
+        .with_columns(
+            (
+                (pl.col("_pres") - pl.col("_pres").shift(1).over("pair")).fill_null(
+                    float("inf")
+                )
+                > LEVEL_PRESSURE_TOLERANCE
+            )
+            .cum_sum()
+            .over("pair")
+            .alias("_group")
+        )
+    )
+    mine_side, theirs_side = pl.col("_side") == 0, pl.col("_side") == 1
+    return both.group_by("pair", "_group").agg(
+        pl.col("_pres").min().alias("_p"),
+        mine_side.sum().cast(pl.Int64).alias("_n"),
+        theirs_side.sum().cast(pl.Int64).alias("_n_c"),
+        pl.col("_value").filter(mine_side).any().alias("_value"),
+        pl.col("_bad").filter(mine_side).any().alias("_bad"),
+        pl.col("_value").filter(theirs_side).any().alias("_value_c"),
+        pl.col("_bad").filter(theirs_side).any().alias("_bad_c"),
+    )
+
+
+def compare_levels(mine: pl.DataFrame, theirs: pl.DataFrame) -> Dict[str, pl.DataFrame]:
+    """
+    Which levels of two versions of the same casts are in only one of them.
+
+    The levels of a pair are matched by pressure, within
+    :data:`LEVEL_PRESSURE_TOLERANCE` and counting repeats: a level held
+    twice in one version and once in the other leaves one level extra.
+    Each extra level is placed against the levels the two share (above
+    the shallowest, below the deepest, between, or with no level in
+    common) and described by what it holds: no value, a value the
+    input flagged bad, another level at a pressure the other version has
+    too (a repeat), or a good value. A pair is filed by how its two versions
+    relate: one is the other with levels removed, one holds every level of
+    the other exactly twice, or each has levels the other lacks.
+
+    :param mine: The first versions, from :func:`_levels`.
+    :param theirs: The second versions, the same way.
+    :return: ``levels``: extra levels by ``side`` (``dataset`` or
+             ``compared``), ``position`` and ``content``; and ``kinds``:
+             pairs by ``kind``.
+    """
+    both = _level_groups(mine, theirs)
+    shared = (
+        both.filter((pl.col("_n") > 0) & (pl.col("_n_c") > 0))
+        .group_by("pair")
+        .agg(pl.col("_p").min().alias("_lo"), pl.col("_p").max().alias("_hi"))
+    )
+    both = both.join(shared, on="pair", how="left")
+    position = (
+        pl.when(pl.col("_lo").is_null())
+        .then(pl.lit("no_common"))
+        .when(pl.col("_p") < pl.col("_lo"))
+        .then(pl.lit("top"))
+        .when(pl.col("_p") > pl.col("_hi"))
+        .then(pl.lit("bottom"))
+        .otherwise(pl.lit("inside"))
+    )
+    levels = []
+    for side, n, other, value, bad in (
+        ("dataset", "_n", "_n_c", "_value", "_bad"),
+        ("compared", "_n_c", "_n", "_value_c", "_bad_c"),
+    ):
+        content = (
+            pl.when(~pl.col(value).fill_null(False))
+            .then(pl.lit("no_value"))
+            .when(pl.col(bad).fill_null(False))
+            .then(pl.lit("flagged_bad"))
+            .when(pl.col(other) > 0)
+            .then(pl.lit("repeat"))
+            .otherwise(pl.lit("good_value"))
+        )
+        levels.append(
+            both.filter(pl.col(n) > pl.col(other))
+            .with_columns(
+                (pl.col(n) - pl.col(other)).alias("_extra"),
+                position.alias("position"),
+                content.alias("content"),
+            )
+            .group_by("position", "content")
+            .agg(
+                pl.col("_extra").sum().cast(pl.Int64).alias("n_levels"),
+                pl.col("pair").n_unique().cast(pl.Int64).alias("n_pairs"),
+            )
+            .with_columns(pl.lit(side).alias("side"))
+            .select("side", "position", "content", "n_levels", "n_pairs")
+        )
+    kinds = (
+        both.group_by("pair")
+        .agg(
+            (pl.col("_n") > pl.col("_n_c")).any().alias("_mine_extra"),
+            (pl.col("_n_c") > pl.col("_n")).any().alias("_theirs_extra"),
+            (pl.col("_n_c") == 2 * pl.col("_n")).all().alias("_theirs_doubled"),
+            (pl.col("_n") == 2 * pl.col("_n_c")).all().alias("_mine_doubled"),
+        )
+        .select(
+            pl.when(pl.col("_theirs_doubled"))
+            .then(pl.lit("compared_doubled"))
+            .when(pl.col("_mine_doubled"))
+            .then(pl.lit("dataset_doubled"))
+            .when(pl.col("_mine_extra") & ~pl.col("_theirs_extra"))
+            .then(pl.lit("compared_removed"))
+            .when(pl.col("_theirs_extra") & ~pl.col("_mine_extra"))
+            .then(pl.lit("dataset_removed"))
+            .when(pl.col("_mine_extra") & pl.col("_theirs_extra"))
+            .then(pl.lit("both_differ"))
+            .otherwise(pl.lit("same_pressures"))
+            .alias("kind")
+        )
+        .group_by("kind")
+        .agg(pl.len().cast(pl.Int64).alias("n_pairs"))
+        .sort("kind")
+    )
+    return {
+        "levels": pl.concat(levels).sort("side", "position", "content"),
+        "kinds": kinds,
+    }
+
+
 def match_tables(
-    profiles: pl.DataFrame, config: BuildConfig
+    profiles: pl.DataFrame,
+    config: BuildConfig,
+    scans: Optional[Dict[str, pl.LazyFrame]] = None,
 ) -> Dict[str, pl.DataFrame]:
     """
     How the same cast compares in an NRT product and a reprocessed one.
@@ -1138,22 +1309,25 @@ def match_tables(
     code, the date and the position (:func:`match_profiles`). A pair should
     be one cast in two versions, so its number of observations should be
     equal; where it is not, the tables say by how much, on which side, and
-    whether the shallowest or deepest observation differs.
+    which levels are in one version only (:func:`compare_levels`).
 
     :param profiles: One row per profile of every dataset, with ``n_obs``,
-                     ``pres_min`` and ``pres_max``.
+                     the observation counts and positions.
     :param config: The build configuration.
+    :param scans: The datasets by id, to compare the levels of mismatched
+                  pairs; without them the level tables are left out.
     :return: ``conversion_match`` (one row per pair of products),
              ``conversion_match_difference`` (pairs by the difference in
-             observations), ``conversion_match_ends`` (mismatched pairs by
-             the end that differs) and ``conversion_match_platforms`` (the
-             platforms with mismatched pairs).
+             observations), ``conversion_match_platforms`` (the platforms
+             with mismatched pairs), ``conversion_match_levels`` (levels in
+             one version only) and ``conversion_match_kinds`` (mismatched
+             pairs by how their versions relate).
     """
-    needed = {"profile_timestamp", "longitude", "latitude", "pres_min", "pres_max"}
+    needed = {"profile_timestamp", "longitude", "latitude", "n_obs"}
     if not needed <= set(profiles.columns):
         return {}
     present = set(profiles["dataset_id"].unique().to_list())
-    summary, difference, ends, platforms = [], [], [], []
+    summary, difference, platforms, levels, kinds = [], [], [], [], []
     for reference, other in _region_pairs(config, present):
         if reference.data_mode is not None or other.data_mode != DELAYED:
             continue
@@ -1198,19 +1372,28 @@ def match_tables(
             .sort("difference_order")
             .select(*labels, pl.all())
         )
-        ends.append(
-            differ.with_columns(
-                pl.when(pl.col("_dn") > 0)
-                .then(pl.lit("dataset"))
-                .otherwise(pl.lit("compared"))
-                .alias("more_in"),
-                _differing_end().alias("end"),
+        if scans is not None and differ.height:
+            keyed = differ.with_row_index("pair").with_columns(
+                pl.col("pair").cast(pl.Int64)
             )
-            .group_by("more_in", "end")
-            .agg(pl.len().cast(pl.Int64).alias("n_profiles"))
-            .sort("more_in", "end", descending=[True, False])
-            .select(*labels, pl.all())
-        )
+            compared = compare_levels(
+                _levels(
+                    scans[reference.id],
+                    keyed.select("pair", "platform_code", "profile_no"),
+                    config,
+                ),
+                _levels(
+                    scans[other.id],
+                    keyed.select(
+                        "pair",
+                        "platform_code",
+                        pl.col("profile_no_c").alias("profile_no"),
+                    ),
+                    config,
+                ),
+            )
+            levels.append(compared["levels"].select(*labels, pl.all()))
+            kinds.append(compared["kinds"].select(*labels, pl.all()))
         platforms.append(
             pairs.group_by("platform_code")
             .agg(
@@ -1234,8 +1417,9 @@ def match_tables(
     tables = {
         "conversion_match": stack(summary),
         "conversion_match_difference": stack(difference),
-        "conversion_match_ends": stack(ends),
         "conversion_match_platforms": stack(platforms),
+        "conversion_match_levels": stack(levels),
+        "conversion_match_kinds": stack(kinds),
     }
     return {name: table for name, table in tables.items() if table.height}
 

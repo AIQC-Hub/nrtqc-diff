@@ -136,7 +136,8 @@ name or columns.
 | `conversion_overlap` | dataset, compared dataset of its region | its profiles the other also has, matched on the date and positions within 0.001° (see below), with the platform code and without |
 | `conversion_match` | NRT dataset, CORA dataset of its region | pairs of the same cast on the same platform: how many, how many with the same number of observations, on which side there are more, how close their times are |
 | `conversion_match_difference` | NRT dataset, CORA dataset, difference class | mismatched pairs by observations in NRT minus observations in CORA |
-| `conversion_match_ends` | NRT dataset, CORA dataset, side, end | mismatched pairs by the side with more and the end that differs (`top`, `bottom`, `both_ends`, `inside`) |
+| `conversion_match_kinds` | NRT dataset, CORA dataset, kind | mismatched pairs by how their versions' levels relate: `compared_removed` (CORA is NRT with levels removed), `dataset_removed`, `compared_doubled` (CORA holds every level twice), `dataset_doubled`, `both_differ` |
+| `conversion_match_levels` | NRT dataset, CORA dataset, side, position, content | levels in one version only (`side`), by `position` against the shared levels (`top`, `inside`, `bottom`, `no_common`) and `content` (`no_value`, `flagged_bad`, `repeat`, `good_value`), with the pairs they are in |
 | `conversion_match_platforms` | NRT dataset, CORA dataset, platform | platforms with mismatched pairs, with the median difference |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
 | `depth_summary` | dataset | profiles, land profiles, and what the input flagged on them |
@@ -172,6 +173,14 @@ code is not part of the match a partner on the same platform is preferred.
 "The same cast in NRT and CORA" pairs each product with the products of its
 region configured as `data_mode: delayed`, on the platform code too.
 
+The pairs whose numbers of observations differ are then compared level by
+level, reading only their observations from the two files. Levels are
+matched by pressure within 0.05 dbar: a pressure converted from depth
+differs in its last digits between the versions, so exact or rounded
+pressures split one level in two (in the Baltic, most of the apparent
+differences). Both versions' pressures are sorted together and a new level
+starts at a gap of more than the tolerance, which keeps repeats countable.
+
 ## The figures
 
 Each figure is written twice, as SVG for the site and PDF for the
@@ -180,7 +189,7 @@ the theme, the palettes and `save_figure()`.
 
 | Script | Figures |
 | --- | --- |
-| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_overlap`, `conversion_match_difference`, `conversion_match_ends` |
+| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_overlap`, `conversion_match_difference`, `conversion_match_kinds`, `conversion_match_levels` |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_coast` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |

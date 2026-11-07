@@ -180,31 +180,75 @@ if (!is.null(difference)) {
   save_figure(plot, "conversion_match_difference", height = 120)
 }
 
-ends <- read_table("conversion_match_ends")
-if (!is.null(ends)) {
+# The mismatched pairs compared level by level: how the two versions of a
+# cast relate, and what the levels found in one version only hold.
+kinds <- read_table("conversion_match_kinds")
+if (!is.null(kinds)) {
   short_of <- setNames(datasets$short, datasets$id)
-  end_colours <- c("Deepest observation" = "#6250d6", "Shallowest observation" = "#eb6834",
-                   "Both ends" = "#2a78d6", "Neither end" = "#9a9a9a")
-  end_names <- c(bottom = "Deepest observation", top = "Shallowest observation",
-                 both_ends = "Both ends", inside = "Neither end")
-  ends <- ends |>
+  kind_colours <- c(
+    "CORA lacks levels NRT has" = "#2a78d6",
+    "NRT lacks levels CORA has" = "#1baf7a",
+    "CORA holds every level twice" = "#6250d6",
+    "NRT holds every level twice" = "#cc3355",
+    "Each has levels the other lacks" = "#eb6834"
+  )
+  kind_names <- setNames(names(kind_colours), c("compared_removed", "dataset_removed",
+                                                "compared_doubled", "dataset_doubled",
+                                                "both_differ"))
+  kinds <- kinds |>
+    filter(kind %in% names(kind_names)) |>
     with_datasets() |>
-    mutate(
-      pair = paste0(short, " in ", short_of[compared_id]),
-      side = if_else(more_in == "dataset", "NRT has more", "CORA has more"),
-      row = factor(paste0(pair, "|", side), levels = rev(unique(paste0(pair, "|", side)))),
-      end = factor(unname(end_names[end]), levels = names(end_colours))
-    )
-  totals <- ends |> group_by(row) |> summarise(n = sum(n_profiles), .groups = "drop")
-  plot <- ggplot(ends, aes(n_profiles, row, fill = end)) +
+    mutate(pair = paste0(short, " in ", short_of[compared_id]),
+           pair = factor(pair, levels = rev(unique(pair))),
+           kind = factor(unname(kind_names[kind]), levels = names(kind_colours)))
+  totals <- kinds |> group_by(pair) |> summarise(n = sum(n_pairs), .groups = "drop")
+  plot <- ggplot(kinds, aes(n_pairs, pair, fill = kind)) +
     geom_col(width = 0.7, colour = "white", linewidth = 0.3,
              position = position_fill(reverse = TRUE)) +
-    geom_text(data = totals, inherit.aes = FALSE, aes(1, row, label = comma(n)),
+    geom_text(data = totals, inherit.aes = FALSE, aes(1, pair, label = comma(n)),
               hjust = -0.15, size = 2.3) +
-    scale_fill_manual(values = end_colours, drop = FALSE) +
-    scale_y_discrete(labels = function(x) sub("\\|", ": ", x)) +
+    scale_fill_manual(values = kind_colours, drop = FALSE) +
     scale_x_continuous(labels = label_percent(), expand = expansion(mult = c(0, 0.1))) +
-    labs(x = "Mismatched pairs, by where in the profile the two differ", y = NULL,
+    guides(fill = guide_legend(nrow = 2)) +
+    labs(x = "Mismatched pairs, by how the two versions' levels relate", y = NULL,
          fill = NULL)
-  save_figure(plot, "conversion_match_ends", height = 80)
+  save_figure(plot, "conversion_match_kinds", height = 62)
+}
+
+levels_only <- read_table("conversion_match_levels")
+if (!is.null(levels_only)) {
+  short_of <- setNames(datasets$short, datasets$id)
+  content_colours <- c("Good value" = "#2a78d6", "Flagged bad by the input" = "#cc3355",
+                       "Repeat of a shared pressure" = "#6250d6", "No value" = "#9a9a9a")
+  content_names <- setNames(names(content_colours),
+                            c("good_value", "flagged_bad", "repeat", "no_value"))
+  position_names <- c(top = "Above", inside = "Between", bottom = "Below",
+                      no_common = "No level shared")
+  levels_only <- levels_only |>
+    with_datasets() |>
+    mutate(
+      # The comparison is always with the CORA of the region, so the row
+      # names only the NRT product and the side.
+      row = paste0(short, ", only in ", if_else(side == "dataset", "NRT", "CORA")),
+      row = factor(row, levels = rev(unique(row))),
+      content = factor(unname(content_names[content]), levels = names(content_colours)),
+      position = factor(unname(position_names[position]), levels = position_names)
+    ) |>
+    group_by(row) |>
+    mutate(share = n_levels / sum(n_levels),
+           row = paste0(row, " (", comma(sum(n_levels)), ")")) |>
+    ungroup() |>
+    mutate(row = factor(row, levels = rev(unique(row))))
+  plot <- ggplot(levels_only, aes(share, row, fill = content)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.2,
+             position = position_stack(reverse = TRUE)) +
+    facet_grid(. ~ position) +
+    scale_fill_manual(values = content_colours, drop = FALSE) +
+    scale_x_continuous(labels = label_percent(), limits = c(0, 1), breaks = c(0, 0.5),
+                       expand = expansion(0)) +
+    guides(fill = guide_legend(nrow = 2)) +
+    labs(x = "Levels in one version only, share of the row, by where they sit against the shared levels",
+         y = NULL, fill = NULL) +
+    theme(panel.spacing.x = unit(4, "mm"))
+  save_figure(plot, "conversion_match_levels", height = 85)
 }
