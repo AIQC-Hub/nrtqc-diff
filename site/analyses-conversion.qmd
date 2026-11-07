@@ -34,10 +34,11 @@ meta === null ? app.analysesMissing() : html``
 ctddump drops, in this order: profiles whose time or position its source
 flags as bad, profiles with no value in any variable, profiles outside the
 product's region (the global product covers the world, and only its part
-of the region is kept), and duplicate profiles. Duplicates are profiles of
-one platform at the same time and place, or of different platforms with the
-same values. The last step is what reached the nrtqclib output, which should
-equal what ctddump kept: seastamp adds columns, not rows.
+of the region is kept), and duplicate profiles, which have
+[a section of their own](#duplicates-within-a-product). What is left after
+the last step is what nrtqclib checked: seastamp adds columns, not rows, and
+the analyses check that each nrtqclib output holds exactly the profiles and
+observations ctddump kept.
 
 ```{ojs}
 steps = meta ? app.loadAnalysisTable("conversion_steps") : null
@@ -49,7 +50,7 @@ stepRows = steps
   : []
 meta ? app.analysisFigure(
   "conversion_steps",
-  "Profiles left after each ctddump step, as a share of the profiles converted. The last point is what reached the nrtqclib output.",
+  "Profiles left after each ctddump step, as a share of the profiles converted. The last point is what nrtqclib checked.",
   "Line chart of the share of profiles kept after each step, one panel per region."
 ) : html``
 ```
@@ -57,7 +58,7 @@ meta ? app.analysisFigure(
 ```{ojs}
 stepHeadings = ({
   convert: "Converted", dropqc: "After QC", dropna: "After all missing",
-  filter: "In region", dedup: "Without duplicates", nrtqc: "In nrtqclib"
+  filter: "In region", dedup: "Without duplicates"
 })
 meta ? table(stepRows, [
   { key: "name", label: "Product", align: "left", format: (v) => v },
@@ -102,49 +103,184 @@ meta ? table(fileRows, [
 
 ## Data modes
 
-The data mode of every temperature observation, as converted and as kept. A
-profile with a delayed mode observation is compared separately on the rest
-of the site, because its input flags are likely to be an operator's: see
-[NRT and delayed mode](analyses-data-mode.qmd). CORA is filed there whole
-whatever its data mode says, because CORA's flags come from its own
-reprocessing.
+The data mode of every temperature observation, at the two ends of the
+pipeline: as converted (step 1) and as kept (after step 5, the profiles
+nrtqclib checked). A profile with a delayed mode observation is compared
+separately on the rest of the site, because its input flags are likely to be
+an operator's: see [NRT and delayed mode](analyses-data-mode.qmd). CORA is
+filed there whole whatever its data mode says, because CORA's flags come
+from its own reprocessing.
 
 ```{ojs}
 meta ? app.analysisFigure(
   "conversion_data_mode",
-  "Temperature observations by data mode, as converted and as kept by ctddump. Unknown means the file gives no usable mode.",
+  "Temperature observations by data mode, as converted (step 1) and as kept (after step 5). No data mode: the file gives none for the observation.",
   "Stacked bars of the data mode share per product, before and after cleaning."
 ) : html``
 ```
 
-## Duplicates and overlap between products
+**No data mode.** ctddump gives every observation of every variable a data
+mode: R (real time), A (adjusted in real time) or D (delayed mode). It takes
+it from the file's data mode per level (such as `TEMP_DM`), failing that from
+the variable's `data_mode` attribute, and for CORA from the data mode of the
+profile. When none of those says R, A or D, the observation has no data
+mode. Here that happens in two ways:
+
+- **At a level with no value.** The per level data mode is empty wherever the
+  variable itself is, so a missing value comes with a missing data mode. This
+  is nearly all of what the NRT products show, and the cleaning steps remove
+  most of it with the empty levels.
+- **In files that give none.** Some Baltic CORA files have no data mode at
+  all, and every observation in them has none.
+
+The first kind says nothing about the profile, so the groups on the rest of
+the site count a missing data mode only where the variable has a value. The
+table gives the counts the shares above hide.
 
 ```{ojs}
-dups = meta ? app.loadAnalysisTable("conversion_duplicates") : null
-meta ? table((dups ?? []).sort(byDataset).map((r) => ({ ...r, key: r.dataset_id, name: name(r.dataset_id) })), [
-  { key: "name", label: "Product", align: "left", format: (v) => v },
-  { key: "n_profiles", label: "Profiles" },
-  { key: "n_duplicate_profiles", label: "Duplicates" },
-  { key: "share", label: "Share", format: (_, r) => app.formatShare(r.n_duplicate_profiles, r.n_profiles) },
-  { key: "n_platforms_with_duplicates", label: "Platforms with any" },
-  { key: "n_platforms", label: "Platforms" }
+modeCounts = meta ? app.loadAnalysisTable("conversion_data_mode") : null
+noModeRows = modeCounts
+  ? app.widen(
+      modeCounts.filter((r) => r.variable === "temp"),
+      { index: ["dataset_id"], column: "step", value: "n_obs", name: (s) => s }
+    ).map((row) => {
+      const of = (step, empty) => modeCounts
+        .filter((r) => r.dataset_id === row.dataset_id && r.variable === "temp" && r.step === step && (((r.data_mode ?? "") === "") === empty))
+        .reduce((sum, r) => sum + r.n_obs, 0);
+      return {
+        key: row.dataset_id, dataset_id: row.dataset_id,
+        convert_none: of("convert", true), convert_all: row.convert,
+        dedup_none: of("dedup", true), dedup_all: row.dedup
+      };
+    }).sort(byDataset)
+  : []
+meta ? table(noModeRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "convert_none", label: "No data mode, converted" },
+  { key: "convert_share", label: "Share", format: (_, r) => app.formatShare(r.convert_none, r.convert_all) },
+  { key: "dedup_none", label: "No data mode, kept" },
+  { key: "dedup_share", label: "Share", format: (_, r) => app.formatShare(r.dedup_none, r.dedup_all) }
 ]) : html``
 ```
 
-ctddump also matches the products of one region profile by profile. A row
-reads from the reference's side: how many of its profiles the other product
-also has, and how often a matched profile has the same number of
-observations in both.
+## Duplicates within a product
+
+Step 5 treats two profiles of one product as duplicates when they were
+taken on the same date at the same position, rounded to three decimals of a
+degree (about 100 m or less). The platform code is not part of the match, so
+a duplicate can be one of two kinds:
+
+- **Within one platform:** every profile of the group carries the same
+  platform code. One platform reported the same cast more than once.
+- **Across platforms:** the group carries two or more platform codes. The
+  same cast reached the product under different names.
+
+Of each group ctddump keeps the profile with the most observations and
+removes the rest, so a group of two loses one profile.
 
 ```{ojs}
+meta ? app.analysisFigure(
+  "conversion_duplicates",
+  "Profiles removed as duplicates, as a share of the profiles in the region before step 5, by whether their group stays on one platform. The label gives the total and, in brackets, the number removed.",
+  "Stacked bars per product of the share of profiles removed as duplicates, split within one platform and across platforms."
+) : html``
+```
+
+```{ojs}
+dups = meta ? app.loadAnalysisTable("conversion_duplicates") : null
+dupKinds = meta ? app.loadAnalysisTable("conversion_dup_kinds") : null
+kindOf = (id, kind, field) => (dupKinds ?? []).filter((r) => r.dataset_id === id && r.kind === kind).reduce((s, r) => s + r[field], 0)
+dupRows = (dups ?? []).map((r) => ({
+  ...r, key: r.dataset_id,
+  within_removed: kindOf(r.dataset_id, "within", "n_removed"),
+  across_removed: kindOf(r.dataset_id, "across", "n_removed")
+})).map((r) => ({ ...r, removed: r.within_removed + r.across_removed })).sort(byDataset)
+meta ? table(dupRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "n_profiles", label: "Profiles", title: "Profiles in the region, before step 5" },
+  { key: "n_duplicate_profiles", label: "In a group", title: "Profiles sharing their date and position with another, the one kept included" },
+  { key: "removed", label: "Removed" },
+  { key: "share", label: "Share removed", format: (_, r) => app.formatShare(r.removed, r.n_profiles) },
+  { key: "within_removed", label: "Within one platform", title: "Removed from groups on one platform" },
+  { key: "across_removed", label: "Across platforms", title: "Removed from groups spanning two or more platforms" },
+  { key: "n_platforms_with_duplicates", label: "Platforms with any", format: (v, r) => `${app.formatCount(v)} of ${app.formatCount(r.n_platforms)}` }
+]) : html``
+```
+
+How large the groups are: the number of groups of each size, from two
+profiles up. A group of two is a cast recorded twice; larger ones are the
+same cast repeated more often.
+
+```{ojs}
+dupSizes = meta ? app.loadAnalysisTable("conversion_dup_sizes") : null
+sizeKeys = dupSizes ? [...new Map(dupSizes.map((r) => [r.size, r.size_label]))].sort((a, b) => a[0] - b[0]) : []
+sizeRows = dupSizes
+  ? app.widen(dupSizes, { index: ["dataset_id", "kind"], column: "size", value: "n_groups", name: (v) => `s${v}` })
+      .map((r) => ({ ...r, key: `${r.dataset_id}|${r.kind}` }))
+      .sort((a, b) => byDataset(a, b) || b.kind.localeCompare(a.kind))
+  : []
+meta ? table(sizeRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "kind", label: "Kind", align: "left", format: (v) => (v === "within" ? "Within one platform" : "Across platforms") },
+  ...sizeKeys.map(([size, label]) => ({ key: `s${size}`, label, title: `Groups of ${label} profiles` }))
+]) : html``
+```
+
+The platforms behind the duplicates across platforms: the sets of platform
+codes that share casts most often, per product.
+
+```{ojs}
+dupSets = meta ? app.loadAnalysisTable("conversion_dup_platforms") : null
+viewof setDataset = meta && dupSets
+  ? Inputs.select([...new Set(dupSets.map((r) => r.dataset_id))], { label: "Product", format: name })
+  : html``
+```
+
+```{ojs}
+meta && dupSets ? table(
+  dupSets.filter((r) => r.dataset_id === setDataset).map((r) => ({ ...r, key: r.platforms })),
+  [
+    { key: "platforms", label: "Platforms", align: "left", format: (v) => v, wrap: true },
+    { key: "n_groups", label: "Groups" },
+    { key: "n_profiles", label: "Profiles" },
+    { key: "n_removed", label: "Removed" }
+  ]
+) : html``
+```
+
+## Overlap between products
+
+The products of one region come from different streams, and part of what
+one holds the other holds too. A profile of one product is matched in
+another the way duplicates are found: same date, same rounded position. The
+match is made twice. With the platform code, as ctddump's own comparison of
+the products does, and on date and place alone, which also finds a cast the
+two products name differently.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_overlap",
+  "The share of the first product's profiles that the second also has. Dark: matched with the same platform code. Light: matched only on date and place, under a different code.",
+  "Stacked bars per pair of products of one region of the share of profiles they share."
+) : html``
+```
+
+A regional and a global NRT product share no platform code, so only the
+match on date and place can find what they have in common. Where it finds
+little, the two products hold different casts rather than the same casts
+under different names.
+
+```{ojs}
+overlap = meta ? app.loadAnalysisTable("conversion_overlap") : null
 compare = meta ? app.loadAnalysisTable("conversion_compare") : null
-meta ? table((compare ?? []).map((r) => ({ ...r, key: `${r.reference_id}|${r.compared_id}` })), [
-  { key: "reference_id", label: "Reference", align: "left", format: name },
-  { key: "compared_id", label: "Compared with", align: "left", format: name },
-  { key: "ref_profiles", label: "Profiles" },
-  { key: "matched_profiles", label: "Matched" },
-  { key: "profile_cov_pct", label: "Matched %", format: (v) => (v === null ? "" : `${v.toFixed(1)}%`) },
-  { key: "nobs_agree_pct", label: "Same length %", format: (v) => (v === null ? "" : `${v.toFixed(1)}%`) }
+sameLength = (ref, other) => (compare ?? []).find((c) => c.reference_id === ref && c.compared_id === other)?.nobs_agree_pct ?? null
+meta ? table((overlap ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}`, same_length: sameLength(r.dataset_id, r.compared_id) })), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "compared_id", label: "Also in", align: "left", format: name },
+  { key: "n_profiles", label: "Profiles" },
+  { key: "n_matched_same_platform", label: "Same platform code", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` },
+  { key: "n_matched_any_platform", label: "On date and place", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` },
+  { key: "same_length", label: "Same length", title: "Of the profiles matched with the platform code, the share with the same number of observations in both (from ctddump's comparison)", format: (v) => (v === null ? "" : `${v.toFixed(1)}%`) }
 ]) : html``
 ```
 

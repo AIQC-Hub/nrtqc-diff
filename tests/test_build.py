@@ -284,6 +284,22 @@ class TestDataMode:
         assert row["n_obs_delayed"].item() == 0
         assert row["n_obs_unknown"].item() == 2
 
+    def test_an_empty_data_mode_where_there_is_no_value_says_nothing(
+        self, tmp_path, nrt_qc_frame
+    ):
+        """ctddump leaves the data mode empty at a level with no value."""
+        frame = nrt_qc_frame.with_columns(
+            pl.when(pl.col("platform_code") == "MISSING")
+            .then(None)
+            .otherwise(pl.col("temp"))
+            .alias("temp")
+        )
+        build_site_data(_single_dataset_config(tmp_path, frame))
+        profiles = pl.read_parquet(tmp_path / "out" / "profiles.parquet")
+        row = profiles.filter(pl.col("platform_code") == "MISSING")
+        assert row["n_obs_unknown"].item() == 0
+        assert row["data_mode"].item() == NRT
+
     def test_a_delayed_value_outranks_an_empty_one(self, tmp_path, nrt_qc_frame):
         frame = nrt_qc_frame.with_columns(
             pl.when(pl.col("platform_code") == "INPUT")

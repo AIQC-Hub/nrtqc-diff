@@ -201,6 +201,127 @@ def duplicate_table(config: BuildConfig, reports: str) -> pl.DataFrame:
     return _concat(frames)
 
 
+#: Duplicate groups larger than this are pooled into one size class.
+DUP_SIZE_CAP: int = 10
+
+#: How many across-platform platform sets to keep per dataset, commonest
+#: first. The rest are summed into a row of their own.
+DUP_PLATFORM_SETS: int = 15
+
+
+def _duplicate_groups(path: str) -> pl.DataFrame:
+    """
+    The duplicate groups of one ctddump ``.dups.tsv``, one row per group.
+
+    A group is ``within`` one platform when all its profiles carry the same
+    platform code, and ``across`` platforms otherwise. ``dedup`` keeps one
+    profile of each group, so a group of ``n`` loses ``n - 1``.
+
+    :param path: The duplicates list ``markdup`` wrote.
+    :return: ``dup_group``, ``n_profiles``, ``n_platforms``, ``platforms``
+             (the sorted codes joined by `` + ``) and ``kind``.
+    """
+    return (
+        _read_tsv(path)
+        .group_by("dup_group")
+        .agg(
+            pl.len().cast(pl.Int64).alias("n_profiles"),
+            pl.col("platform_code").n_unique().cast(pl.Int64).alias("n_platforms"),
+            pl.col("platform_code").unique().sort().str.join(" + ").alias("platforms"),
+        )
+        .with_columns(
+            pl.when(pl.col("n_platforms") == 1)
+            .then(pl.lit("within"))
+            .otherwise(pl.lit("across"))
+            .alias("kind")
+        )
+    )
+
+
+def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFrame]:
+    """
+    Duplicates within one platform and across platforms, from ctddump's lists.
+
+    :param config: The build configuration.
+    :param dups: The directory holding ``<stem>.dups.tsv``.
+    :return: ``conversion_dup_kinds`` (one row per dataset and kind),
+             ``conversion_dup_sizes`` (per dataset, kind and group size, the
+             sizes above :data:`DUP_SIZE_CAP` pooled) and
+             ``conversion_dup_platforms`` (the commonest platform sets behind
+             the across-platform groups).
+    """
+    kinds, sizes, sets = [], [], []
+    for spec in _sourced(config):
+        path = os.path.join(dups, f"{spec.source}.dups.tsv")
+        if not os.path.isfile(path):
+            continue
+        groups = _duplicate_groups(path)
+        labels = _label_columns(spec)
+        kinds.append(
+            groups.group_by("kind")
+            .agg(
+                pl.len().cast(pl.Int64).alias("n_groups"),
+                pl.col("n_profiles").sum().alias("n_profiles"),
+                (pl.col("n_profiles") - 1).sum().alias("n_removed"),
+            )
+            .sort("kind", descending=True)
+            .select(labels + [pl.all()])
+        )
+        sizes.append(
+            groups.with_columns(
+                pl.col("n_profiles").clip(upper_bound=DUP_SIZE_CAP + 1).alias("size")
+            )
+            .group_by("kind", "size")
+            .agg(
+                pl.len().cast(pl.Int64).alias("n_groups"),
+                pl.col("n_profiles").sum().alias("n_profiles"),
+            )
+            .with_columns(
+                pl.when(pl.col("size") > DUP_SIZE_CAP)
+                .then(pl.lit(f"{DUP_SIZE_CAP + 1}+"))
+                .otherwise(pl.col("size").cast(pl.Utf8))
+                .alias("size_label")
+            )
+            .sort("kind", "size", descending=[True, False])
+            .select(labels + [pl.all()])
+        )
+        across = (
+            groups.filter(pl.col("kind") == "across")
+            .group_by("platforms")
+            .agg(
+                pl.col("n_platforms").first(),
+                pl.len().cast(pl.Int64).alias("n_groups"),
+                pl.col("n_profiles").sum().alias("n_profiles"),
+                (pl.col("n_profiles") - 1).sum().alias("n_removed"),
+            )
+            .sort(["n_groups", "platforms"], descending=[True, False])
+            .with_row_index("rank", offset=1)
+        )
+        top = across.filter(pl.col("rank") <= DUP_PLATFORM_SETS)
+        rest = across.filter(pl.col("rank") > DUP_PLATFORM_SETS)
+        if rest.height:
+            top = pl.concat(
+                [
+                    top,
+                    rest.select(
+                        pl.lit(None, pl.UInt32).alias("rank"),
+                        pl.lit(f"{rest.height} other sets").alias("platforms"),
+                        pl.lit(None, pl.Int64).alias("n_platforms"),
+                        pl.col("n_groups").sum(),
+                        pl.col("n_profiles").sum(),
+                        pl.col("n_removed").sum(),
+                    ),
+                ],
+                how="vertical_relaxed",
+            )
+        sets.append(top.select(labels + [pl.all()]))
+    return {
+        "conversion_dup_kinds": _concat(kinds),
+        "conversion_dup_sizes": _concat(sizes),
+        "conversion_dup_platforms": _concat(sets),
+    }
+
+
 def file_table(config: BuildConfig, reports: str) -> pl.DataFrame:
     """
     How many source files carry each variable ctddump reads.
@@ -405,6 +526,8 @@ def report_tables(config: BuildConfig) -> Dict[str, pl.DataFrame]:
         tables["conversion_file_data_mode"] = header_data_mode_table(
             config, spec.ctddump_headers
         )
+    if spec is not None and spec.ctddump_dups:
+        tables.update(duplicate_kind_tables(config, spec.ctddump_dups))
     if spec is not None and spec.seastamp_reports:
         tables["depth_stamp"] = stamp_table(config, spec.seastamp_reports)
     return {name: table for name, table in tables.items() if table.height}

@@ -86,7 +86,12 @@ ctddump reads the values and flags from the plain variables (`TEMP`,
 the file gives no usable one: a fill cell of a `<PARAM>_DM` variable, a
 parameter marked `M` (mixed) with no per-level variable, a parameter with no
 mode at all, a CORA file without `DATA_MODE`. An empty mode can therefore
-hide delayed mode data, and it does not mean the measurement is missing.
+hide delayed mode data.
+
+A `<PARAM>_DM` variable is also a fill wherever the parameter itself is, so
+a level with no value has an empty mode that says nothing about the file.
+An empty mode is therefore counted only where the parameter it describes has
+a value: `temp_dm` describes `temp`, by the name less its `_dm`.
 
 Every published profile belongs to exactly one group, computed at build time
 in `src/nrtqc_diff/data_mode.py` and stored as `data_mode`:
@@ -95,7 +100,7 @@ in `src/nrtqc_diff/data_mode.py` and stored as `data_mode`:
 | --- | --- | --- |
 | `nrt` | NRT only | Every observation is `R` or `A` in every configured data mode column |
 | `delayed` | Contains delayed mode | At least one observation is delayed in at least one column |
-| `unknown` | Data mode unknown | None is delayed, but at least one is empty in at least one column |
+| `unknown` | Data mode unknown | None is delayed, but at least one with a value is empty in at least one column |
 
 The order of the table is the order of the test: a delayed value decides
 the profile even when another cell of it is empty. "NRT only" takes positive
@@ -227,7 +232,7 @@ One row per published profile, across every dataset.
 | `data_mode` | str | `nrt`, `delayed` or `unknown`; see "The data mode groups" |
 | `n_obs` | i64 | Observations in the profile |
 | `n_obs_delayed` | i32 | Observations delayed in at least one data mode column |
-| `n_obs_unknown` | i32 | Observations empty in at least one data mode column |
+| `n_obs_unknown` | i32 | Observations empty in at least one data mode column whose parameter has a value |
 | `n_disagree` | i32 | Disagreements summed over variables; the default sort |
 | `{variable}_n_disagree` | i32 | `original_only` plus `nrtqclib_only` |
 | `{variable}_n_{category}` | i32 | One column per agreement category |

@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   key per dataset naming its ctddump and seastamp file stem.
 - `scripts/data_release.py` publishes and fetches `site/data/analyses/` with
   the rest of the data, when it is there.
+- The Data conversion page splits ctddump's duplicates into those within one
+  platform and those across platforms (from its `.dups.tsv` lists, named by
+  `analyses.ctddump_dups`), and matches the products of a region on date
+  and place with and without the platform code.
+
+### Fixed
+
+- An empty data mode at a level where the parameter has no value no longer
+  files a profile as "data mode unknown". ctddump leaves the data mode empty
+  wherever the value is, so such a profile is NRT if the rest of it is.
 
 ## [0.8.0] - 2026-11-07
 

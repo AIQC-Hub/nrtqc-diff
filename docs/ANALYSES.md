@@ -6,7 +6,7 @@ in R with ggplot2, rather than in the browser like the rest of the site.
 
 ```
 nrtqclib output (2.2 GB)  ──┐
-ctddump reports (TSV)       ├─ nrtqc-diff analyse ─→ site/data/analyses/tables/*.csv
+ctddump reports, dups (TSV) ├─ nrtqc-diff analyse ─→ site/data/analyses/tables/*.csv
 seastamp reports (TSV)    ──┘                      ─→ site/data/analyses/meta.json
                                                             │
                        Rscript analysis/run_all.R  ←────────┘
@@ -73,6 +73,7 @@ analyses:
   out_dir: ../site/data/analyses
   ctddump_reports: ../data/../ctddump/report
   ctddump_headers: ../data/../ctddump/header
+  ctddump_dups: ../data/../ctddump/dups
   seastamp_reports: ../data/../seastamp/report/stamp
   land:
     column: bathymetry      # the sea floor depth column of the NRT QC output
@@ -84,6 +85,10 @@ analyses:
     groups: [nrt, unknown]
     sensitivity: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 ```
+
+`ctddump_dups` holds the duplicate lists ctddump's `markdup` writes beside
+its data (`output/dedup/markdup/<stem>.dups.tsv`), not under `report/`: they
+are what tells a duplicate within one platform from one across platforms.
 
 The report folders are resolved through symbolic links before `..`: they sit
 next to the batch, which is reached through the `data` link, so
@@ -118,13 +123,17 @@ name or columns.
 
 | Table | One row per | Holds |
 | --- | --- | --- |
-| `conversion_steps` | dataset, ctddump step | platforms, profiles and observations left; the last step, `nrtqc`, is the nrtqclib output |
-| `conversion_data_mode` | dataset, step, variable, mode | observations per data mode, as converted and as kept |
-| `conversion_duplicates` | dataset | profiles ctddump marked as duplicates, and the platforms they are on |
+| `conversion_steps` | dataset, ctddump step | platforms, profiles and observations left. The last step is what nrtqclib checked: `analyse` warns if an output holds anything else |
+| `conversion_data_mode` | dataset, step, variable, mode | observations per data mode, as converted and as kept; the mode is empty where ctddump found none, missing levels included |
+| `conversion_duplicates` | dataset | profiles ctddump marked as duplicates (every member of a group, the one kept too), and the platforms they are on |
+| `conversion_dup_kinds` | dataset, kind | duplicate groups `within` one platform or `across` platforms: groups, profiles in them, profiles removed |
+| `conversion_dup_sizes` | dataset, kind, group size | groups of that many profiles; above 10 pooled as `11+` |
+| `conversion_dup_platforms` | dataset, platform set | the 15 commonest sets of platform codes sharing casts across platforms, then the rest in one row |
 | `conversion_files` | dataset, variable | source files carrying it |
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
 | `conversion_extra_parameters` | dataset, parameter | source files carrying a parameter ctddump does not read |
-| `conversion_compare` | reference, compared dataset | ctddump's profile matching between products of one region |
+| `conversion_compare` | reference, compared dataset | ctddump's profile matching between products of one region, with the platform code in the key |
+| `conversion_overlap` | dataset, compared dataset of its region | its profiles the other also has, matched on date and position rounded to 3 decimals, with the platform code and without |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
 | `depth_summary` | dataset | profiles, land profiles, and what the input flagged on them |
 | `depth_land_margin` | dataset, margin | land profiles at least that many metres up |
@@ -154,7 +163,7 @@ the theme, the palettes and `save_figure()`.
 
 | Script | Figures |
 | --- | --- |
-| `conversion.R` | `conversion_steps`, `conversion_data_mode` |
+| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_overlap` |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_coast` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |

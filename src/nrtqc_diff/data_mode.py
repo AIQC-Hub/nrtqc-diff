@@ -12,10 +12,16 @@ decided". The answers are kept apart by publishing every profile under
 exactly one of :data:`DATA_MODES`, which the site filters on.
 
 An empty data mode is its own group rather than a quiet NRT. ctddump writes
-``""`` both for a fill cell and for a parameter whose file gives no usable
-mode, such as one marked ``M`` (mixed) with no per-level variable, and that
-can hide delayed mode data. "NRT only" therefore takes positive evidence:
-every observation ``R`` or ``A`` in every configured column.
+``""`` for a parameter whose file gives no usable mode, such as one marked
+``M`` (mixed) with no per-level variable, or a product file with no data mode
+at all, and that can hide delayed mode data. "NRT only" therefore takes
+positive evidence: every observation ``R`` or ``A`` in every configured
+column.
+
+ctddump also writes ``""`` at a level where the parameter itself has no
+value, because the per-level data mode variable is a fill there too. That
+says nothing about the profile, so an empty data mode counts only where the
+parameter it describes has a value: ``temp_dm`` describes ``temp``.
 
 The split is by profile, like the trimming rule, because a profile is what a
 reader opens. A dataset can also be filed whole under one group by its
@@ -23,7 +29,7 @@ configuration, for a product whose input flags come from its own delayed
 mode QC whatever its data mode columns say.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import polars as pl
 
@@ -93,7 +99,23 @@ def is_delayed(spec: DataModeSpec) -> pl.Expr:
     return pl.any_horizontal(tests)
 
 
-def is_unknown(spec: DataModeSpec) -> pl.Expr:
+def described_column(column: str) -> Optional[str]:
+    """
+    The parameter a data mode column describes, by ctddump's naming.
+
+    :param column: A data mode column, such as ``temp_dm``.
+    :return: ``temp`` for ``temp_dm``, or None for a name without the suffix.
+    """
+    return column[: -len("_dm")] if column.endswith("_dm") else None
+
+
+def has_value(column: str) -> pl.Expr:
+    """Whether a parameter has a value: neither null nor NaN."""
+    value = pl.col(column).cast(pl.Float64, strict=False)
+    return value.is_not_null() & value.is_not_nan()
+
+
+def is_unknown(spec: DataModeSpec, names: Sequence[str] = ()) -> pl.Expr:
     """
     Whether an observation has no data mode in any configured column.
 
@@ -101,13 +123,21 @@ def is_unknown(spec: DataModeSpec) -> pl.Expr:
     An observation can be both this and :func:`is_delayed`, delayed in one
     column and empty in another; the delayed value decides its profile.
 
+    A data mode column whose parameter is among ``names`` counts as empty
+    only where that parameter has a value: at a level with no value the data
+    mode is a fill as well, and says nothing about the file.
+
     :param spec: The configured data mode columns.
+    :param names: The columns of the input, to find each parameter in.
     :return: A boolean expression, never null.
     """
-    tests = [
-        is_one_of(pl.col(column).cast(pl.Utf8), [""]) | pl.col(column).is_null()
-        for column in spec.columns
-    ]
+    tests = []
+    for column in spec.columns:
+        empty = is_one_of(pl.col(column).cast(pl.Utf8), [""]) | pl.col(column).is_null()
+        described = described_column(column)
+        if described is not None and described in names:
+            empty = empty & has_value(described)
+        tests.append(empty)
     return pl.any_horizontal(tests)
 
 

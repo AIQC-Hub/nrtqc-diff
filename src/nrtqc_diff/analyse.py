@@ -31,6 +31,7 @@ observations by a handful of small keys.
 
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
@@ -69,7 +70,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 1
+ANALYSES_FORMAT: int = 2
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -201,10 +202,12 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
 
     reports = report_tables(config)
     if "conversion_steps" in reports:
-        reports["conversion_steps"] = _with_nrtqc_step(
-            reports["conversion_steps"], profiles, config
-        )
+        for message in check_conversion_steps(reports["conversion_steps"], profiles):
+            print(f"[nrtqc-diff] warning: {message}", file=sys.stderr)
     tables.update(reports)
+    overlap = overlap_table(profiles, config)
+    if overlap.height:
+        tables["conversion_overlap"] = overlap
 
     meta = _write(tables, config, spec)
     if verbose:
@@ -315,7 +318,7 @@ def profile_summary(
         is_delayed(config.data_mode).sum().cast(pl.Int64).alias("n_obs_delayed")
     )
     aggregations.append(
-        is_unknown(config.data_mode).sum().cast(pl.Int64).alias("n_obs_unknown")
+        is_unknown(config.data_mode, names).sum().cast(pl.Int64).alias("n_obs_unknown")
     )
 
     return (
@@ -888,35 +891,118 @@ def item_tables_for(
     return tables
 
 
-def _with_nrtqc_step(
-    steps: pl.DataFrame, profiles: pl.DataFrame, config: BuildConfig
-) -> pl.DataFrame:
-    """
-    Add what reached the nrtqclib output as the last step of the conversion.
+#: Decimal places a position is rounded to when profiles are matched, as in
+#: ctddump's duplicate key and its comparison of products.
+MATCH_DECIMALS: int = 3
 
-    It should equal the last ctddump step: seastamp adds columns, not rows,
-    and nrtqclib keeps every observation. Putting it in the same table is
-    what lets the page show that it does.
+
+def _match_keys(profiles: pl.DataFrame) -> pl.DataFrame:
     """
-    reached = (
-        profiles.group_by(_dataset_columns(), maintain_order=True)
-        .agg(
-            pl.col("platform_code").n_unique().cast(pl.Int64).alias("n_platforms"),
-            pl.len().cast(pl.Int64).alias("n_profiles"),
-            pl.col("n_obs").sum().cast(pl.Int64),
-        )
-        .filter(pl.col("dataset_id").is_in(steps["dataset_id"].unique().implode()))
-        .with_columns(
-            pl.lit("nrtqc").alias("step"),
-            pl.lit(int(steps["step_order"].max()) + 1)
-            .cast(steps["step_order"].dtype)
-            .alias("step_order"),
-            pl.lit("In the nrtqclib output").alias("step_label"),
-        )
+    Each profile's date and rounded position, the key ctddump matches on.
+
+    ctddump rounds half away from zero and takes the date in UTC; a profile
+    with no time or position has no key and is left out.
+    """
+    scale = 10**MATCH_DECIMALS
+
+    def rounded(column: str) -> pl.Expr:
+        value = pl.col(column).cast(pl.Float64, strict=False) * scale
+        return value.round(0, mode="half_away_from_zero").cast(pl.Int64)
+
+    return profiles.select(
+        "dataset_id",
+        "platform_code",
+        pl.col("profile_timestamp").dt.date().alias("_date"),
+        rounded("longitude").alias("_lon"),
+        rounded("latitude").alias("_lat"),
+    ).drop_nulls(["_date", "_lon", "_lat"])
+
+
+def overlap_table(profiles: pl.DataFrame, config: BuildConfig) -> pl.DataFrame:
+    """
+    How many of one product's profiles another product of its region also has.
+
+    Two matches are counted. With the platform code in the key, as ctddump's
+    own comparison does; and on date and position alone, which also finds a
+    cast that reached the two products under different platform codes. A
+    product built from the same casts as another but naming its platforms
+    differently shows up only in the second.
+
+    :param profiles: One row per profile of every dataset.
+    :param config: The build configuration, for the regions and their order.
+    :return: One row per reference and compared dataset of one region.
+    """
+    needed = {"profile_timestamp", "longitude", "latitude"}
+    if not needed <= set(profiles.columns):
+        return pl.DataFrame()
+    keyed = _match_keys(profiles)
+    place = ["_date", "_lon", "_lat"]
+    present = set(profiles["dataset_id"].unique().to_list())
+    totals = dict(profiles.group_by("dataset_id").len().iter_rows())
+    rows = []
+    for reference in config.datasets:
+        if reference.id not in present:
+            continue
+        mine = keyed.filter(pl.col("dataset_id") == reference.id)
+        for other in config.datasets:
+            if (
+                other.id == reference.id
+                or other.region != reference.region
+                or other.id not in present
+            ):
+                continue
+            theirs = keyed.filter(pl.col("dataset_id") == other.id)
+            any_platform = mine.join(
+                theirs.select(place).unique(), on=place, how="semi"
+            )
+            same = mine.join(
+                theirs.select(place + ["platform_code"]).unique(),
+                on=place + ["platform_code"],
+                how="semi",
+            )
+            rows.append(
+                {
+                    "dataset_id": reference.id,
+                    "region": reference.region,
+                    "product": reference.product,
+                    "label": reference.label,
+                    "compared_id": other.id,
+                    "compared_label": other.label,
+                    "n_profiles": int(totals[reference.id]),
+                    "n_keyed": int(mine.height),
+                    "n_matched_same_platform": int(same.height),
+                    "n_matched_any_platform": int(any_platform.height),
+                }
+            )
+    return pl.DataFrame(rows) if rows else pl.DataFrame()
+
+
+def check_conversion_steps(steps: pl.DataFrame, profiles: pl.DataFrame) -> List[str]:
+    """
+    Whether each nrtqclib output holds what ctddump kept, profile for profile.
+
+    seastamp adds columns, not rows, and nrtqclib keeps every observation, so
+    the counts should be equal. They are not drawn as a step of their own;
+    a difference is reported instead.
+
+    :return: One message per dataset whose counts differ, empty when none do.
+    """
+    kept = steps.filter(
+        pl.col("step_order") == pl.col("step_order").max().over("dataset_id")
     )
-    return pl.concat(
-        [steps, reached.select(steps.columns)], how="vertical_relaxed"
-    ).sort(["dataset_id", "step_order"], maintain_order=True)
+    reached = profiles.group_by("dataset_id").agg(
+        pl.len().cast(pl.Int64).alias("reached"),
+        pl.col("n_obs").sum().cast(pl.Int64).alias("reached_obs"),
+    )
+    messages = []
+    for row in kept.join(reached, on="dataset_id", how="inner").iter_rows(named=True):
+        if row["n_profiles"] != row["reached"] or row["n_obs"] != row["reached_obs"]:
+            messages.append(
+                f"{row['dataset_id']}: ctddump kept {row['n_profiles']} profiles "
+                f"and {row['n_obs']} observations, but the nrtqclib output holds "
+                f"{row['reached']} and {row['reached_obs']}."
+            )
+    return messages
 
 
 def _write(

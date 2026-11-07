@@ -2,12 +2,13 @@
 
 import json
 import os
+from datetime import datetime
 
 import polars as pl
 import pytest
 import yaml
 
-from nrtqc_diff.analyse import run_analyses
+from nrtqc_diff.analyse import check_conversion_steps, overlap_table, run_analyses
 from nrtqc_diff.config import read_config
 
 #: ``platform: (temp_dm, [(temp_qc, temp_nrt_flag, spike, date, elevation)])``.
@@ -95,6 +96,13 @@ def analysed(tmp_path):
         "FILE_2:\n  global_attributes:\n    title: y\n",
         encoding="utf-8",
     )
+    dups = tmp_path / "ctddump" / "dups"
+    dups.mkdir(parents=True)
+    columns = "dup_group\tplatform_code\tprofile_no\tn_obs\n"
+    (dups / "src.dups.tsv").write_text(
+        columns + "1\tA\t1\t5\n1\tA\t2\t5\n1\tA\t3\t4\n2\tA\t4\t3\n2\tB\t1\t3\n",
+        encoding="utf-8",
+    )
     stamp = tmp_path / "seastamp"
     stamp.mkdir()
     (stamp / "src.tsv").write_text(
@@ -125,6 +133,7 @@ def analysed(tmp_path):
                     "out_dir": "analyses",
                     "ctddump_reports": "ctddump/report",
                     "ctddump_headers": "ctddump/header",
+                    "ctddump_dups": "ctddump/dups",
                     "seastamp_reports": "seastamp",
                 },
             }
@@ -208,11 +217,11 @@ def test_items_are_attributed_over_nrt_profiles_only(analysed):
     assert pairs[("nrtqclib_only", "spike")] == 1
 
 
-def test_the_reports_are_read_and_the_output_step_added(analysed):
+def test_the_reports_are_read(analysed):
     steps = table(analysed, "conversion_steps")
-    assert steps["step"].to_list() == ["convert", "dedup", "nrtqc"]
-    assert steps["n_platforms"].to_list() == [2, 2, 6]
-    assert steps["n_profiles"].to_list() == [9, 6, 6]
+    assert steps["step"].to_list() == ["convert", "dedup"]
+    assert steps["n_platforms"].to_list() == [2, 2]
+    assert steps["n_profiles"].to_list() == [9, 6]
     modes = table(analysed, "conversion_file_data_mode")
     assert dict(zip(modes["data_mode"].fill_null(""), modes["n_files"])) == {
         "M": 1,
@@ -223,6 +232,76 @@ def test_the_reports_are_read_and_the_output_step_added(analysed):
     assert dict(zip(extra["parameter"], extra["n_files"])) == {"DOX1": 2, "CNDC": 1}
     files = table(analysed, "conversion_files")
     assert dict(zip(files["item"], files["n_with"])) == {"temp": 1}
+
+
+def test_duplicates_are_split_within_and_across_platforms(analysed):
+    kinds = table(analysed, "conversion_dup_kinds")
+    by_kind = {row["kind"]: row for row in kinds.iter_rows(named=True)}
+    assert by_kind["within"]["n_groups"] == 1
+    assert by_kind["within"]["n_profiles"] == 3
+    assert by_kind["within"]["n_removed"] == 2
+    assert by_kind["across"]["n_removed"] == 1
+    sets = table(analysed, "conversion_dup_platforms")
+    assert sets["platforms"].to_list() == ["A + B"]
+    sizes = table(analysed, "conversion_dup_sizes")
+    assert dict(zip(sizes["kind"] + sizes["size_label"], sizes["n_groups"])) == {
+        "within3": 1,
+        "across2": 1,
+    }
+
+
+def test_the_step_check_reports_a_difference():
+    steps = pl.DataFrame(
+        {
+            "dataset_id": ["a", "a"],
+            "step_order": [0, 1],
+            "n_profiles": [5, 3],
+            "n_obs": [9, 6],
+        }
+    )
+    same = pl.DataFrame({"dataset_id": ["a"] * 3, "n_obs": [2, 2, 2]})
+    assert check_conversion_steps(steps, same) == []
+    fewer = same.head(2)
+    assert "holds 2" in check_conversion_steps(steps, fewer)[0]
+
+
+def test_overlap_matches_with_and_without_the_platform(tmp_path):
+    when = [datetime(2020, 1, 1, 6), datetime(2020, 1, 1, 18), datetime(2020, 1, 2)]
+    profiles = pl.DataFrame(
+        {
+            "dataset_id": ["a", "a", "a", "b", "b"],
+            "platform_code": ["P", "Q", "R", "P", "X"],
+            "profile_timestamp": when + [when[0], when[1]],
+            "longitude": [1.0, 2.0, 3.0, 1.0004, 2.0],
+            "latitude": [50.0, 50.0, 50.0, 50.0, 50.0],
+        }
+    )
+    config = _two_dataset_config(tmp_path)
+    overlap = overlap_table(profiles, config)
+    row = overlap.filter(pl.col("dataset_id") == "a").row(0, named=True)
+    assert row["compared_id"] == "b"
+    assert row["n_profiles"] == 3
+    assert row["n_matched_same_platform"] == 1
+    assert row["n_matched_any_platform"] == 2
+
+
+def _two_dataset_config(tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "variables": [{"name": "t", "flag": "t_qc", "nrt_flag": "t_nrt"}],
+                "data_mode": {"columns": ["t_dm"]},
+                "datasets": [
+                    {"id": "a", "region": "R", "product": "P1", "path": "x"},
+                    {"id": "b", "region": "R", "product": "P2", "path": "y"},
+                ],
+                "analyses": {"out_dir": "out"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return read_config(str(path))
 
 
 def test_meta_lists_the_tables_and_rules(analysed):

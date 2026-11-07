@@ -153,7 +153,7 @@ data_mode_colours <- c(
   "R (real time)" = "#2a78d6",
   "A (adjusted)" = "#1baf7a",
   "D (delayed mode)" = "#6250d6",
-  "Unknown" = "#9a9a9a"
+  "No data mode" = "#9a9a9a"
 )
 
 # ------------------------------------------------------------------- theme --

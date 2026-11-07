@@ -181,6 +181,8 @@ class AnalysesSpec:
                    data release carries them with the rest.
     :ivar ctddump_reports: The ctddump ``report`` directory, or None.
     :ivar ctddump_headers: The ctddump ``header`` directory, or None.
+    :ivar ctddump_dups: The directory of ctddump's duplicate lists
+                        (``<stem>.dups.tsv``, written by ``markdup``), or None.
     :ivar seastamp_reports: The seastamp ``report/stamp`` directory, or None.
     :ivar bathymetry_column: The column holding the sea floor depth at the
                              position of each observation.
@@ -200,6 +202,7 @@ class AnalysesSpec:
     out_dir: str
     ctddump_reports: Optional[str] = None
     ctddump_headers: Optional[str] = None
+    ctddump_dups: Optional[str] = None
     seastamp_reports: Optional[str] = None
     bathymetry_column: str = "bathymetry"
     positive_depth: bool = False
@@ -434,6 +437,7 @@ def _analyses(raw: Any, base_dir: str) -> Optional[AnalysesSpec]:
         ),
         ctddump_reports=directory("ctddump_reports"),
         ctddump_headers=directory("ctddump_headers"),
+        ctddump_dups=directory("ctddump_dups"),
         seastamp_reports=directory("seastamp_reports"),
         bathymetry_column=str(land.get("column", "bathymetry")),
         positive_depth=bool(land.get("positive_depth", False)),

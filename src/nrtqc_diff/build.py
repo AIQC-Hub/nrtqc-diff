@@ -242,11 +242,8 @@ def _profile_summary(
     :return: The grouped frame, with a :data:`KEEP_COLUMN` flag and the
              profile's ``data_mode``.
     """
-    present = [
-        name
-        for name in OPTIONAL_PROFILE_COLUMNS
-        if name in scan.collect_schema().names()
-    ]
+    names = scan.collect_schema().names()
+    present = [name for name in OPTIONAL_PROFILE_COLUMNS if name in names]
 
     aggregations: List[pl.Expr] = [pl.len().alias("n_obs")]
     aggregations += [pl.col(name).first() for name in present]
@@ -263,7 +260,7 @@ def _profile_summary(
         is_delayed(config.data_mode).sum().cast(pl.Int32).alias("n_obs_delayed")
     )
     aggregations.append(
-        is_unknown(config.data_mode).sum().cast(pl.Int32).alias("n_obs_unknown")
+        is_unknown(config.data_mode, names).sum().cast(pl.Int32).alias("n_obs_unknown")
     )
     aggregations.append(
         pl.any_horizontal([is_anomaly(v) for v in config.variables])
