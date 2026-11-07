@@ -68,10 +68,11 @@ read for a profile already chosen.
 
 On the summary page it governs both tables, with the source totals read from
 the per-group `modes` of each catalog entry, and a third table, **NRT against
-delayed mode**, ignores it on purpose: it puts the groups side by side per
-product, as rates of "input only" and "nrtqclib only" per 1,000 of each
-group's own observations. That is where the difference between the groups
-shows, and the reason for having them. `regionProductTotals` groups by
+delayed mode**, ignores it on purpose: it lists every group a product has,
+one row per product and group with each product's rows together, as rates of
+"original only", "nrtqclib only" and both per 1,000 of each group's own
+observations. That is where the difference between the groups shows, and
+the reason for having them. `regionProductTotals` groups by
 `data_mode` as well as region and product, so all three tables are sums over
 one query.
 

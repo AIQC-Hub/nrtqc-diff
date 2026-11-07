@@ -183,7 +183,7 @@ app.tableView(rows, {
 ```
 
 ```{ojs}
-htl.html`<p class="nq-meta">All products, ${summary_mode.label.toLowerCase()}:
+htl.html`<p class="nq-meta">All products, ${summary_mode.label}:
   <strong>${app.formatCount(grand.n_profiles)}</strong> of
   ${app.formatCount(grand.n_profiles_total)} profiles published
   (${share(grand.n_profiles_total > 0 ? grand.n_profiles / grand.n_profiles_total : null)}),
@@ -281,8 +281,8 @@ app.statusLegend(statuses)
 
 ## NRT against delayed mode
 
-The same products with the data mode groups side by side, for the
-variable chosen above, each as a rate per 1,000 of its own published
+The same products split by data mode, one row per group a product has, for
+the variable chosen above, each as a rate per 1,000 of its own published
 observations. Where a product has delayed mode profiles, this is where the
 difference shows: the automated tests and an operator tend to disagree in
 other ways than two automated systems do.
@@ -298,49 +298,63 @@ other ways than two automated systems do.
     ])
   );
 
-  const shaped = rowsFor(app.ALL_MODES).map((all) => {
-    const row = { key: all.key, region: all.region, product: all.product };
-    for (const group of groups) {
+  // One row per product and group, rather than one per product with every
+  // group across: three groups of three columns do not fit beside the
+  // product's name. A group the product has nothing in is left out, and the
+  // table opens with each product's groups together, in catalog order.
+  const shaped = rowsFor(app.ALL_MODES).flatMap((all, productIndex) =>
+    groups.flatMap((group, groupIndex) => {
       const found = byGroup.get(group.key).get(all.key);
-      row[`${group.key}_n_obs`] = found.n_obs;
-      row[`${group.key}_original_only`] = rate(
-        found[`${name}_original_only`],
-        found.n_obs
-      );
-      row[`${group.key}_nrtqclib_only`] = rate(
-        found[`${name}_nrtqclib_only`],
-        found.n_obs
-      );
-    }
-    return row;
-  });
+      if (!found || found.n_obs === 0) return [];
+      const original = found[`${name}_original_only`];
+      const computed = found[`${name}_nrtqclib_only`];
+      return [
+        {
+          key: `${all.key}|${group.key}`,
+          order: productIndex * groups.length + groupIndex,
+          region: all.region,
+          product: all.product,
+          mode: group.label,
+          n_profiles: found.n_profiles,
+          n_obs: found.n_obs,
+          original_rate: rate(original, found.n_obs),
+          nrtqclib_rate: rate(computed, found.n_obs),
+          disagree_rate: rate(original + computed, found.n_obs)
+        }
+      ];
+    })
+  );
 
+  const text = (value) => value;
   return app.tableView(shaped, {
     columns: [
-      { key: "region", label: "Region", align: "left", format: (value) => value },
-      { key: "product", label: "Product", align: "left", format: (value) => value },
-      ...groups.flatMap((group) => [
-        {
-          key: `${group.key}_n_obs`,
-          label: `${group.label}: obs`,
-          title: `Published observations in profiles: ${group.label.toLowerCase()}`
-        },
-        {
-          key: `${group.key}_original_only`,
-          label: `${group.label}: input only per 1,000`,
-          format: perThousand,
-          title: `${summary_variable.label} flagged by the input alone, per 1,000 observations`
-        },
-        {
-          key: `${group.key}_nrtqclib_only`,
-          label: `${group.label}: nrtqclib only per 1,000`,
-          format: perThousand,
-          title: `${summary_variable.label} flagged by nrtqclib alone, per 1,000 observations`
-        }
-      ])
+      { key: "region", label: "Region", align: "left", format: text },
+      { key: "product", label: "Product", align: "left", format: text },
+      { key: "mode", label: "Data mode", align: "left", format: text },
+      { key: "n_profiles", label: "Profiles", title: "Published profiles" },
+      { key: "n_obs", label: "Observations", title: "Published observations" },
+      {
+        key: "original_rate",
+        label: "Original only per 1,000",
+        format: perThousand,
+        title: `${summary_variable.label} flagged by the input alone, per 1,000 observations`
+      },
+      {
+        key: "nrtqclib_rate",
+        label: "nrtqclib only per 1,000",
+        format: perThousand,
+        title: `${summary_variable.label} flagged by nrtqclib alone, per 1,000 observations`
+      },
+      {
+        key: "disagree_rate",
+        label: "Disagree per 1,000",
+        format: perThousand,
+        title: "The two together: observations the sources disagree on, per 1,000"
+      }
     ],
     rowKey: "key",
-    sortKey: `${groups[groups.length - 1]?.key}_n_obs`,
+    sortKey: "order",
+    descending: false,
     selectable: false,
     empty: "No products are published. Run the build step."
   });

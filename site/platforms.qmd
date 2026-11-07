@@ -114,8 +114,9 @@ platforms = app.platformSummary(
   const profiles = platforms.reduce((sum, row) => sum + row.n_profiles, 0);
   const observations = platforms.reduce((sum, row) => sum + row.n_obs, 0);
   return htl.html`<p class="nq-meta">${region.name}, ${product.name},
-    ${data_mode.label.toLowerCase()}:
-    <strong>${app.formatCount(platforms.length)}</strong> platforms,
+    ${data_mode.label}:
+    <strong>${app.formatCount(platforms.length)}</strong>
+    ${platforms.length === 1 ? "platform" : "platforms"},
     ${app.formatCount(profiles)} published profiles,
     ${app.formatCount(observations)} observations.</p>`;
 }

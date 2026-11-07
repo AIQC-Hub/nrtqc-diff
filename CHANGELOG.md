@@ -32,8 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   group with `data_mode`. The CORA datasets are filed as delayed mode: CORA's
   `DATA_MODE` describes the original observation, not the reprocessing QC
   that set its flags.
-- The summary page has a table putting the groups side by side per
-  product, as "input only" and "nrtqclib only" rates per 1,000 observations.
+- The summary page has a table comparing the groups within each product,
+  one row per product and group, as "original only", "nrtqclib only" and
+  disagreement rates per 1,000 observations.
 - The plots draw a delayed mode observation as a diamond in its category's
   colour, and the hover box gives every data mode with its meaning. The
   profile facts name the profile's group and, for a delayed one, how many of
