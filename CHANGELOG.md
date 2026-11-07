@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `analyses.ctddump_dups`), and matches the products of a region on date
   and place with and without the platform code.
 
+- The Depth page's coast scatter draws one point per position, sized by
+  its land profiles, marks positions given in whole degrees, and explains
+  how to read it.
+
 ### Fixed
 
 - An empty data mode at a level where the parameter has no value no longer

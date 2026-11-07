@@ -94,11 +94,17 @@ meta ? table(positionRows, [
 
 ## Coastline or wrong position
 
-GEBCO is a grid of 15 arc seconds, about 460 m north to south. A cell that
-straddles the shore can put a profile taken just off it on land, a few
-metres up. A profile far inland, or well above sea level, has a position
-that is simply wrong. The histogram shows how the profiles spread around
-sea level; the scatter separates the two cases.
+Two sources meet here, and they are independent of each other. The height
+of the sea floor comes from GEBCO, a grid of 15 arc seconds (about 460 m
+north to south) in whole metres; it alone decides that a profile is on land.
+The distance to the coast comes from GSHHG, a separate and finer shoreline,
+and says how far a position is from the nearest shore, not on which side of
+it.
+
+A grid cell that straddles the shore can put a profile taken just off it
+on land, a few metres up. A profile far inland, or well above sea level,
+has a position that is simply wrong. The histogram shows how the profiles
+spread around sea level; the scatter below it separates the cases.
 
 ```{ojs}
 meta ? app.analysisFigure(
@@ -111,10 +117,32 @@ meta ? app.analysisFigure(
 ```{ojs}
 meta ? app.analysisFigure(
   "depth_land_coast",
-  "Each profile on land, by its height above sea level and its distance to the coast, both on log scales. Heights of exactly 0 m, the shoreline, are drawn at 0.5 m.",
-  "Scatter plots of height against distance to the coast, by product and region."
+  "Each position with a profile on land, by its height above sea level (GEBCO) and its distance to the nearest shore (GSHHG), both on log scales. The size of a point is the number of land profiles at that position. Orange: positions given in whole degrees. Heights of exactly 0 m are drawn at 0.5 m, and distances under 10 m at 10 m.",
+  "Scatter plots of height against distance to the coast, one point per position sized by its profiles, by product and region."
 ) : html``
 ```
+
+**Reading the scatter.** A point is a position, not a profile: a fixed
+station repeats one position for years, so a large point is usually one
+station rather than many casts. The heights come in whole metres, which is
+why the points line up in rows. Three parts of a panel tell different
+stories:
+
+- **Bottom left: a few metres up, close to the shore.** The coastline case.
+  The cast was most likely at sea, and the grid cell it falls in is mostly
+  land. A tolerance of a few metres, as in the table below, would let these
+  through.
+- **Up and to the right: tens or hundreds of metres up, kilometres
+  inland.** The position is wrong. In the Mediterranean, the points climb
+  with distance as the land does: positions on land proper, not on the
+  shore. In the Baltic, the largest of them are orange: stations whose
+  position is given to the nearest whole degree, which puts them where the
+  degree lines cross, often well inland. Both Baltic products carry the same
+  ones.
+- **Along the bottom, at sea level but kilometres from the coast.** Water
+  that is not open sea, such as a lagoon or a fjord behind a narrow mouth,
+  is likely to be the reason: GEBCO gives it a height of 0 m, while the
+  nearest sea shore in GSHHG is some way off.
 
 How many land profiles remain if a position must be at least so high to
 count: those within a few metres of sea level are the ones a coarser rule

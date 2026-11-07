@@ -46,14 +46,39 @@ if (!is.null(land)) {
   # straddles the shore puts a coastal profile a few metres up, close in.
   # One panel per product and region: the products overlap in position, and
   # drawn together the largest hid the others. Heights of 0 m, the
-  # shoreline itself, are drawn at 0.5 m so that the log scale keeps them.
-  plot <- ggplot(land, aes(pmax(dist_to_coast, 0.01), pmax(elevation, 0.5))) +
-    geom_point(colour = "#008300", size = 0.8, alpha = 0.35, stroke = 0) +
+  # shoreline itself, are drawn at 0.5 m and distances under 10 m at 10 m,
+  # so that the log scales keep them. A position given in whole degrees
+  # (10.0 E, 57.0 N) is a station placed to the nearest degree, which can
+  # land it kilometres inland: those get a colour of their own.
+  position_colours <- c("Position in whole degrees" = "#eb6834",
+                        "Any other position" = "#008300")
+  land <- land |>
+    mutate(position = factor(
+      if_else(longitude == round(longitude) & latitude == round(latitude),
+              names(position_colours)[1], names(position_colours)[2]),
+      levels = names(position_colours)
+    ))
+  # One point per position, sized by its profiles: a fixed station repeats
+  # one position hundreds of times, and drawn one point per profile it would
+  # look like a single profile.
+  positions <- land |>
+    count(region, product, longitude, latitude, elevation, dist_to_coast, position,
+          name = "n_profiles") |>
+    arrange(desc(position), desc(n_profiles))
+  plot <- ggplot(positions,
+                 aes(pmax(dist_to_coast, 0.01), pmax(elevation, 0.5), colour = position,
+                     size = n_profiles)) +
+    geom_point(alpha = 0.45, stroke = 0) +
     facet_grid(product ~ region) +
+    scale_colour_manual(values = position_colours, drop = FALSE) +
+    scale_size(range = c(0.7, 6), trans = "log10", breaks = c(1, 10, 100, 1000),
+               labels = label_comma(), name = "Profiles at the position") +
     scale_x_log10(labels = label_number(drop0trailing = TRUE)) +
     scale_y_log10(labels = label_number(drop0trailing = TRUE)) +
-    labs(x = "Distance to the coast (km)",
-         y = "Height above sea level (m); 0 m drawn at 0.5 m")
+    guides(colour = guide_legend(override.aes = list(size = 2.2, alpha = 1), order = 1),
+           size = guide_legend(order = 2)) +
+    labs(x = "Distance to the coast (km); under 10 m drawn at 10 m",
+         y = "Height above sea level (m); 0 m drawn at 0.5 m", colour = NULL)
   save_figure(plot, "depth_land_coast", height = 110)
 
   # Where they are: the Arctic around the pole, the two seas framed on their
