@@ -25,7 +25,7 @@ question. It holds the profiles with a delayed mode observation, and CORA
 whole, since its flags come from its own delayed mode QC. "Estimated
 delayed mode" holds profiles marked NRT whose temperature or salinity flags
 look like an operator's (see
-[NRT and delayed mode](analyses-data-mode.qmd)): an estimate, kept apart
+[Delayed mode in NRT products](analyses-data-mode.qmd)): an estimate, kept apart
 from the profiles whose files declare delayed mode. "On land" holds the
 profiles the bathymetry puts at or above sea level, whatever their data
 mode: their disagreements are mostly about the position (see

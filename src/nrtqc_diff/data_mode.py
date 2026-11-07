@@ -110,7 +110,7 @@ PUBLISHED_GROUPS: List[Dict[str, str]] = [
             "salinity flags look like an operator's: most of the variable's "
             "observations are flagged by the input and not by nrtqclib. An "
             "estimate from the flags, not a data mode the files declare. See "
-            "the NRT and delayed mode page."
+            "the Delayed mode in NRT products page."
         ),
     },
     _data_mode(DELAYED),

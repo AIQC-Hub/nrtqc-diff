@@ -21,7 +21,7 @@ of automated flags. "Delayed mode" compares nrtqclib with input flags that
 are likely to be an operator's decisions, so a disagreement there means
 something different. "Estimated delayed mode" holds profiles marked NRT
 whose temperature or salinity flags look like an operator's (see
-[NRT and delayed mode](analyses-data-mode.qmd)): an estimate, kept apart
+[Delayed mode in NRT products](analyses-data-mode.qmd)): an estimate, kept apart
 from the profiles whose files declare delayed mode. "On land" holds the
 profiles the bathymetry puts at or above sea level, whatever their data
 mode: their disagreements are mostly about the position (see

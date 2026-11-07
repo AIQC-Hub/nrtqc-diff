@@ -1,5 +1,5 @@
 ---
-title: "NRT and delayed mode"
+title: "Delayed mode in NRT products"
 format:
   html:
     page-layout: full
@@ -13,6 +13,11 @@ question from comparing two sets of NRT flags. The rest of the site already
 keeps profiles with a delayed mode observation apart, by the data mode the
 files declare. This page adds a group the files do not declare: **profiles
 marked NRT whose flags look like delayed mode ones.**
+
+The page covers the NRT products only. CORA is left out: the rest of the
+site files it whole as delayed mode, since its flags come from its own
+delayed mode QC, so it has no profile marked NRT to estimate. The delayed
+mode profiles below are the ones the NRT products declare.
 
 The sign is the share of a profile's observations that the input flags and
 nrtqclib does not. An automated test rarely rejects most of a profile; an

@@ -27,7 +27,7 @@ website:
           - href: analyses-depth.qmd
             text: Depth
           - href: analyses-data-mode.qmd
-            text: NRT and delayed mode
+            text: Delayed mode in NRT products
           - href: analyses-flags.qmd
             text: Flag differences in NRT
       - href: about.qmd

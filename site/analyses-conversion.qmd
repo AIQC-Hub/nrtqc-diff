@@ -120,9 +120,9 @@ The data mode of every temperature observation, at the two ends of the
 pipeline: as converted (step 1) and as kept (after step 5, the profiles
 nrtqclib checked). A profile with a delayed mode observation is compared
 separately on the rest of the site, because its input flags are likely to be
-an operator's: see [NRT and delayed mode](analyses-data-mode.qmd). CORA is
-filed there whole whatever its data mode says, because CORA's flags come
-from its own reprocessing.
+an operator's: see [Delayed mode in NRT products](analyses-data-mode.qmd).
+CORA is filed there whole whatever its data mode says, because CORA's flags
+come from its own reprocessing, and that page leaves it out.
 
 ```{ojs}
 meta ? app.analysisFigure(

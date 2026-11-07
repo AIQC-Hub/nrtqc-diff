@@ -629,13 +629,20 @@ def data_mode_tables(
     profiles: pl.DataFrame, config: BuildConfig, spec: AnalysesSpec
 ) -> Dict[str, pl.DataFrame]:
     """
-    The tables of the NRT and delayed mode page, from the profile summary.
-    Every table has a ``variable`` column: the groups are decided per
-    variable (:func:`classify`).
+    The tables of the Delayed mode in NRT products page, from the profile
+    summary. Every table has a ``variable`` column: the groups are decided
+    per variable (:func:`classify`).
+
+    A dataset the configuration files whole under one data mode (CORA, whose
+    flags come from its own delayed mode QC) is left out: none of its
+    profiles can be estimated, and it would only add rows that are all
+    delayed mode.
 
     :return: ``dm_groups``, ``dm_share_hist``, ``dm_threshold``,
              ``dm_estimated_platforms`` and ``dm_estimated_profiles``.
     """
+    whole = [d.id for d in config.datasets if d.data_mode is not None]
+    profiles = profiles.filter(~pl.col("dataset_id").is_in(whole))
     keys = _dataset_columns() + ["variable"]
     long = by_variable(profiles, config)
     at_sea = long.filter(~pl.col("land"))

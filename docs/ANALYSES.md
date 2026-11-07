@@ -113,9 +113,12 @@ estimated profiles are estimated for salinity only).
 | `unknown` | No delayed mode observation, but one with no data mode. |
 | `nrt` | Everything else: at sea, real time throughout, not estimated for the variable. Each variable's item tables are computed over its own `nrt` profiles. |
 
-The land group is the Depth page's subject. The NRT and delayed mode page
-shows the other groups only, over the profiles at sea, and the analyses
-after it never count land profiles.
+The land group is the Depth page's subject. The Delayed mode in NRT
+products page shows the other groups only, over the profiles at sea, and
+the analyses after it never count land profiles. That page and its `dm_`
+tables also leave out every dataset configured whole under one data mode
+(CORA): none of its profiles can be estimated, and it would only add rows
+that are all delayed mode.
 
 A usable input flag is one that is present and not among the variable's
 `missing_flag_values` (0 and 9). The share is bimodal on this batch, with a

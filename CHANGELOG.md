@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Analyses pages**, under a new Analyses menu between Platforms and About:
   Data conversion (what ctddump kept at each step), Depth (profiles the
-  bathymetry puts on land, and what the input's QC said about them), NRT and
-  delayed mode (with a new estimated delayed mode group for NRT profiles
-  whose flags look like an operator's), and Flag differences in NRT (which
+  bathymetry puts on land, and what the input's QC said about them), Delayed
+  mode in NRT products (with a new estimated delayed mode group for NRT
+  profiles whose flags look like an operator's), and Flag differences in NRT (which
   nrtqclib checks account for the disagreements, over NRT profiles at sea).
 - `nrtqc-diff analyse` writes the tables behind them from the NRT QC output
   and the ctddump and seastamp reports, and `analysis/run_all.R` draws the
@@ -40,11 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   whole degrees, at the shore (at most 5 m up and 1 km from the coast),
   low but further from the coast, or higher, a wrong position. It replaces
   the scatter of height against distance to the coast.
-- The NRT and delayed mode page leaves profiles on land out of its groups
-  table and figure, which now cover the profiles at sea only.
+- The Delayed mode in NRT products page leaves profiles on land out of its
+  groups table and figure, which now cover the profiles at sea only.
 - Estimated delayed mode is decided per variable: a profile whose salinity
   looks reworked by an operator leaves the salinity comparison and stays in
-  the temperature one. The NRT and delayed mode page and the Flag
+  the temperature one. The Delayed mode in NRT products page and the Flag
   differences page show the two variables apart.
 - The dashboard and the other main pages file a profile as delayed mode
   when the flags of its temperature or salinity are estimated to be an
@@ -70,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The preview server, `scripts/serve_static.py`, asks the browser to
   revalidate every file, so a reload after a new render no longer runs the
   old scripts.
+- The NRT and delayed mode page is now called "Delayed mode in NRT
+  products" and leaves CORA out. CORA is filed whole as delayed mode, so
+  none of its profiles can be estimated; it only added rows that were all
+  delayed mode. The `dm_` tables skip every dataset configured whole under
+  one data mode.
 
 ### Fixed
 

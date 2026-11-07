@@ -550,3 +550,20 @@ def test_the_rule_in_the_analyses_section_points_to_its_new_place(tmp_path):
     )
     with pytest.raises(ValueError, match="moved to data_mode.estimated.min_share"):
         read_config(str(path))
+
+
+def test_a_dataset_filed_whole_is_left_out_of_the_data_mode_tables(analysed):
+    """A product like CORA has no NRT profile to estimate, so it is skipped."""
+    config = analysed.parent / "config.yaml"
+    raw = yaml.safe_load(config.read_text(encoding="utf-8"))
+    whole = dict(raw["datasets"][0], id="whole", data_mode="delayed")
+    raw["datasets"].append(whole)
+    raw["analyses"]["out_dir"] = "analyses_whole"
+    config.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    run_analyses(read_config(str(config)))
+    out = analysed.parent / "analyses_whole"
+
+    for name in ["dm_groups", "dm_share_hist", "dm_threshold"]:
+        assert set(table(out, name)["dataset_id"]) == {"one"}, name
+    # The other pages still count it.
+    assert set(table(out, "depth_summary")["dataset_id"]) == {"one", "whole"}

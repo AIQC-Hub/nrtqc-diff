@@ -1,9 +1,9 @@
-# Figures of the NRT and delayed mode page: the groups profiles are filed
+# Figures of the Delayed mode in NRT products page: the groups profiles are filed
 # under, and the share of input-only flags that estimates delayed mode. The
 # estimate is made per variable, so every figure has a panel per variable.
 
 source("analysis/R/setup.R")
-message("NRT and delayed mode")
+message("Delayed mode in NRT products")
 
 rule <- meta$rules$estimated_delayed
 
@@ -34,7 +34,7 @@ if (!is.null(grouped)) {
                        expand = expansion(0)) +
     labs(x = "Profiles at sea", y = NULL) +
     theme(panel.spacing.x = unit(5, "mm"))
-  save_figure(plot, "dm_groups", height = 70)
+  save_figure(plot, "dm_groups", height = 50)
 }
 
 hist <- read_table("dm_share_hist")
@@ -67,7 +67,7 @@ if (!is.null(hist)) {
       y = "Profiles (axis spaced by square root)"
     ) +
     theme(strip.text.y = element_text(angle = 0, hjust = 0))
-  save_figure(plot, "dm_share", height = 190)
+  save_figure(plot, "dm_share", height = 130)
 }
 
 thresholds <- read_table("dm_threshold")
