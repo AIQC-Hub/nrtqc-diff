@@ -147,6 +147,6 @@ if (!is.null(hist)) {
                                  "Under water" = "#9ab7d9")) +
     scale_y_sqrt(labels = comma0) +
     labs(x = "Sea floor height at the position (m); the last bar gathers everything higher",
-         y = "Profiles (square root scale)")
+         y = "Number of profiles per 5 m (axis spaced by square root)")
   save_figure(plot, "depth_elevation", height = 110)
 }
