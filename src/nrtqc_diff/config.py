@@ -58,7 +58,7 @@ DATA_MODE_KEYS: List[str] = ["nrt", "delayed", "unknown"]
 #: coastline, where a grid cell of the bathymetry straddles it.
 DEFAULT_LAND_MARGINS_M: List[float] = [0.0, 5.0, 10.0, 20.0, 50.0, 100.0]
 
-#: The share of a profile's observations that only the input flags, at and
+#: The share of a variable's observations that only the input flags, at and
 #: above which an NRT profile is estimated to carry delayed mode flags. The
 #: distribution is bimodal, with a trough between about 50% and 90%, so the
 #: count barely moves anywhere in that range; the sensitivity table shows it.
@@ -129,12 +129,23 @@ class DataModeSpec:
                    ``pres_dm``. Pressure belongs here as well: a profile whose
                    pressure was revised in delayed mode was touched by one.
     :ivar delayed_values: The values of those columns that mean delayed mode.
+    :ivar estimate: Whether to estimate delayed mode from the flags, for
+                    profiles whose data mode columns do not say it.
+    :ivar estimated_min_share: See :data:`DEFAULT_ESTIMATED_MIN_SHARE`.
+    :ivar estimated_min_observations: See
+                                      :data:`DEFAULT_ESTIMATED_MIN_OBSERVATIONS`.
+    :ivar estimated_groups: The data mode groups whose profiles can be
+                            estimated as delayed mode.
     """
 
     columns: List[str]
     delayed_values: List[str] = field(
         default_factory=lambda: list(DEFAULT_DELAYED_VALUES)
     )
+    estimate: bool = True
+    estimated_min_share: float = DEFAULT_ESTIMATED_MIN_SHARE
+    estimated_min_observations: int = DEFAULT_ESTIMATED_MIN_OBSERVATIONS
+    estimated_groups: List[str] = field(default_factory=lambda: ["nrt", "unknown"])
 
 
 @dataclass(frozen=True)
@@ -191,12 +202,9 @@ class AnalysesSpec:
                           under water, so the default is False. The same
                           parameter as nrtqclib's position on land test.
     :ivar land_margins_m: See :data:`DEFAULT_LAND_MARGINS_M`.
-    :ivar estimated_min_share: See :data:`DEFAULT_ESTIMATED_MIN_SHARE`.
-    :ivar estimated_min_observations: See
-                                      :data:`DEFAULT_ESTIMATED_MIN_OBSERVATIONS`.
-    :ivar estimated_groups: The data mode groups whose profiles can be
-                            estimated as delayed mode.
     :ivar estimated_sensitivity: See :data:`DEFAULT_ESTIMATED_SENSITIVITY`.
+                                 The rule itself is in :class:`DataModeSpec`,
+                                 which the build applies too.
     """
 
     out_dir: str
@@ -209,9 +217,6 @@ class AnalysesSpec:
     land_margins_m: List[float] = field(
         default_factory=lambda: list(DEFAULT_LAND_MARGINS_M)
     )
-    estimated_min_share: float = DEFAULT_ESTIMATED_MIN_SHARE
-    estimated_min_observations: int = DEFAULT_ESTIMATED_MIN_OBSERVATIONS
-    estimated_groups: List[str] = field(default_factory=lambda: ["nrt", "unknown"])
     estimated_sensitivity: List[float] = field(
         default_factory=lambda: list(DEFAULT_ESTIMATED_SENSITIVITY)
     )
@@ -399,7 +404,36 @@ def _data_mode(raw: Any) -> DataModeSpec:
     ]
     if not delayed:
         raise ValueError("data_mode.delayed_values must list at least one value.")
-    return DataModeSpec(columns=columns, delayed_values=delayed)
+
+    estimated = raw.get("estimated", {})
+    if estimated is False:
+        return DataModeSpec(columns=columns, delayed_values=delayed, estimate=False)
+    if not isinstance(estimated, dict):
+        raise ValueError("data_mode.estimated must be a mapping, or false.")
+    spec = DataModeSpec(
+        columns=columns,
+        delayed_values=delayed,
+        estimated_min_share=float(
+            estimated.get("min_share", DEFAULT_ESTIMATED_MIN_SHARE)
+        ),
+        estimated_min_observations=int(
+            estimated.get("min_observations", DEFAULT_ESTIMATED_MIN_OBSERVATIONS)
+        ),
+        estimated_groups=[
+            str(value) for value in estimated.get("groups", ["nrt", "unknown"])
+        ],
+    )
+    if not 0.0 < spec.estimated_min_share <= 1.0:
+        raise ValueError("data_mode.estimated.min_share must be above 0 and at most 1.")
+    if spec.estimated_min_observations < 1:
+        raise ValueError("data_mode.estimated.min_observations must be 1 or more.")
+    bad_groups = [g for g in spec.estimated_groups if g not in DATA_MODE_KEYS]
+    if bad_groups:
+        raise ValueError(
+            f"data_mode.estimated.groups must be among "
+            f"{', '.join(DATA_MODE_KEYS)}; rejected: {', '.join(bad_groups)}."
+        )
+    return spec
 
 
 def _analyses(raw: Any, base_dir: str) -> Optional[AnalysesSpec]:
@@ -430,6 +464,13 @@ def _analyses(raw: Any, base_dir: str) -> Optional[AnalysesSpec]:
         return os.path.realpath(_resolve(str(value), base_dir, textual=False))
 
     estimated = raw.get("estimated_delayed") or {}
+    moved = [k for k in ("min_share", "min_observations", "groups") if k in estimated]
+    if moved:
+        raise ValueError(
+            f"analyses.estimated_delayed.{moved[0]} has moved to "
+            f"data_mode.estimated.{moved[0]}: the build applies the rule too, "
+            "so it lives with the rest of the data mode settings."
+        )
     land = raw.get("land") or {}
     spec = AnalysesSpec(
         out_dir=_resolve(
@@ -444,34 +485,15 @@ def _analyses(raw: Any, base_dir: str) -> Optional[AnalysesSpec]:
         land_margins_m=[
             float(value) for value in land.get("margins_m", DEFAULT_LAND_MARGINS_M)
         ],
-        estimated_min_share=float(
-            estimated.get("min_share", DEFAULT_ESTIMATED_MIN_SHARE)
-        ),
-        estimated_min_observations=int(
-            estimated.get("min_observations", DEFAULT_ESTIMATED_MIN_OBSERVATIONS)
-        ),
-        estimated_groups=[
-            str(value) for value in estimated.get("groups", ["nrt", "unknown"])
-        ],
         estimated_sensitivity=[
             float(value)
             for value in estimated.get("sensitivity", DEFAULT_ESTIMATED_SENSITIVITY)
         ],
     )
-    shares = [spec.estimated_min_share] + spec.estimated_sensitivity
-    if any(not 0.0 < share <= 1.0 for share in shares):
+    if any(not 0.0 < share <= 1.0 for share in spec.estimated_sensitivity):
         raise ValueError(
-            "analyses.estimated_delayed shares must be above 0 and at most 1."
-        )
-    if spec.estimated_min_observations < 1:
-        raise ValueError(
-            "analyses.estimated_delayed.min_observations must be 1 or more."
-        )
-    bad_groups = [g for g in spec.estimated_groups if g not in DATA_MODE_KEYS]
-    if bad_groups:
-        raise ValueError(
-            f"analyses.estimated_delayed.groups must be among "
-            f"{', '.join(DATA_MODE_KEYS)}; rejected: {', '.join(bad_groups)}."
+            "analyses.estimated_delayed.sensitivity values must be above 0 and "
+            "at most 1."
         )
     return spec
 

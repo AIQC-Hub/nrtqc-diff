@@ -523,10 +523,30 @@ def test_a_share_outside_the_unit_interval_is_refused(tmp_path):
                 "variables": [{"name": "t", "flag": "t_qc", "nrt_flag": "t_nrt"}],
                 "data_mode": {"columns": ["t_dm"]},
                 "datasets": [{"id": "a", "region": "R", "product": "P", "path": "x"}],
-                "analyses": {"out_dir": "o", "estimated_delayed": {"min_share": 60}},
+                "analyses": {"out_dir": "o"},
             }
         ),
         encoding="utf-8",
     )
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw["data_mode"]["estimated"] = {"min_share": 60}
+    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     with pytest.raises(ValueError, match="at most 1"):
+        read_config(str(path))
+
+
+def test_the_rule_in_the_analyses_section_points_to_its_new_place(tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "variables": [{"name": "t", "flag": "t_qc", "nrt_flag": "t_nrt"}],
+                "data_mode": {"columns": ["t_dm"]},
+                "datasets": [{"id": "a", "region": "R", "product": "P", "path": "x"}],
+                "analyses": {"out_dir": "o", "estimated_delayed": {"min_share": 0.6}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="moved to data_mode.estimated.min_share"):
         read_config(str(path))

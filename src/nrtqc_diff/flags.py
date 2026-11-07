@@ -130,6 +130,15 @@ def is_one_of(expression: pl.Expr, values: Sequence[object]) -> pl.Expr:
     return test.fill_null(False)
 
 
+def usable_flag(variable: VariableSpec) -> pl.Expr:
+    """
+    Whether the input flag of an observation says anything: present, and not
+    one of the variable's missing flag values.
+    """
+    existing = original_flag(variable)
+    return existing.is_not_null() & ~is_one_of(existing, variable.missing_flag_values)
+
+
 def status_predicates(variable: VariableSpec) -> Dict[str, pl.Expr]:
     """
     One boolean expression per agreement category, for one variable.

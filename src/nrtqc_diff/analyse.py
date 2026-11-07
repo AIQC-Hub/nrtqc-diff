@@ -51,7 +51,9 @@ from nrtqc_diff.data_mode import (
     DELAYED,
     NRT,
     UNKNOWN,
+    input_only_share,
     is_delayed,
+    is_estimated,
     is_unknown,
     profile_data_mode,
 )
@@ -66,6 +68,7 @@ from nrtqc_diff.flags import (
     original_flag,
     status_expression,
     status_predicates,
+    usable_flag,
 )
 from nrtqc_diff.reports import report_tables
 
@@ -267,15 +270,6 @@ def elevation(spec: AnalysesSpec) -> pl.Expr:
     return -column if spec.positive_depth else column
 
 
-def usable_flag(variable: VariableSpec) -> pl.Expr:
-    """
-    Whether the input flag of an observation says anything: present, and not
-    one of the variable's missing flag values.
-    """
-    existing = original_flag(variable)
-    return existing.is_not_null() & ~is_one_of(existing, variable.missing_flag_values)
-
-
 def profile_summary(
     scan: pl.LazyFrame,
     dataset: DatasetSpec,
@@ -371,7 +365,8 @@ def classify(
     input flag says anything, computed only for a variable with at least
     ``estimated_min_observations`` such observations, and a profile is
     estimated delayed mode for each variable whose share reaches
-    ``estimated_min_share``. An operator who reworked the salinity of a
+    ``estimated_min_share`` (:func:`~nrtqc_diff.data_mode.is_estimated`, the
+    rule the build applies too). An operator who reworked the salinity of a
     cast and left its temperature alone takes it out of the salinity
     comparison only.
 
@@ -384,17 +379,12 @@ def classify(
              ``{variable}_group``.
     """
     land = (pl.col("elevation") >= 0).fill_null(False)
-    candidate = pl.col("data_mode").is_in(spec.estimated_groups) & ~pl.col("land")
+    rule = config.data_mode
     per_variable = []
     for variable in config.variables:
         name = variable.name
-        usable = pl.col(f"{name}_n_usable")
-        share = (
-            pl.when(usable >= spec.estimated_min_observations)
-            .then(pl.col(f"{name}_n_{ORIGINAL_ONLY}") / usable)
-            .otherwise(None)
-        )
-        estimated = candidate & (share >= spec.estimated_min_share).fill_null(False)
+        share = input_only_share(name, rule)
+        estimated = ~pl.col("land") & is_estimated(share, pl.col("data_mode"), rule)
         group = (
             pl.when(pl.col("land"))
             .then(pl.lit(LAND))
@@ -685,7 +675,9 @@ def data_mode_tables(
         .sort(keys + ["data_mode", "bin_lo"])
     )
 
-    thresholds = sorted(set(spec.estimated_sensitivity) | {spec.estimated_min_share})
+    thresholds = sorted(
+        set(spec.estimated_sensitivity) | {config.data_mode.estimated_min_share}
+    )
     threshold = pl.concat(
         [
             eligible.group_by(keys + ["data_mode"], maintain_order=True).agg(
@@ -698,7 +690,7 @@ def data_mode_tables(
         ]
     ).sort(keys + ["data_mode", "threshold"])
 
-    candidate = pl.col("data_mode").is_in(spec.estimated_groups)
+    candidate = pl.col("data_mode").is_in(config.data_mode.estimated_groups)
     platforms = (
         at_sea.group_by(keys + ["platform_code"], maintain_order=True)
         .agg(
@@ -1486,9 +1478,9 @@ def _write(
                 "shore_distance_km": SHORE_DISTANCE_KM,
             },
             "estimated_delayed": {
-                "min_share": spec.estimated_min_share,
-                "min_observations": spec.estimated_min_observations,
-                "groups": spec.estimated_groups,
+                "min_share": config.data_mode.estimated_min_share,
+                "min_observations": config.data_mode.estimated_min_observations,
+                "groups": config.data_mode.estimated_groups,
                 "sensitivity": spec.estimated_sensitivity,
             },
             "position_bad_values": POSITION_BAD_VALUES,

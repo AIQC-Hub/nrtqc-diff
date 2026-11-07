@@ -340,6 +340,61 @@ class TestDataMode:
         assert entry["modes"][DELAYED]["n_profiles_total"] == 7
         assert entry["modes"][NRT]["n_profiles_total"] == 0
 
+    def test_flags_that_look_like_an_operator_s_make_a_profile_delayed(
+        self, tmp_path, nrt_qc_frame
+    ):
+        """INPUT marked real time, every value flagged by the input alone."""
+        frame = nrt_qc_frame.with_columns(
+            pl.when(pl.col("platform_code") == "INPUT")
+            .then(pl.lit("R"))
+            .otherwise(pl.col(c))
+            .alias(c)
+            for c in ("temp_dm", "pres_dm")
+        ).with_columns(
+            pl.when(pl.col("platform_code") == "INPUT")
+            .then(4)
+            .otherwise(pl.col("temp_qc"))
+            .alias("temp_qc")
+        )
+        rule = DataModeSpec(
+            columns=["temp_dm", "pres_dm"], estimated_min_observations=3
+        )
+        catalog = build_site_data(
+            _single_dataset_config(tmp_path, frame, data_mode=rule)
+        )
+        profiles = pl.read_parquet(tmp_path / "out" / "profiles.parquet")
+        row = profiles.filter(pl.col("platform_code") == "INPUT")
+        assert row["data_mode"].item() == DELAYED
+        assert row["n_obs_delayed"].item() == 0
+        assert row["estimated_from"].item() == "temp"
+        # Too few usable flags elsewhere to call, and AGREE is confirmed.
+        assert profiles.filter(pl.col("estimated_from").is_not_null()).height == 1
+        modes = catalog["regions"][0]["products"][0]["datasets"][0]["modes"]
+        assert modes[DELAYED]["n_profiles_estimated"] == 1
+        assert catalog["data_mode"]["estimated"]["min_observations"] == 3
+
+    def test_the_estimate_can_be_turned_off(self, tmp_path, nrt_qc_frame):
+        frame = nrt_qc_frame.with_columns(
+            pl.when(pl.col("platform_code") == "INPUT")
+            .then(pl.lit("R"))
+            .otherwise(pl.col(c))
+            .alias(c)
+            for c in ("temp_dm", "pres_dm")
+        ).with_columns(
+            pl.when(pl.col("platform_code") == "INPUT")
+            .then(4)
+            .otherwise(pl.col("temp_qc"))
+            .alias("temp_qc")
+        )
+        rule = DataModeSpec(
+            columns=["temp_dm", "pres_dm"], estimate=False, estimated_min_observations=3
+        )
+        build_site_data(_single_dataset_config(tmp_path, frame, data_mode=rule))
+        profiles = pl.read_parquet(tmp_path / "out" / "profiles.parquet")
+        row = profiles.filter(pl.col("platform_code") == "INPUT")
+        assert row["data_mode"].item() == NRT
+        assert row["estimated_from"].item() is None
+
     def test_the_config_knows_every_group(self):
         """config.py repeats the keys to check overrides; they must agree."""
         assert [mode["key"] for mode in DATA_MODES] == DATA_MODE_KEYS
@@ -362,6 +417,8 @@ class TestDataMode:
             "n_profiles_total": 3,
             "n_observations": 6,
             "n_observations_total": 9,
+            "n_profiles_estimated": 0,
+            "n_profiles_estimated_total": 0,
         }
         assert modes[NRT]["n_profiles"] == 2
         assert modes[NRT]["n_profiles_total"] == 3

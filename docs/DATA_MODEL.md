@@ -98,12 +98,23 @@ in `src/nrtqc_diff/data_mode.py` and stored as `data_mode`:
 
 | Key | Label | Rule |
 | --- | --- | --- |
-| `nrt` | NRT only | Every observation is `R` or `A` in every configured data mode column |
-| `delayed` | Contains delayed mode | At least one observation is delayed in at least one column |
-| `unknown` | Data mode unknown | None is delayed, but at least one with a value is empty in at least one column |
+| `nrt` | NRT only | Every observation is `R` or `A` in every configured data mode column, and the flags are not estimated to be delayed mode ones |
+| `delayed` | Delayed mode | At least one observation is delayed in at least one column, or the flags of a variable are estimated to be delayed mode ones (below) |
+| `unknown` | Data mode unknown | None is delayed, but at least one with a value is empty in at least one column, and the flags are not estimated |
 
 The order of the table is the order of the test: a delayed value decides
-the profile even when another cell of it is empty. "NRT only" takes positive
+the profile even when another cell of it is empty.
+
+**Estimated delayed mode.** A profile the columns call `nrt` or `unknown`
+is published as `delayed` when the flags of temperature or salinity look
+like an operator's: at least `min_share` (0.6) of the variable's
+observations with a usable input flag (present, and not a missing flag
+value) are flagged by the input and not by nrtqclib, counting only a
+variable with at least `min_observations` (5) such observations. An
+automated test rarely rejects most of a profile; an operator who judges a
+cast bad often rejects all of it. `estimated_from` names the variables, and
+the rule is `data_mode.estimated` in the configuration (`estimated: false`
+turns it off). The Analyses pages apply the same rule per variable. "NRT only" takes positive
 evidence, which is why an empty mode is a group of its own rather than a
 quiet NRT.
 
@@ -154,11 +165,13 @@ not on its flags alone, and then filed under its group.
   "data_mode": {
     "columns": ["temp_dm", "psal_dm", "pres_dm"],
     "delayed_values": ["D"],
-    "delayed_column": "delayed"
+    "delayed_column": "delayed",
+    "estimated": { "enabled": true, "min_share": 0.6, "min_observations": 5,
+                   "groups": ["nrt", "unknown"], "column": "estimated_from" }
   },
   "data_modes": [
     { "key": "nrt", "label": "NRT only", "description": "..." },
-    { "key": "delayed", "label": "Contains delayed mode", "description": "..." },
+    { "key": "delayed", "label": "Delayed mode", "description": "..." },
     { "key": "unknown", "label": "Data mode unknown", "description": "..." }
   ],
   "regions": [
@@ -180,7 +193,9 @@ not on its flags alone, and then filed under its group.
                 "nrt": { "n_profiles": 21, "n_profiles_total": 32,
                          "n_observations": 810, "n_observations_total": 1243 },
                 "delayed": { "n_profiles": 5, "n_profiles_total": 8,
-                             "n_observations": 192, "n_observations_total": 313 },
+                             "n_observations": 192, "n_observations_total": 313,
+                             "n_profiles_estimated": 1,
+                             "n_profiles_estimated_total": 1 },
                 "unknown": { "n_profiles": 0, "n_profiles_total": 0,
                              "n_observations": 0, "n_observations_total": 0 }
               }
@@ -230,6 +245,7 @@ One row per published profile, across every dataset.
 | `platform_code`, `profile_no` | str, i32 | The original key |
 | `profile_timestamp`, `longitude`, `latitude`, `filename` | varies | Copied when the input carries them |
 | `data_mode` | str | `nrt`, `delayed` or `unknown`; see "The data mode groups" |
+| `estimated_from` | str | The variables whose flags put the profile in `delayed` by estimate, comma separated (`psal`, `temp,psal`), or null |
 | `n_obs` | i64 | Observations in the profile |
 | `n_obs_delayed` | i32 | Observations delayed in at least one data mode column |
 | `n_obs_unknown` | i32 | Observations empty in at least one data mode column whose parameter has a value |

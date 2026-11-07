@@ -38,8 +38,9 @@ from nrtqc_diff.flags import is_one_of
 
 #: Every observation of the profile is real time or adjusted in real time.
 NRT: str = "nrt"
-#: At least one observation of the profile is in delayed mode, or the dataset
-#: is configured as delayed mode throughout.
+#: At least one observation of the profile is in delayed mode, its flags of
+#: a variable are estimated to be delayed mode ones, or the dataset is
+#: configured as delayed mode throughout.
 DELAYED: str = "delayed"
 #: No observation is in delayed mode, but at least one has no data mode.
 UNKNOWN: str = "unknown"
@@ -58,11 +59,13 @@ DATA_MODES: List[Dict[str, str]] = [
     },
     {
         "key": DELAYED,
-        "label": "Contains delayed mode",
+        "label": "Delayed mode",
         "description": (
-            "Profiles with at least one delayed mode observation, or from a "
-            "product whose flags come from its own delayed mode QC: the input "
-            "flags there are likely to be an operator's decisions."
+            "Profiles with at least one delayed mode observation, profiles "
+            "whose temperature or salinity flags look like an operator's "
+            "(estimated delayed mode), or from a product whose flags come "
+            "from its own delayed mode QC: the input flags there are likely "
+            "to be an operator's decisions."
         ),
     },
     {
@@ -165,3 +168,39 @@ def profile_data_mode(
         .then(pl.lit(UNKNOWN))
         .otherwise(pl.lit(NRT))
     )
+
+
+def input_only_share(variable: str, spec: DataModeSpec) -> pl.Expr:
+    """
+    The share of a variable's observations with a usable input flag that
+    the input flags and nrtqclib does not, from a profile's counts
+    ``{variable}_n_usable`` and ``{variable}_n_original_only``. Null below
+    ``estimated_min_observations`` usable flags: a few flagged values are
+    not a pattern.
+    """
+    usable = pl.col(f"{variable}_n_usable")
+    return (
+        pl.when(usable >= spec.estimated_min_observations)
+        .then(pl.col(f"{variable}_n_original_only") / usable)
+        .otherwise(None)
+    )
+
+
+def is_estimated(share: pl.Expr, declared: pl.Expr, spec: DataModeSpec) -> pl.Expr:
+    """
+    Whether a profile's flags of one variable are estimated to be delayed
+    mode ones: its declared group is one the estimate applies to, and its
+    input-only share (:func:`input_only_share`) reaches
+    ``estimated_min_share``. An automated test rarely rejects most of a
+    profile; an operator who judges a cast bad often rejects all of it.
+
+    :param share: The variable's input-only share.
+    :param declared: The profile's group from its data mode columns.
+    :param spec: The data mode section, with the rule.
+    :return: A boolean expression, never null.
+    """
+    if not spec.estimate:
+        return pl.lit(False)
+    return declared.is_in(spec.estimated_groups) & (
+        share >= spec.estimated_min_share
+    ).fill_null(False)

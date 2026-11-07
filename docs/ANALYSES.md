@@ -80,11 +80,13 @@ analyses:
     positive_depth: false   # GEBCO elevation: negative under water
     margins_m: [0, 5, 10, 20, 50, 100]
   estimated_delayed:
-    min_share: 0.6
-    min_observations: 5
-    groups: [nrt, unknown]
     sensitivity: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 ```
+
+The estimated delayed mode rule itself (`min_share`, `min_observations`,
+`groups`) is `data_mode.estimated`, outside this section, because the build
+applies it too: the dashboard files a profile as delayed mode when either
+variable is estimated, while the analyses keep the variables apart.
 
 `ctddump_dups` holds the duplicate lists ctddump's `markdup` writes beside
 its data (`output/dedup/markdup/<stem>.dups.tsv`), not under `report/`: they

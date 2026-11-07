@@ -24,8 +24,11 @@ import polars as pl
 from nrtqc_diff.config import REQUIRED_COLUMNS, BuildConfig, DatasetSpec, VariableSpec
 from nrtqc_diff.data_mode import (
     DATA_MODES,
+    DELAYED,
     DELAYED_COLUMN,
+    input_only_share,
     is_delayed,
+    is_estimated,
     is_unknown,
     profile_data_mode,
 )
@@ -37,6 +40,7 @@ from nrtqc_diff.flags import (
     original_flag,
     status_expression,
     status_predicates,
+    usable_flag,
 )
 
 #: The shape of what a build writes, recorded in the catalog.
@@ -47,7 +51,11 @@ from nrtqc_diff.flags import (
 #: columns, file names or catalog fields, and a deploy carrying data from
 #: before that change stops instead of rendering a site against files that no
 #: longer match. `scripts/data_release.py` is what compares the two.
-DATA_FORMAT: int = 2
+DATA_FORMAT: int = 3
+
+#: The published profile column naming the variables whose flags put the
+#: profile in delayed mode by estimate, comma separated, or null.
+ESTIMATED_COLUMN: str = "estimated_from"
 
 #: The key identifying a profile everywhere in the site.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -233,14 +241,20 @@ def _profile_summary(
     at once: how many profiles and observations the input holds, which
     profiles the trimming rule keeps, what the summary table's counts are, and
     which data mode group each profile belongs to.
+
+    The group is the data mode columns' (:func:`profile_data_mode`), unless
+    the flags of temperature or salinity are estimated to be delayed mode
+    ones (:func:`~nrtqc_diff.data_mode.is_estimated`): then the profile is
+    delayed mode, and :data:`ESTIMATED_COLUMN` names the variables. A
+    dataset filed whole by its configuration stays as configured.
     The result is one row per profile, so collecting it is safe however large
     the input was.
 
     :param scan: The scan produced by :func:`_scan_dataset`.
     :param spec: The dataset being built, for its data mode override.
     :param config: The build configuration.
-    :return: The grouped frame, with a :data:`KEEP_COLUMN` flag and the
-             profile's ``data_mode``.
+    :return: The grouped frame, with a :data:`KEEP_COLUMN` flag, the
+             profile's ``data_mode`` and :data:`ESTIMATED_COLUMN`.
     """
     names = scan.collect_schema().names()
     present = [name for name in OPTIONAL_PROFILE_COLUMNS if name in names]
@@ -256,6 +270,12 @@ def _profile_summary(
                 .cast(pl.Int32)
                 .alias(f"{variable.name}_n_{status['key']}")
             )
+        aggregations.append(
+            usable_flag(variable)
+            .sum()
+            .cast(pl.Int32)
+            .alias(f"{variable.name}_n_usable")
+        )
     aggregations.append(
         is_delayed(config.data_mode).sum().cast(pl.Int32).alias("n_obs_delayed")
     )
@@ -268,14 +288,37 @@ def _profile_summary(
         .alias(KEEP_COLUMN)
     )
 
+    declared = profile_data_mode(
+        pl.col("n_obs_delayed"), pl.col("n_obs_unknown"), spec.data_mode
+    )
+    if spec.data_mode is not None:
+        estimated = pl.lit(None, dtype=pl.Utf8)
+    else:
+        estimated = pl.concat_str(
+            [
+                pl.when(
+                    is_estimated(
+                        input_only_share(v.name, config.data_mode),
+                        declared,
+                        config.data_mode,
+                    )
+                ).then(pl.lit(v.name))
+                for v in config.variables
+            ],
+            separator=",",
+            ignore_nulls=True,
+        )
+        estimated = pl.when(estimated != "").then(estimated)
     return (
         scan.group_by(PROFILE_KEYS)
         .agg(aggregations)
         .collect(engine="streaming")
+        .with_columns(estimated.alias(ESTIMATED_COLUMN))
         .with_columns(
-            profile_data_mode(
-                pl.col("n_obs_delayed"), pl.col("n_obs_unknown"), spec.data_mode
-            ).alias("data_mode")
+            pl.when(pl.col(ESTIMATED_COLUMN).is_not_null())
+            .then(pl.lit(DELAYED))
+            .otherwise(declared)
+            .alias("data_mode")
         )
     )
 
@@ -303,6 +346,13 @@ def _mode_counts(summary: pl.DataFrame, kept: pl.DataFrame) -> Dict[str, Any]:
             "n_observations": int(published["n_obs"].sum()),
             "n_observations_total": int(total["n_obs"].sum()),
         }
+        if mode["key"] == DELAYED:
+            # How much of the group is there by estimate rather than declared.
+            estimated = pl.col(ESTIMATED_COLUMN).is_not_null()
+            counts[DELAYED]["n_profiles_estimated"] = published.filter(estimated).height
+            counts[DELAYED]["n_profiles_estimated_total"] = total.filter(
+                estimated
+            ).height
     return counts
 
 
@@ -406,7 +456,9 @@ def _profile_frame(
     Per variable the row carries a count for every agreement category plus
     ``{variable}_n_disagree``, and the frame as a whole carries ``n_disagree``
     summed across variables, which is the table's default sort. ``data_mode``
-    says which group of ``DATA_MODES`` the profile is published under, and
+    says which group of ``DATA_MODES`` the profile is published under,
+    :data:`ESTIMATED_COLUMN` which variables put it in delayed mode by
+    estimate, if any, and
     ``n_obs_delayed`` and ``n_obs_unknown`` how many of its observations are
     delayed and have no data mode. The two counts are what the data mode
     columns say even for a dataset filed whole under one group.
@@ -444,7 +496,8 @@ def _profile_frame(
             ["dataset_id", "region", "product", "profile_id"]
             + PROFILE_KEYS
             + present
-            + ["data_mode", "n_obs", "n_obs_delayed", "n_obs_unknown", "n_disagree"]
+            + ["data_mode", ESTIMATED_COLUMN]
+            + ["n_obs", "n_obs_delayed", "n_obs_unknown", "n_disagree"]
             + [
                 column
                 for variable in config.variables
@@ -519,6 +572,13 @@ def _catalog(config: BuildConfig, entries: List[Dict[str, Any]]) -> Dict[str, An
             "columns": config.data_mode.columns,
             "delayed_values": config.data_mode.delayed_values,
             "delayed_column": DELAYED_COLUMN,
+            "estimated": {
+                "enabled": config.data_mode.estimate,
+                "min_share": config.data_mode.estimated_min_share,
+                "min_observations": config.data_mode.estimated_min_observations,
+                "groups": config.data_mode.estimated_groups,
+                "column": ESTIMATED_COLUMN,
+            },
         },
         "data_modes": DATA_MODES,
         "regions": regions,

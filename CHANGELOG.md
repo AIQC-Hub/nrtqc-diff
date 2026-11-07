@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   looks reworked by an operator leaves the salinity comparison and stays in
   the temperature one. The NRT and delayed mode page and the Flag
   differences page show the two variables apart.
+- The dashboard and the other main pages file a profile as delayed mode
+  when the flags of its temperature or salinity are estimated to be an
+  operator's, by the rule the analyses use. The group is now called
+  "Delayed mode", `profiles.parquet` has an `estimated_from` column naming
+  the variables, the profile panel says so, and the catalog counts the
+  estimated profiles. The rule moves from `analyses.estimated_delayed` to
+  `data_mode.estimated`, and `data_format` is 3.
 
 ### Fixed
 

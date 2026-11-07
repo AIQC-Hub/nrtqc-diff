@@ -16,9 +16,10 @@ to list its profiles underneath it. The dashboard is where a single profile is
 plotted; this page is for finding the platforms worth looking at, and the
 profiles within them.
 
-"NRT only" compares two sets of automated flags. "Contains delayed mode"
-compares nrtqclib with input flags that are likely to be an operator's
-decisions, so a disagreement there means something different. "Data mode
+"NRT only" compares two sets of automated flags. "Delayed mode" compares
+nrtqclib with input flags that are likely to be an operator's decisions,
+declared by the data mode or estimated from the flags, so a disagreement
+there means something different. "Data mode
 unknown" holds the profiles whose files do not say. The groups are kept apart
 unless you ask for all of them.
 

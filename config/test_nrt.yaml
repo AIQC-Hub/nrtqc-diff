@@ -50,13 +50,14 @@ variables:
 # Where the observation-level data mode lives: `R` (real time), `A` (adjusted
 # in real time) or `D` (delayed mode), as ctddump writes it and nrtqclib
 # passes it through. A profile with a delayed value in any of these columns
-# is published as "contains delayed mode" rather than "NRT only", because its
+# is published as "delayed mode" rather than "NRT only", because its
 # input flags are likely to be an operator's decisions. One with no delayed
 # value but an empty one, which ctddump writes when the file gives no usable
 # mode, is published as "data mode unknown": NRT only takes positive
 # evidence. An empty mode counts only where its parameter (`temp` for
-# `temp_dm`) has a value, since ctddump leaves it empty at a missing level. Pressure is listed too: a profile whose pressure was revised in
-# delayed mode was touched by one. `delayed_values` defaults to [D].
+# `temp_dm`) has a value, since ctddump leaves it empty at a missing level.
+# Pressure is listed too: a profile whose pressure was revised in delayed
+# mode was touched by one. `delayed_values` defaults to [D].
 #
 # A dataset entry can set `data_mode` to file all of its profiles under one
 # group regardless, for a product whose flags come from its own delayed mode
@@ -64,6 +65,16 @@ variables:
 data_mode:
   columns: [temp_dm, psal_dm, pres_dm]
   delayed_values: [D]
+  # A profile marked NRT (or with no data mode) whose flags of temperature or
+  # salinity look like an operator's is filed as delayed mode too: at least
+  # min_share of that variable's observations with a usable input flag are
+  # flagged by the input and not by nrtqclib, counting only a variable with
+  # min_observations such values. `estimated: false` turns it off. The
+  # analyses apply the same rule per variable.
+  estimated:
+    min_share: 0.6
+    min_observations: 5
+    groups: [nrt, unknown]
 
 # What `nrtqc-diff analyse` reads besides the datasets, and where it writes.
 # The tables go under site/data so that a data release carries them, and the
@@ -82,15 +93,11 @@ analyses:
     column: bathymetry
     positive_depth: false
     margins_m: [0, 5, 10, 20, 50, 100]
-  # An NRT profile (or one with no data mode) is estimated to carry delayed
-  # mode flags in a variable when at least min_share of its observations of
-  # that variable with a usable input flag are flagged by the input and not
-  # by nrtqclib, counting only a variable with min_observations such values.
-  # Each variable is judged on its own and leaves only its own comparison.
+  # The estimated delayed mode rule is data_mode.estimated above. The
+  # analyses apply it per variable, and take a profile out of only the
+  # comparison of the variable it was estimated for; the sensitivity table
+  # tries these thresholds.
   estimated_delayed:
-    min_share: 0.6
-    min_observations: 5
-    groups: [nrt, unknown]
     sensitivity: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
 # The eight datasets of the batch are a region by product grid. `ar`, `bo` and
