@@ -52,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   "Delayed mode", `profiles.parquet` has an `estimated_from` column naming
   the variables, the profile panel says so, and the catalog counts the
   estimated profiles. As in the analyses, a profile on land is not
-  estimated. The rule moves from `analyses.estimated_delayed` to
+  estimated. A data mode group no product has a profile in, such as "Data
+  mode unknown" on the current batch, is no longer offered. The rule moves from `analyses.estimated_delayed` to
   `data_mode.estimated`, and `data_format` is 3.
 
 ### Fixed
