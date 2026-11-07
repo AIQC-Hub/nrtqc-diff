@@ -7,6 +7,11 @@ the QC items of `nrtqclib`, the library whose flags this dashboard shows. For
 each `nrtqclib` item it covers two things: whether `nc2parquet` implements the
 item at all, and how the logic and the thresholds differ where it does.
 
+`nc2parquet`'s NRT QC is used for Arctic data only, so the comparison that
+matters is with our Arctic datasets (`ar_ar`, `ar_gl`, `cora_ar`) and the
+Arctic parameters of our runs. Where `nc2parquet`'s design would behave
+differently elsewhere, that is noted briefly.
+
 This file is documentation for the repository only. The site renders `site/`
 and nothing outside it, so the file is never published as a page.
 
@@ -29,8 +34,8 @@ where they explain a defect.
 | `impossible_date` | RTQC2 | No | Rows are filtered on the source file's own time flag instead |
 | `impossible_location` | RTQC3 | No | Rows are filtered on the source file's own position flag instead |
 | `position_on_land` | RTQC4 | No | A GEBCO depth is attached as a feature, never tested. Our runs do not use this item either |
-| `global_range` | RTQC6 | Merged into the range test | Same global bounds, but only as the fallback for regions without their own; two regions go below the global salinity minimum |
-| `regional_range` | RTQC7 | Yes, a different design | Region looked up per position from a grid, not per dataset; the Baltic and half the Mediterranean get the global bounds, and most Baltic data the North West Shelf's |
+| `global_range` | RTQC6 | Merged into the range test | Same global bounds, but used only as the fallback for regions without their own |
+| `regional_range` | RTQC7 | Yes, a different design | Region looked up per position from a grid, not per dataset. In the Arctic the bounds are nearly the same: -1.93 °C against -1.92 °C |
 | `pressure_increasing` | RTQC8 | No | Profiles are sorted by pressure, so a reversal is reordered, not flagged |
 | `spike` | RTQC9 | Yes, combined with gradient | Same formula and thresholds; one column for both tests; neighbours in pressure order |
 | `gradient` | RTQC11 | Yes, combined with spike | Same formula and thresholds; see `spike` |
@@ -126,9 +131,10 @@ the regional range, so an observation must pass both.
 **nc2parquet.** No separate test. The range table's global entry, `GLO`, has
 the same bounds as `nrtqclib`'s, but it is used only for positions whose
 region has no entry of its own (see below). There is no global check on top
-of a region's bounds, so where a region is wider than the global range, the
-region wins: the `NWS` and `SWS` entries allow salinity down to 0, where
-`nrtqclib` fails anything below 2.
+of a region's bounds. The `ARC` bounds lie within the global ones, so for
+Arctic data this makes no difference. (Elsewhere it would: the `NWS` and
+`SWS` entries allow salinity down to 0, where `nrtqclib` fails anything
+below 2.)
 
 ### regional_range
 
@@ -158,47 +164,28 @@ The bounds do not depend on depth or season.
    inclusive, as in `nrtqclib`.
 4. A region the table does not list gets the global entry.
 
-The mask names nine regions and the table has temperature and salinity rows
-for six, so four mask regions fall back to the global bounds:
+The table's temperature and salinity rows that matter here:
 
-| Region | In the mask | Temperature | Salinity |
-| --- | --- | --- | --- |
-| `GLO` | yes | [-2.5, 40] | [2, 41] |
-| `ARC` | yes | [-1.93, 25] | [2, 40] |
-| `NWS` | yes | [-2, 24] | [0, 37] |
-| `MED-1` | yes | [10, 40] | [2, 40] |
-| `RED` | yes | [21.7, 40] | [2, 41] |
-| `SWS` | no | [-2, 30] | [0, 38] |
-| `BAL`, `MED`, `BLA`, `IBI` | yes, no table rows | global: [-2.5, 40] | global: [2, 41] |
-
-Mapping every input profile of our runs onto the mask shows where the two
-designs part:
-
-| Our datasets | `nc2parquet` region (profiles) | Bounds `nc2parquet` uses |
+| Region | Temperature | Salinity |
 | --- | --- | --- |
-| Arctic (`ar_ar`, `ar_gl`, `cora_ar`) | `ARC` (all 881,504) | `ARC`, nearly the same as ours |
-| Baltic (`bo_bo`, `cora_bo`) | `NWS` 190,123; `BAL` 38,437; `ARC` 13,032 | Mostly the North West Shelf's; global for the Baltic proper |
-| Mediterranean (`mo_mo`, `mo_gl`, `cora_mo`) | `MED-1` 72,470; `IBI` 56,595; `MED` 17,106; `BLA` 233 | `MED-1` for half of them, global for the rest |
+| `ARC` | [-1.93, 25] | [2, 40] |
+| `GLO` (fallback) | [-2.5, 40] | [2, 41] |
 
-The range flags that would differ, counted over all 330 million input
-observations. The `nrtqclib` side is its own output (global or regional range
-failed); the `nc2parquet` side applies its table and mask to the same values:
+Against our Arctic set ([-1.92, 25.0] and [2.0, 40.0]) the only difference is
+the lower temperature bound. Mapped onto the mask, every input profile of our
+three Arctic datasets (881,504 profiles) falls in `ARC`, so the per-position
+lookup and the per-dataset assignment pick the same bounds. Over their
+248 million observations, 477 temperatures (between -1.93 and -1.92 °C) fail
+in `nrtqclib` and pass in `nc2parquet`; the salinity range flags are
+identical. Both sides flag about 1.58 million temperature and 1.74 million
+salinity observations on range in these datasets.
 
-| Our datasets, `nc2parquet` region | Temperature | Salinity | Why |
-| --- | --- | --- | --- |
-| Arctic, `ARC` | 477 | 0 | Temperatures between -1.93 and -1.92 fail only in `nrtqclib` |
-| Baltic, `NWS` | 2,003 | 10,583 | Temperatures above 24 °C fail only in `nc2parquet`. Salinities below 2 fail only in `nrtqclib`, salinities from 37 to 40 only in `nc2parquet` |
-| Baltic, `BAL` and `ARC` | 5 | 0 | |
-| Mediterranean, `MED-1` | 0 | 0 | The same bounds |
-| Mediterranean, `MED` | 35,514 | 181 | Temperatures below 10 °C and salinities from 40 to 41 fail only in `nrtqclib` |
-| Mediterranean, `IBI` | 1,240 | 172 | As for `MED` |
-| Mediterranean, `BLA` | 2,080 | 0 | As for `MED`: Black Sea water below 10 °C |
-| **All** | **41,319** | **10,936** | |
-
-Both sides flag about 1.7 million temperature and 1.8 million salinity
-observations on range, so the designs agree on all but a few percent of them.
-Most of the temperature difference is the Mediterranean set's 10 °C minimum
-applied to positions `nc2parquet` treats as outside `MED-1`.
+Outside the Arctic the two designs would part more. The mask names nine
+regions and the table has temperature and salinity rows for six, and the
+Baltic (`BAL`), Black Sea (`BLA`), Iberia-Biscay-Ireland (`IBI`) and one of
+the two Mediterranean codes (`MED`) have no rows and fall back to the global
+bounds. Most of our Baltic profiles would also fall in `NWS`, the North West
+Shelf, rather than `BAL`. This does not affect how `nc2parquet` is used.
 
 ### pressure_increasing
 
@@ -338,7 +325,7 @@ same platform's.
 
 | Defect | Effect | How it was checked |
 | --- | --- | --- |
-| The range fallback writes the global bounds over the **last row** of the range table, instead of adding a row | A region processed after the fallback (regions go in alphabetical order) loses its bounds for the rest of that batch, and its observations pass. With the real tables the last temperature and salinity row is `ARC`, which sorts before every region that falls back, so these two variables are not affected | Run on synthetic tables: an observation of 30 °C in a region bounded at 24 °C failed alone and passed with a profile from an unlisted region in the same batch |
+| The range fallback writes the global bounds over the **last row** of the range table, instead of adding a row | A region processed after the fallback (regions go in alphabetical order) loses its bounds for the rest of that batch, and its observations pass. With the real tables the last temperature and salinity row is `ARC`, which sorts before every region that falls back, so these two variables are not affected; Arctic positions do not fall back in any case | Run on synthetic tables: an observation of 30 °C in a region bounded at 24 °C failed alone and passed with a profile from an unlisted region in the same batch |
 | The fallback reads the global entry as a single row | A global entry with more than one depth band would not work. The real `GLO` rows for temperature and salinity are single rows | From the code |
 | The spike and gradient table's resolution column selects nothing | Where rows differ only in resolution, the smallest resolution's thresholds are used everywhere. No effect on temperature and salinity, which have one resolution; oxygen's shallow thresholds are always the stricter of its two | Run: a 1.5 °C spike passed at both 1 and 10 dbar spacing, against a synthetic table with 1.0 °C for 10 dbar |
 | The stuck value table has depth ranges the code ignores | No effect on temperature and salinity, whose range covers the whole water column. Oxygen's stuck value threshold is applied at every depth, not only in its 800 to 1000 dbar range | From the code and the table |
@@ -353,13 +340,13 @@ same platform's.
 The `nc2parquet` QC modules were copied to a scratch directory outside this
 repository and run on small hand-made profiles, first against synthetic
 tables and a synthetic region mask, to exercise the code paths. The range
-comparison over our data reproduces `nc2parquet`'s region lookup and bounds
-with the real mask and table, in a separate script, rather than running
-`nc2parquet`'s own range function over 330 million rows. To check the
-replica, both were run on 1,500 random profiles from each of `ar_ar`,
-`bo_bo`, `mo_gl` and `cora_mo` (about 1.7 million observations, with
-fallback regions and `ARC` in the same batches): they gave the same flag on
-every observation, for both variables. The `nrtqclib` side
+comparison over our Arctic data reproduces `nc2parquet`'s region lookup and
+bounds with the real mask and table, in a separate script, rather than
+running `nc2parquet`'s own range function over 248 million rows. To check
+the replica, both were run on 1,500 random profiles from each of `ar_ar`,
+`bo_bo`, `mo_gl` and `cora_mo` (about 1.7 million observations; the
+non-Arctic datasets put fallback regions and `ARC` in the same batches): they
+gave the same flag on every observation, for both variables. The `nrtqclib` side
 is its output from our runs, and for the density examples, the `aiqclib` item
 class run with our runs' parameters. Neither the copies nor the scripts are
 kept; nothing from `nc2parquet` is in this repository except what this page
