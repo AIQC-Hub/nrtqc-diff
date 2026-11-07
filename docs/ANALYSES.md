@@ -133,7 +133,11 @@ name or columns.
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
 | `conversion_extra_parameters` | dataset, parameter | source files carrying a parameter ctddump does not read |
 | `conversion_compare` | reference, compared dataset | ctddump's profile matching between products of one region, with the platform code in the key |
-| `conversion_overlap` | dataset, compared dataset of its region | its profiles the other also has, matched on date and position rounded to 3 decimals, with the platform code and without |
+| `conversion_overlap` | dataset, compared dataset of its region | its profiles the other also has, matched on the date and positions within 0.001° (see below), with the platform code and without |
+| `conversion_match` | NRT dataset, CORA dataset of its region | pairs of the same cast on the same platform: how many, how many with the same number of observations, on which side there are more, how close their times are |
+| `conversion_match_difference` | NRT dataset, CORA dataset, difference class | mismatched pairs by observations in NRT minus observations in CORA |
+| `conversion_match_ends` | NRT dataset, CORA dataset, side, end | mismatched pairs by the side with more and the end that differs (`top`, `bottom`, `both_ends`, `inside`) |
+| `conversion_match_platforms` | NRT dataset, CORA dataset, platform | platforms with mismatched pairs, with the median difference |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
 | `depth_summary` | dataset | profiles, land profiles, and what the input flagged on them |
 | `depth_land_margin` | dataset, margin | land profiles at least that many metres up |
@@ -155,6 +159,18 @@ name or columns.
 | `items_original_flags` | dataset, variable, input flag, nrtqclib bad | observations |
 | `items_platforms` | dataset, platform | profiles, observations and agreement counts |
 
+### Matching profiles across products
+
+Two profiles of different products are the same cast when they share a
+date and their positions are within 0.001° in longitude and in latitude.
+ctddump's own comparison rounds positions to 3 decimals instead, and since
+the products rarely store a position to the same last digit, a pair either
+side of a rounding boundary is missed: about one pair in ten here. Each
+profile is paired at most once, closest in time first, and when the platform
+code is not part of the match a partner on the same platform is preferred.
+"The same cast in NRT and CORA" pairs each product with the products of its
+region configured as `data_mode: delayed`, on the platform code too.
+
 ## The figures
 
 Each figure is written twice, as SVG for the site and PDF for the
@@ -163,7 +179,7 @@ the theme, the palettes and `save_figure()`.
 
 | Script | Figures |
 | --- | --- |
-| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_overlap` |
+| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_overlap`, `conversion_match_difference`, `conversion_match_ends` |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_coast` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |

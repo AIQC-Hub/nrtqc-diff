@@ -8,7 +8,12 @@ import polars as pl
 import pytest
 import yaml
 
-from nrtqc_diff.analyse import check_conversion_steps, overlap_table, run_analyses
+from nrtqc_diff.analyse import (
+    check_conversion_steps,
+    match_tables,
+    overlap_table,
+    run_analyses,
+)
 from nrtqc_diff.config import read_config
 
 #: ``platform: (temp_dm, [(temp_qc, temp_nrt_flag, spike, date, elevation)])``.
@@ -276,6 +281,7 @@ def test_overlap_matches_with_and_without_the_platform(tmp_path):
         {
             "dataset_id": ["a", "a", "a", "b", "b"],
             "platform_code": ["P", "Q", "R", "P", "X"],
+            "profile_no": [1, 1, 1, 1, 1],
             "profile_timestamp": when + [when[0], when[1]],
             "longitude": [1.0, 2.0, 3.0, 1.0004, 2.0],
             "latitude": [50.0, 50.0, 50.0, 50.0, 50.0],
@@ -290,7 +296,59 @@ def test_overlap_matches_with_and_without_the_platform(tmp_path):
     assert row["n_matched_any_platform"] == 2
 
 
-def _two_dataset_config(tmp_path):
+def test_a_pair_either_side_of_a_rounding_boundary_still_matches(tmp_path):
+    """Rounded to 3 decimals these would be 2.001 and 2.000, and miss."""
+    when = datetime(2020, 1, 1, 6)
+    profiles = pl.DataFrame(
+        {
+            "dataset_id": ["a", "b"],
+            "platform_code": ["P", "P"],
+            "profile_no": [1, 7],
+            "profile_timestamp": [when, when],
+            "longitude": [2.0005, 2.00049],
+            "latitude": [50.0, 50.0],
+        }
+    )
+    overlap = overlap_table(profiles, _two_dataset_config(tmp_path))
+    assert overlap["n_matched_same_platform"].to_list() == [1, 1]
+
+
+def test_matched_profiles_are_compared_with_the_delayed_product(tmp_path):
+    when = datetime(2020, 1, 1, 6)
+    profiles = pl.DataFrame(
+        {
+            "dataset_id": ["a", "a", "a", "b", "b", "b"],
+            "platform_code": ["P", "P", "Q", "P", "P", "Q"],
+            "profile_no": [1, 2, 1, 1, 2, 1],
+            "profile_timestamp": [when, when.replace(day=2), when] * 2,
+            "longitude": [1.0, 1.0, 5.0, 1.0, 1.0, 5.0],
+            "latitude": [50.0] * 6,
+            "n_obs": [10, 11, 20, 10, 10, 25],
+            "pres_min": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            "pres_max": [10.0, 11.0, 20.0, 10.0, 10.0, 20.0],
+        }
+    )
+    tables = match_tables(profiles, _two_dataset_config(tmp_path, delayed="b"))
+    summary = tables["conversion_match"].row(0, named=True)
+    assert (summary["dataset_id"], summary["compared_id"]) == ("a", "b")
+    assert summary["n_matched"] == 3
+    assert summary["n_same_obs"] == 1
+    assert summary["n_more_in_dataset"] == 1
+    assert summary["n_more_in_compared"] == 1
+    difference = tables["conversion_match_difference"]
+    assert dict(zip(difference["difference"], difference["n_profiles"])) == {
+        "+1": 1,
+        "-9 to -2": 1,
+    }
+    ends = tables["conversion_match_ends"]
+    assert dict(zip(ends["more_in"] + ":" + ends["end"], ends["n_profiles"])) == {
+        "dataset:bottom": 1,
+        "compared:inside": 1,
+    }
+    assert tables["conversion_match_platforms"]["platform_code"].to_list() == ["P", "Q"]
+
+
+def _two_dataset_config(tmp_path, delayed=None):
     path = tmp_path / "c.yaml"
     path.write_text(
         yaml.safe_dump(
@@ -298,8 +356,14 @@ def _two_dataset_config(tmp_path):
                 "variables": [{"name": "t", "flag": "t_qc", "nrt_flag": "t_nrt"}],
                 "data_mode": {"columns": ["t_dm"]},
                 "datasets": [
-                    {"id": "a", "region": "R", "product": "P1", "path": "x"},
-                    {"id": "b", "region": "R", "product": "P2", "path": "y"},
+                    {
+                        "id": name,
+                        "region": "R",
+                        "product": f"P{number}",
+                        "path": name,
+                        **({"data_mode": "delayed"} if name == delayed else {}),
+                    }
+                    for number, name in enumerate(["a", "b"], 1)
                 ],
                 "analyses": {"out_dir": "out"},
             }

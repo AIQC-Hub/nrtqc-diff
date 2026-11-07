@@ -270,11 +270,14 @@ meta && dupSets ? table(
 ## Overlap between products
 
 The products of one region come from different streams, and part of what
-one holds the other holds too. A profile of one product is matched in
-another the way duplicates are found: same date, same rounded position. The
-match is made twice. With the platform code, as ctddump's own comparison of
-the products does, and on date and place alone, which also finds a cast the
-two products name differently.
+one holds the other holds too. Two profiles of different products are taken
+to be the same cast when they share a date and their positions are within
+0.001° of each other in longitude and in latitude (about 100 m or less).
+The products rarely store a position to the same last digit, so this is a
+tolerance rather than ctddump's rounding to three decimals, which misses a
+pair whose two positions fall either side of a rounding boundary. The match
+is made twice: with the platform code, and on date and place alone, which
+also finds a cast the two products name differently.
 
 ```{ojs}
 meta ? app.analysisFigure(
@@ -287,23 +290,98 @@ meta ? app.analysisFigure(
 A cast an NRT product shares with CORA has been through CORA's
 reprocessing as well, so the share of an NRT product found in CORA is how
 much of it has a delayed mode counterpart. A regional and a global NRT
-product share no platform code, so only the
-match on date and place can find what they have in common. Where it finds
-little, the two products hold different casts rather than the same casts
-under different names.
+product share no platform code, so only the match on date and place can find
+what they have in common. Where it finds little, the two products hold
+different casts rather than the same casts under different names.
 
 ```{ojs}
 overlap = meta ? app.loadAnalysisTable("conversion_overlap") : null
 compare = meta ? app.loadAnalysisTable("conversion_compare") : null
-sameLength = (ref, other) => (compare ?? []).find((c) => c.reference_id === ref && c.compared_id === other)?.nobs_agree_pct ?? null
-meta ? table((overlap ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}`, same_length: sameLength(r.dataset_id, r.compared_id) })), [
+ctddumpMatch = (ref, other) => (compare ?? []).find((c) => c.reference_id === ref && c.compared_id === other)?.matched_profiles ?? null
+meta ? table((overlap ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}`, ctddump: ctddumpMatch(r.dataset_id, r.compared_id) })), [
   { key: "dataset_id", label: "Product", align: "left", format: name },
   { key: "compared_id", label: "Also in", align: "left", format: name },
   { key: "n_profiles", label: "Profiles" },
   { key: "n_matched_same_platform", label: "Same platform code", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` },
   { key: "n_matched_any_platform", label: "On date and place", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` },
-  { key: "same_length", label: "Same length", title: "Of the profiles matched with the platform code, the share with the same number of observations in both (from ctddump's comparison)", format: (v) => (v === null ? "" : `${v.toFixed(1)}%`) }
+  { key: "ctddump", label: "ctddump's match", title: "Profiles ctddump's own comparison matches with the platform code, on positions rounded to three decimals", format: (v) => (v === null ? "" : app.formatCount(v)) }
 ]) : html``
+```
+
+### The same cast in NRT and in CORA
+
+A profile an NRT product shares with CORA, on the same platform, date and
+place, is one cast in two versions. It should hold the same observations in
+both. Most pairs do; the rest differ in their number of observations, and
+how they differ says what happened to the cast between the two.
+
+```{ojs}
+matches = meta ? app.loadAnalysisTable("conversion_match") : null
+meta ? table((matches ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}` })).sort(byDataset), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "compared_id", label: "Matched in", align: "left", format: name },
+  { key: "n_matched", label: "Pairs" },
+  { key: "n_same_obs", label: "Same observations", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})` },
+  { key: "n_more_in_dataset", label: "NRT has more" },
+  { key: "n_more_in_compared", label: "CORA has more" },
+  { key: "n_within_minute", label: "Times within a minute", title: "Pairs whose two profile times are no more than 60 s apart", format: (v, r) => app.formatShare(v, r.n_matched) }
+]) : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_match_difference",
+  "Pairs of the same cast whose numbers of observations differ, by how much: observations in the NRT profile minus those in the CORA profile. Pairs with the same number are left out; the table above counts them.",
+  "Bar charts per NRT product of mismatched pairs by the difference in observations."
+) : html``
+```
+
+Where in the profile the two versions differ: in the deepest observation,
+the shallowest, both, or neither, in which case the ends agree and the
+difference is between them.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_match_ends",
+  "Mismatched pairs by which end of the profile differs between the two versions, split by the side with more observations. An end differs when its pressures are more than 0.5 dbar apart. The number is the pairs in the row.",
+  "Stacked bars per NRT product and side of mismatched pairs by the end that differs."
+) : html``
+```
+
+Three patterns stand out:
+
+- **One more observation in NRT, at the bottom.** The commonest mismatch:
+  the CORA version lacks the deepest observation of the NRT one.
+- **Many more in CORA, with the same ends.** Mostly in the Arctic part of
+  the global NRT product: hundreds more observations over the same depth
+  range, which suggests the NRT version is a thinned copy of the cast and
+  CORA holds it at full vertical resolution.
+- **A few more in NRT, with the same ends.** Observations missing from
+  inside the CORA version, as in much of the Baltic.
+
+The platforms with mismatched pairs, per product:
+
+```{ojs}
+matchPlatforms = meta ? app.loadAnalysisTable("conversion_match_platforms") : null
+viewof matchDataset = meta && matchPlatforms
+  ? Inputs.select([...new Set(matchPlatforms.map((r) => r.dataset_id))], { label: "Product", format: name })
+  : html``
+```
+
+```{ojs}
+meta && matchPlatforms ? table(
+  matchPlatforms.filter((r) => r.dataset_id === matchDataset).map((r) => ({ ...r, key: r.platform_code })),
+  [
+    { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
+    { key: "n_matched", label: "Pairs" },
+    { key: "n_mismatched", label: "Mismatched" },
+    { key: "share", label: "Share", format: (_, r) => app.formatShare(r.n_mismatched, r.n_matched) },
+    { key: "n_more_in_dataset", label: "NRT has more" },
+    { key: "n_more_in_compared", label: "CORA has more" },
+    { key: "median_difference", label: "Median difference", title: "Of the mismatched pairs: observations in NRT minus observations in CORA", format: (v) => (v === null ? "" : (v > 0 ? `+${v}` : `${v}`)) }
+  ],
+  { sortKey: "n_mismatched", descending: true }
+) : html``
 ```
 
 ## Other parameters

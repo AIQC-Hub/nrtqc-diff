@@ -150,3 +150,61 @@ if (!is.null(overlap)) {
     theme(strip.text.y = element_text(angle = 0, hjust = 0))
   save_figure(plot, "conversion_overlap", height = 95)
 }
+
+# The same cast in an NRT product and in CORA: matched on the platform, the
+# date and the position, the two should hold the same observations. How far
+# their numbers of observations differ, and on which side.
+difference <- read_table("conversion_match_difference")
+if (!is.null(difference)) {
+  short_of <- setNames(datasets$short, datasets$id)
+  side_colours <- c("NRT has more" = "#2a78d6", "CORA has more" = "#1baf7a")
+  difference <- difference |>
+    with_datasets() |>
+    mutate(
+      pair = factor(paste0(short, " in ", short_of[compared_id]),
+                    levels = unique(paste0(short, " in ", short_of[compared_id]))),
+      difference = factor(difference, levels = unique(difference[order(difference_order)])),
+      side = factor(if_else(grepl("^-", difference), "CORA has more", "NRT has more"),
+                    levels = names(side_colours))
+    )
+  plot <- ggplot(difference, aes(difference, n_profiles, fill = side)) +
+    geom_col(width = 0.75) +
+    geom_text(aes(label = comma(n_profiles)), vjust = -0.4, size = 2.1) +
+    facet_wrap(~pair, ncol = 2, scales = "free_y") +
+    scale_fill_manual(values = side_colours, drop = FALSE) +
+    scale_x_discrete(drop = FALSE) +
+    scale_y_continuous(labels = comma0, expand = expansion(mult = c(0, 0.2))) +
+    labs(x = "Observations in the NRT profile minus observations in the CORA profile",
+         y = "Matched profiles", fill = NULL) +
+    theme(axis.text.x = element_text(angle = 40, hjust = 1))
+  save_figure(plot, "conversion_match_difference", height = 120)
+}
+
+ends <- read_table("conversion_match_ends")
+if (!is.null(ends)) {
+  short_of <- setNames(datasets$short, datasets$id)
+  end_colours <- c("Deepest observation" = "#6250d6", "Shallowest observation" = "#eb6834",
+                   "Both ends" = "#2a78d6", "Neither end" = "#9a9a9a")
+  end_names <- c(bottom = "Deepest observation", top = "Shallowest observation",
+                 both_ends = "Both ends", inside = "Neither end")
+  ends <- ends |>
+    with_datasets() |>
+    mutate(
+      pair = paste0(short, " in ", short_of[compared_id]),
+      side = if_else(more_in == "dataset", "NRT has more", "CORA has more"),
+      row = factor(paste0(pair, "|", side), levels = rev(unique(paste0(pair, "|", side)))),
+      end = factor(unname(end_names[end]), levels = names(end_colours))
+    )
+  totals <- ends |> group_by(row) |> summarise(n = sum(n_profiles), .groups = "drop")
+  plot <- ggplot(ends, aes(n_profiles, row, fill = end)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+             position = position_fill(reverse = TRUE)) +
+    geom_text(data = totals, inherit.aes = FALSE, aes(1, row, label = comma(n)),
+              hjust = -0.15, size = 2.3) +
+    scale_fill_manual(values = end_colours, drop = FALSE) +
+    scale_y_discrete(labels = function(x) sub("\\|", ": ", x)) +
+    scale_x_continuous(labels = label_percent(), expand = expansion(mult = c(0, 0.1))) +
+    labs(x = "Mismatched pairs, by where in the profile the two differ", y = NULL,
+         fill = NULL)
+  save_figure(plot, "conversion_match_ends", height = 80)
+}
