@@ -12,7 +12,14 @@ from nrtqc_diff.config import (
     DatasetSpec,
     VariableSpec,
 )
-from nrtqc_diff.data_mode import DATA_MODES, DELAYED, LAND, NRT, UNKNOWN
+from nrtqc_diff.data_mode import (
+    DATA_MODES,
+    DELAYED,
+    ESTIMATED_DELAYED,
+    LAND,
+    NRT,
+    UNKNOWN,
+)
 from nrtqc_diff.flags import (
     AGREE_BAD,
     AGREE_GOOD,
@@ -340,7 +347,7 @@ class TestDataMode:
         assert entry["modes"][DELAYED]["n_profiles_total"] == 7
         assert entry["modes"][NRT]["n_profiles_total"] == 0
 
-    def test_flags_that_look_like_an_operator_s_make_a_profile_delayed(
+    def test_flags_that_look_like_an_operator_s_are_estimated_delayed(
         self, tmp_path, nrt_qc_frame
     ):
         """INPUT marked real time, every value flagged by the input alone."""
@@ -364,13 +371,18 @@ class TestDataMode:
         )
         profiles = pl.read_parquet(tmp_path / "out" / "profiles.parquet")
         row = profiles.filter(pl.col("platform_code") == "INPUT")
-        assert row["data_mode"].item() == DELAYED
+        assert row["data_mode"].item() == ESTIMATED_DELAYED
         assert row["n_obs_delayed"].item() == 0
         assert row["estimated_from"].item() == "temp"
         # Too few usable flags elsewhere to call, and AGREE is confirmed.
         assert profiles.filter(pl.col("estimated_from").is_not_null()).height == 1
         modes = catalog["regions"][0]["products"][0]["datasets"][0]["modes"]
-        assert modes[DELAYED]["n_profiles_estimated"] == 1
+        assert modes[ESTIMATED_DELAYED]["n_profiles"] == 1
+        # Declared delayed mode is its own group, and the estimate leaves it.
+        assert (
+            modes[DELAYED]["n_profiles"]
+            == profiles.filter(pl.col("n_obs_delayed") > 0).height
+        )
         assert catalog["data_mode"]["estimated"]["min_observations"] == 3
 
     def test_a_profile_on_land_is_its_own_group(self, tmp_path, nrt_qc_frame):
@@ -473,9 +485,8 @@ class TestDataMode:
             "n_profiles_total": 3,
             "n_observations": 6,
             "n_observations_total": 9,
-            "n_profiles_estimated": 0,
-            "n_profiles_estimated_total": 0,
         }
+        assert modes[ESTIMATED_DELAYED]["n_profiles_total"] == 0
         assert modes[NRT]["n_profiles"] == 2
         assert modes[NRT]["n_profiles_total"] == 3
         assert modes[UNKNOWN]["n_profiles"] == 1
@@ -488,6 +499,7 @@ class TestDataMode:
         catalog, _, _ = built
         assert [mode["key"] for mode in catalog["data_modes"]] == [
             NRT,
+            ESTIMATED_DELAYED,
             DELAYED,
             UNKNOWN,
             LAND,

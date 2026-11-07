@@ -23,8 +23,8 @@ import polars as pl
 
 from nrtqc_diff.config import REQUIRED_COLUMNS, BuildConfig, DatasetSpec, VariableSpec
 from nrtqc_diff.data_mode import (
-    DELAYED,
     DELAYED_COLUMN,
+    ESTIMATED_DELAYED,
     LAND,
     PUBLISHED_GROUPS,
     input_only_share,
@@ -54,10 +54,10 @@ from nrtqc_diff.flags import (
 #: columns, file names or catalog fields, and a deploy carrying data from
 #: before that change stops instead of rendering a site against files that no
 #: longer match. `scripts/data_release.py` is what compares the two.
-DATA_FORMAT: int = 4
+DATA_FORMAT: int = 5
 
 #: The published profile column naming the variables whose flags put the
-#: profile in delayed mode by estimate, comma separated, or null.
+#: profile in estimated delayed mode, comma separated, or null.
 ESTIMATED_COLUMN: str = "estimated_from"
 
 #: The key identifying a profile everywhere in the site.
@@ -251,7 +251,8 @@ def _profile_summary(
     (:func:`profile_data_mode`), unless the flags of temperature or salinity
     are estimated to be delayed mode ones
     (:func:`~nrtqc_diff.data_mode.is_estimated`): then the profile is
-    delayed mode, and :data:`ESTIMATED_COLUMN` names the variables. A
+    estimated delayed mode, a group of its own, and :data:`ESTIMATED_COLUMN`
+    names the variables. A
     dataset filed whole by its configuration stays as configured, land
     apart.
     The result is one row per profile, so collecting it is safe however large
@@ -334,7 +335,7 @@ def _profile_summary(
             pl.when(on_land)
             .then(pl.lit(LAND))
             .when(pl.col(ESTIMATED_COLUMN).is_not_null())
-            .then(pl.lit(DELAYED))
+            .then(pl.lit(ESTIMATED_DELAYED))
             .otherwise(declared)
             .alias("data_mode")
         )
@@ -364,13 +365,6 @@ def _mode_counts(summary: pl.DataFrame, kept: pl.DataFrame) -> Dict[str, Any]:
             "n_observations": int(published["n_obs"].sum()),
             "n_observations_total": int(total["n_obs"].sum()),
         }
-        if mode["key"] == DELAYED:
-            # How much of the group is there by estimate rather than declared.
-            estimated = pl.col(ESTIMATED_COLUMN).is_not_null()
-            counts[DELAYED]["n_profiles_estimated"] = published.filter(estimated).height
-            counts[DELAYED]["n_profiles_estimated_total"] = total.filter(
-                estimated
-            ).height
     return counts
 
 
@@ -475,8 +469,8 @@ def _profile_frame(
     ``{variable}_n_disagree``, and the frame as a whole carries ``n_disagree``
     summed across variables, which is the table's default sort. ``data_mode``
     says which group of ``PUBLISHED_GROUPS`` the profile is published under,
-    :data:`ESTIMATED_COLUMN` which variables put it in delayed mode by
-    estimate, if any, and
+    :data:`ESTIMATED_COLUMN` which variables put it in estimated delayed
+    mode, if any, and
     ``n_obs_delayed`` and ``n_obs_unknown`` how many of its observations are
     delayed and have no data mode. The two counts are what the data mode
     columns say even for a dataset filed whole under one group.

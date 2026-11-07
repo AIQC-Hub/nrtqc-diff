@@ -43,9 +43,8 @@ from nrtqc_diff.flags import is_one_of
 
 #: Every observation of the profile is real time or adjusted in real time.
 NRT: str = "nrt"
-#: At least one observation of the profile is in delayed mode, its flags of
-#: a variable are estimated to be delayed mode ones, or the dataset is
-#: configured as delayed mode throughout.
+#: At least one observation of the profile is in delayed mode, or the
+#: dataset is configured as delayed mode throughout.
 DELAYED: str = "delayed"
 #: No observation is in delayed mode, but at least one has no data mode.
 UNKNOWN: str = "unknown"
@@ -66,11 +65,9 @@ DATA_MODES: List[Dict[str, str]] = [
         "key": DELAYED,
         "label": "Delayed mode",
         "description": (
-            "Profiles with at least one delayed mode observation, profiles "
-            "whose temperature or salinity flags look like an operator's "
-            "(estimated delayed mode), or from a product whose flags come "
-            "from its own delayed mode QC: the input flags there are likely "
-            "to be an operator's decisions."
+            "Profiles with at least one delayed mode observation, or from a "
+            "product whose flags come from its own delayed mode QC: the input "
+            "flags there are likely to be an operator's decisions."
         ),
     },
     {
@@ -89,10 +86,35 @@ assert [mode["key"] for mode in DATA_MODES] == DATA_MODE_KEYS
 #: Not a data mode, so not one of :data:`DATA_MODES` (a dataset cannot be
 #: configured as it), but a group the site publishes, decided before them.
 LAND: str = "land"
+#: Marked NRT, or with no data mode, but the flags of temperature or salinity
+#: look like an operator's (:func:`is_estimated`). Not a data mode the files
+#: declare, so not one of :data:`DATA_MODES` either.
+ESTIMATED_DELAYED: str = "estimated_delayed"
 
-#: The groups the site publishes and offers, in that order: the data mode
-#: groups, then land. ``catalog.json`` carries them as ``data_modes``.
-PUBLISHED_GROUPS: List[Dict[str, str]] = DATA_MODES + [
+
+def _data_mode(key: str) -> Dict[str, str]:
+    """:return: The entry of :data:`DATA_MODES` with this key."""
+    return next(mode for mode in DATA_MODES if mode["key"] == key)
+
+
+#: The groups the site publishes and offers, in that order: NRT, the two
+#: delayed mode groups (estimated, then declared), unknown, then land.
+#: ``catalog.json`` carries them as ``data_modes``.
+PUBLISHED_GROUPS: List[Dict[str, str]] = [
+    _data_mode(NRT),
+    {
+        "key": ESTIMATED_DELAYED,
+        "label": "Estimated delayed mode",
+        "description": (
+            "Profiles marked NRT, or with no data mode, whose temperature or "
+            "salinity flags look like an operator's: most of the variable's "
+            "observations are flagged by the input and not by nrtqclib. An "
+            "estimate from the flags, not a data mode the files declare. See "
+            "the NRT and delayed mode page."
+        ),
+    },
+    _data_mode(DELAYED),
+    _data_mode(UNKNOWN),
     {
         "key": LAND,
         "label": "On land",
@@ -101,7 +123,7 @@ PUBLISHED_GROUPS: List[Dict[str, str]] = DATA_MODES + [
             "level, whatever their data mode: their disagreements are mostly "
             "about the position rather than the tests. See the Depth page."
         ),
-    }
+    },
 ]
 
 #: The published per-observation column saying whether any configured data

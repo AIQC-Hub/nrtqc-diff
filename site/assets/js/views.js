@@ -905,7 +905,7 @@ export function profileFacts(profile, options = {}) {
   // reads very differently from one revised throughout; for an unknown one
   // how much has no mode; and for a dataset filed whole by its
   // configuration, that, since its own columns may say otherwise. A profile
-  // in delayed mode by estimate says which variables' flags put it there,
+  // in estimated delayed mode says which variables' flags put it there,
   // and one on land what its data mode is, since land outranks it.
   if (profile.data_mode) {
     const group = dataModes.find((mode) => mode.key === profile.data_mode);
@@ -928,10 +928,10 @@ export function profileFacts(profile, options = {}) {
       note = `(data mode: ${declared})`;
     } else if (datasetMode) {
       note = "(set for the whole product)";
-    } else if (profile.data_mode === "delayed" && estimated.length > 0) {
+    } else if (profile.data_mode === "estimated_delayed" && estimated.length > 0) {
       // Only a profile its data mode columns did not call delayed is
       // estimated, so there are no delayed observations to count here.
-      note = `(estimated from its ${estimated.join(" and ")} flags)`;
+      note = `(from its ${estimated.join(" and ")} flags)`;
     } else if (profile.data_mode === "delayed" && delayed > 0) {
       note = `(${formatCount(delayed)} of ${total} observations delayed)`;
     } else if (profile.data_mode === "unknown" && unknown > 0) {

@@ -77,8 +77,15 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def end_headers(self) -> None:
-        """Advertise range support on every response, as a static host does."""
+        """
+        Advertise range support on every response, as a static host does.
+
+        Every file is also marked for revalidation. Without it a browser
+        guesses how long to keep a file, and after a new render it can go on
+        running the old scripts and the old catalog, even across a reload.
+        """
         self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
     def send_head(self) -> Optional[io.RawIOBase]:

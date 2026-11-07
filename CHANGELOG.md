@@ -53,13 +53,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the variables, the profile panel says so, and the catalog counts the
   estimated profiles. As in the analyses, a profile on land is not
   estimated. A data mode group no product has a profile in, such as "Data
-  mode unknown" on the current batch, is no longer offered.
+  mode unknown" on the current batch, is no longer offered. The rule moves
+  from `analyses.estimated_delayed` to `data_mode.estimated`, and
+  `data_format` is 3.
 - A new "On land" group on the dashboard, Summary and Platforms: profiles
   the bathymetry puts at or above sea level, decided before the data mode
   as in the analyses, so the other groups hold profiles at sea only. The
   choice is now called "Group", the profile panel gives a land profile's
-  data mode, and `data_format` is 4. The rule moves from `analyses.estimated_delayed` to
-  `data_mode.estimated`, and `data_format` is 3.
+  data mode, and `data_format` is 4.
+- The profiles estimated to be delayed mode are a group of their own,
+  "Estimated delayed mode", rather than part of "Delayed mode", which now
+  holds only the profiles whose files declare it, and CORA. The estimate is
+  a guess from the flags, so a reader can now look at it alone. The catalog
+  counts it as `estimated_delayed` in `modes` instead of
+  `n_profiles_estimated`, and `data_format` is 5.
+- The preview server, `scripts/serve_static.py`, asks the browser to
+  revalidate every file, so a reload after a new render no longer runs the
+  old scripts.
 
 ### Fixed
 

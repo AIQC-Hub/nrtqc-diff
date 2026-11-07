@@ -53,14 +53,16 @@ at, and either tab can be read against the other.
 **Group** splits the profiles on every page, mostly by data mode. "NRT only"
 profiles have every observation in real time or adjusted in real time, so
 both sets of flags come from automated tests. "Delayed mode" profiles have
-at least one delayed mode observation, or temperature or salinity flags
-that look like an operator's: most of the variable's observations flagged
-by the input and not by `nrtqclib`, which an automated test rarely does.
-Their input flags are likely to be an operator's decisions, and CORA is
-filed there whole, since its flags come from its own delayed mode QC:
-comparing those with `nrtqclib` asks whether the automated tests anticipate
-what an expert decided, which is a different question. "Data mode unknown"
-holds the profiles whose files do not say. "On land" holds the profiles
+at least one delayed mode observation. Their input flags are likely to be
+an operator's decisions, and CORA is filed there whole, since its flags
+come from its own delayed mode QC: comparing those with `nrtqclib` asks
+whether the automated tests anticipate what an expert decided, which is a
+different question. "Estimated delayed mode" profiles are marked NRT, but
+their temperature or salinity flags look like an operator's: most of the
+variable's observations flagged by the input and not by `nrtqclib`, which
+an automated test rarely does. They are kept apart from declared delayed
+mode because they are an estimate. "Data mode unknown" holds the profiles
+whose files do not say. "On land" holds the profiles
 the bathymetry puts at or above sea level, whatever their data mode, since
 their disagreements are mostly about the position. A page offers a group
 only when a product has profiles in it. NRT only is the default, and the

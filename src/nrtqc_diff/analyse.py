@@ -49,6 +49,7 @@ from nrtqc_diff.config import (
 from nrtqc_diff.data_mode import (
     DATA_MODES,
     DELAYED,
+    ESTIMATED_DELAYED,
     NRT,
     UNKNOWN,
     input_only_share,
@@ -83,8 +84,6 @@ PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
 
 #: A profile whose position is at or above sea level.
 LAND: str = "land"
-#: An NRT (or unknown) profile whose input flags look like delayed mode ones.
-ESTIMATED_DELAYED: str = "estimated_delayed"
 
 #: The groups every profile is filed under by the analyses, in the order
 #: they are decided and shown. Land comes first: a profile on land is left

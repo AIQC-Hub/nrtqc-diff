@@ -100,15 +100,17 @@ them as "Group":
 | Key | Label | Rule |
 | --- | --- | --- |
 | `land` | On land | A position of the profile is at or above sea level by the bathymetry, whatever its data mode |
-| `nrt` | NRT only | Every observation is `R` or `A` in every configured data mode column, and the flags are not estimated to be delayed mode ones |
-| `delayed` | Delayed mode | At least one observation is delayed in at least one column, or the flags of a variable are estimated to be delayed mode ones (below) |
+| `delayed` | Delayed mode | At least one observation is delayed in at least one column |
+| `estimated_delayed` | Estimated delayed mode | No observation is delayed, but the flags of temperature or salinity are estimated to be delayed mode ones (below) |
 | `unknown` | Data mode unknown | None is delayed, but at least one with a value is empty in at least one column, and the flags are not estimated |
+| `nrt` | NRT only | Every observation is `R` or `A` in every configured data mode column, and the flags are not estimated to be delayed mode ones |
 
 The order of the table is the order of the test: land outranks everything,
 the data mode included, as in the Analyses pages, and a delayed value
-decides the profile even when another cell of it is empty. Land is not a
-data mode, so a dataset cannot be configured as it, and the site lists it
-after the others.
+decides the profile even when another cell of it is empty. Land and the
+estimate are not data modes the files declare, so a dataset cannot be
+configured as either. The site offers the groups in another order: NRT
+only, Estimated delayed mode, Delayed mode, Data mode unknown, On land.
 
 **On land.** The highest sea floor elevation among the profile's positions
 is at or above 0 m, from `analyses.land.column` (and its sign), or
@@ -119,7 +121,7 @@ are kept out of the comparisons of the other groups; the Depth page sorts
 them by cause.
 
 **Estimated delayed mode.** A profile the columns call `nrt` or `unknown`
-is published as `delayed` when the flags of temperature or salinity look
+is published as `estimated_delayed` when the flags of temperature or salinity look
 like an operator's: at least `min_share` (0.6) of the variable's
 observations with a usable input flag (present, and not a missing flag
 value) are flagged by the input and not by nrtqclib, counting only a
@@ -187,6 +189,7 @@ not on its flags alone, and then filed under its group.
   },
   "data_modes": [
     { "key": "nrt", "label": "NRT only", "description": "..." },
+    { "key": "estimated_delayed", "label": "Estimated delayed mode", "description": "..." },
     { "key": "delayed", "label": "Delayed mode", "description": "..." },
     { "key": "unknown", "label": "Data mode unknown", "description": "..." },
     { "key": "land", "label": "On land", "description": "..." }
@@ -209,10 +212,11 @@ not on its flags alone, and then filed under its group.
               "modes": {
                 "nrt": { "n_profiles": 21, "n_profiles_total": 32,
                          "n_observations": 810, "n_observations_total": 1243 },
-                "delayed": { "n_profiles": 5, "n_profiles_total": 8,
-                             "n_observations": 192, "n_observations_total": 313,
-                             "n_profiles_estimated": 1,
-                             "n_profiles_estimated_total": 1 },
+                "estimated_delayed": { "n_profiles": 1, "n_profiles_total": 1,
+                                       "n_observations": 40,
+                                       "n_observations_total": 40 },
+                "delayed": { "n_profiles": 4, "n_profiles_total": 7,
+                             "n_observations": 152, "n_observations_total": 273 },
                 "unknown": { "n_profiles": 0, "n_profiles_total": 0,
                              "n_observations": 0, "n_observations_total": 0 },
                 "land": { "n_profiles": 0, "n_profiles_total": 0,
@@ -264,7 +268,7 @@ One row per published profile, across every dataset.
 | `platform_code`, `profile_no` | str, i32 | The original key |
 | `profile_timestamp`, `longitude`, `latitude`, `filename` | varies | Copied when the input carries them |
 | `data_mode` | str | The group: `nrt`, `delayed`, `unknown` or `land`; see "The data mode groups" |
-| `estimated_from` | str | The variables whose flags put the profile in `delayed` by estimate, comma separated (`psal`, `temp,psal`), or null |
+| `estimated_from` | str | The variables whose flags put the profile in `estimated_delayed`, comma separated (`psal`, `temp,psal`), or null |
 | `n_obs` | i64 | Observations in the profile |
 | `n_obs_delayed` | i32 | Observations delayed in at least one data mode column |
 | `n_obs_unknown` | i32 | Observations empty in at least one data mode column whose parameter has a value |

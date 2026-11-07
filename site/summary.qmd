@@ -21,15 +21,17 @@ product is worth opening.
 The group decides which profiles are counted. "NRT only" compares two
 sets of automated flags. "Delayed mode" compares nrtqclib with input flags
 that are likely to be an operator's decisions, which is a different
-question. It holds the profiles with a delayed mode observation, those whose
-temperature or salinity flags look like an operator's (see
-[NRT and delayed mode](analyses-data-mode.qmd)), and CORA whole, since its
-flags come from its own delayed mode QC. "On land" holds the profiles the
-bathymetry puts at or above sea level, whatever their data mode: their
-disagreements are mostly about the position (see
-[Depth](analyses-depth.qmd)). A group is offered only when a product has profiles in
-it. The groups are kept apart unless you ask for all of them, and the last
-section puts them side by side.
+question. It holds the profiles with a delayed mode observation, and CORA
+whole, since its flags come from its own delayed mode QC. "Estimated
+delayed mode" holds profiles marked NRT whose temperature or salinity flags
+look like an operator's (see
+[NRT and delayed mode](analyses-data-mode.qmd)): an estimate, kept apart
+from the profiles whose files declare delayed mode. "On land" holds the
+profiles the bathymetry puts at or above sea level, whatever their data
+mode: their disagreements are mostly about the position (see
+[Depth](analyses-depth.qmd)). A group is offered only when a product has
+profiles in it. The groups are kept apart unless you ask for all of them,
+and the last section puts them side by side.
 
 ```{ojs}
 //| output: false
