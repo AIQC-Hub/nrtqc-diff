@@ -109,7 +109,7 @@ spread around sea level; the scatter below it separates the cases.
 ```{ojs}
 meta ? app.analysisFigure(
   "depth_elevation",
-  "Profiles by the height of the sea floor at their position, within 100 m of sea level. Green is the profiles counted as on land; the last bar gathers everything higher than 100 m.",
+  "Profiles by the height of the sea floor at their position, within 100 m of sea level. Green is the profiles counted as on land; the last bar gathers everything higher than 100 m. The counts are on a square root scale, so that the few profiles on land stay visible beside the many just under water: a bar twice as tall holds four times as many profiles, and each panel has its own scale.",
   "Histograms of sea floor height per product."
 ) : html``
 ```
