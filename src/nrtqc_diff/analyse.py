@@ -70,7 +70,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 5
+ANALYSES_FORMAT: int = 6
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -136,6 +136,18 @@ SHARE_BIN_WIDTH: float = 0.05
 #: Width and reach of the elevation histogram, in metres.
 ELEVATION_BIN_M: float = 5.0
 ELEVATION_REACH_M: float = 100.0
+
+#: A land profile at most this high (m) and this close to the coast (km) is
+#: most likely a cast just off the shore, in a grid cell that is mostly land.
+SHORE_HEIGHT_M: float = 5.0
+SHORE_DISTANCE_KM: float = 1.0
+
+#: How close (degrees) both coordinates must be to a whole degree for a
+#: position to count as given in whole degrees.
+WHOLE_DEGREE_TOLERANCE: float = 1e-6
+
+#: The likely causes of a land profile, in the order they are tested.
+LAND_CAUSES: List[str] = ["whole_degrees", "shore", "low_far", "inland"]
 
 #: The flag values of ``position_qc`` that mean bad. The column follows the
 #: same IOC/Argo scheme as the variables' flags.
@@ -416,7 +428,8 @@ def depth_tables(
 
     :return: ``depth_summary``, ``depth_land_margin``,
              ``depth_elevation_hist``, ``depth_land_position_qc``,
-             ``depth_land_original`` and ``depth_land_profiles``.
+             ``depth_land_original``, ``depth_land_profiles`` and
+             ``depth_land_cause``.
     """
     keys = _dataset_columns()
     land = pl.col("land")
@@ -537,7 +550,62 @@ def depth_tables(
     tables["depth_land_profiles"] = on_land.select(listed).sort(
         ["dataset_id", "platform_code", "profile_no"]
     )
+    if {"longitude", "latitude", "dist_to_coast"} <= set(on_land.columns):
+        tables["depth_land_cause"] = land_causes(on_land)
     return tables
+
+
+def _whole_degree(column: str) -> pl.Expr:
+    value = pl.col(column).cast(pl.Float64, strict=False)
+    return (value - value.round(0)).abs() <= WHOLE_DEGREE_TOLERANCE
+
+
+def land_causes(on_land: pl.DataFrame) -> pl.DataFrame:
+    """
+    The land profiles by their likely cause, the first of
+    :data:`LAND_CAUSES` that fits:
+
+    - ``whole_degrees``: both coordinates are whole degrees, a station placed
+      to the nearest degree, wherever that falls;
+    - ``shore``: at most :data:`SHORE_HEIGHT_M` up and
+      :data:`SHORE_DISTANCE_KM` from the coast, a cast just off the shore
+      in a grid cell that is mostly land;
+    - ``low_far``: as low, but further from the coast, such as a lagoon or
+      fjord the grid puts at sea level;
+    - ``inland``: higher than that, a wrong position.
+
+    :param on_land: The land profiles, with ``longitude``, ``latitude``,
+                    ``elevation`` and ``dist_to_coast``.
+    :return: One row per dataset and cause, with its profiles and positions.
+    """
+    keys = _dataset_columns()
+    low = pl.col("elevation") <= SHORE_HEIGHT_M
+    cause = (
+        pl.when(_whole_degree("longitude") & _whole_degree("latitude"))
+        .then(pl.lit("whole_degrees"))
+        .when(low & (pl.col("dist_to_coast") <= SHORE_DISTANCE_KM))
+        .then(pl.lit("shore"))
+        .when(low)
+        .then(pl.lit("low_far"))
+        .otherwise(pl.lit("inland"))
+    )
+    order = {name: i for i, name in enumerate(LAND_CAUSES)}
+    return (
+        on_land.with_columns(cause.alias("cause"))
+        .group_by(keys + ["cause"], maintain_order=True)
+        .agg(
+            pl.len().cast(pl.Int64).alias("n_profiles"),
+            pl.struct("longitude", "latitude")
+            .n_unique()
+            .cast(pl.Int64)
+            .alias("n_positions"),
+        )
+        .with_columns(
+            pl.col("cause").replace_strict(order, return_dtype=pl.Int64).alias("_o")
+        )
+        .sort(keys[:1] + ["_o"])
+        .drop("_o")
+    )
 
 
 def data_mode_tables(
@@ -1615,6 +1683,8 @@ def _write(
                 "column": spec.bathymetry_column,
                 "positive_depth": spec.positive_depth,
                 "margins_m": spec.land_margins_m,
+                "shore_height_m": SHORE_HEIGHT_M,
+                "shore_distance_km": SHORE_DISTANCE_KM,
             },
             "estimated_delayed": {
                 "min_share": spec.estimated_min_share,

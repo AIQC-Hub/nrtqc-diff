@@ -12,6 +12,7 @@ from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
     check_conversion_steps,
     compare_levels,
+    land_causes,
     match_tables,
     overlap_table,
     run_analyses,
@@ -388,6 +389,31 @@ def test_each_nrt_profile_is_filed_by_whether_the_delayed_product_has_it(tmp_pat
     assert years.filter(pl.col("year") == 2021)["coverage"].to_list() == [
         "outside_period"
     ]
+
+
+def test_land_profiles_are_filed_by_their_likely_cause():
+    rows = [
+        # longitude, latitude, elevation (m), distance to the coast (km)
+        (10.0, 57.0, 40.0, 12.0),  # whole degrees, whatever else holds
+        (10.2, 57.3, 3.0, 0.4),  # low and close: the shore
+        (10.2, 57.4, 0.0, 6.0),  # low but far from the coast
+        (10.2, 57.5, 6.0, 0.2),  # higher than the shore allows
+        (10.2, 57.5, 6.0, 0.2),  # the same position again
+    ]
+    on_land = pl.DataFrame(
+        rows,
+        schema=["longitude", "latitude", "elevation", "dist_to_coast"],
+        orient="row",
+    ).with_columns(
+        pl.lit("a").alias("dataset_id"),
+        pl.lit("R").alias("region"),
+        pl.lit("P").alias("product"),
+        pl.lit("A").alias("label"),
+    )
+    causes = land_causes(on_land)
+    assert causes["cause"].to_list() == ["whole_degrees", "shore", "low_far", "inland"]
+    assert causes["n_profiles"].to_list() == [1, 1, 1, 2]
+    assert causes["n_positions"].to_list() == [1, 1, 1, 1]
 
 
 def _levels_frame(rows):

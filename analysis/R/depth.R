@@ -1,6 +1,6 @@
 # Figures of the Depth page: where the bathymetry puts profiles on land, how
-# far above sea level and from the coast they are, and whether the input's
-# QC said anything about them.
+# far above sea level they are and why, and whether the input's QC said
+# anything about them.
 
 source("analysis/R/setup.R")
 message("Depth")
@@ -60,45 +60,6 @@ if (!is.null(land)) {
          y = NULL)
   save_figure(plot, "depth_land_qc", height = 62)
 
-  # Height above sea level against distance to the coast: a grid cell that
-  # straddles the shore puts a coastal profile a few metres up, close in.
-  # One panel per product and region: the products overlap in position, and
-  # drawn together the largest hid the others. Heights of 0 m, the
-  # shoreline itself, are drawn at 0.5 m and distances under 10 m at 10 m,
-  # so that the log scales keep them. A position given in whole degrees
-  # (10.0 E, 57.0 N) is a station placed to the nearest degree, which can
-  # land it kilometres inland: those get a colour of their own.
-  position_colours <- c("Position in whole degrees" = "#eb6834",
-                        "Any other position" = "#008300")
-  land <- land |>
-    mutate(position = factor(
-      if_else(longitude == round(longitude) & latitude == round(latitude),
-              names(position_colours)[1], names(position_colours)[2]),
-      levels = names(position_colours)
-    ))
-  # One point per position, sized by its profiles: a fixed station repeats
-  # one position hundreds of times, and drawn one point per profile it would
-  # look like a single profile.
-  positions <- land |>
-    count(region, product, longitude, latitude, elevation, dist_to_coast, position,
-          name = "n_profiles") |>
-    arrange(desc(position), desc(n_profiles))
-  plot <- ggplot(positions,
-                 aes(pmax(dist_to_coast, 0.01), pmax(elevation, 0.5), colour = position,
-                     size = n_profiles)) +
-    geom_point(alpha = 0.45, stroke = 0) +
-    facet_grid(product ~ region) +
-    scale_colour_manual(values = position_colours, drop = FALSE) +
-    scale_size(range = c(0.7, 6), trans = "log10", breaks = c(1, 10, 100, 1000),
-               labels = label_comma(), name = "Profiles at the position") +
-    scale_x_log10(labels = label_number(drop0trailing = TRUE)) +
-    scale_y_log10(labels = label_number(drop0trailing = TRUE)) +
-    guides(colour = guide_legend(override.aes = list(size = 2.2, alpha = 1), order = 1),
-           size = guide_legend(order = 2)) +
-    labs(x = "Distance to the coast (km); under 10 m drawn at 10 m",
-         y = "Height above sea level (m); 0 m drawn at 0.5 m", colour = NULL)
-  save_figure(plot, "depth_land_coast", height = 110)
-
   # Where they are: the Arctic around the pole, the two seas framed on their
   # own profiles. Unflagged profiles are drawn first, so the few the input
   # did flag sit on top.
@@ -146,6 +107,44 @@ if (!is.null(land)) {
     theme(legend.position = "bottom") &
     guides(colour = guide_legend(override.aes = list(size = 2.2, alpha = 1)))
   save_figure(plot, "depth_land_map", height = 120)
+}
+
+# The likely cause of each land profile, from its position, its height and
+# its distance to the coast, as a share of the product's land profiles.
+causes <- read_table("depth_land_cause")
+if (!is.null(causes)) {
+  rule <- meta$rules$land
+  cause_colours <- setNames(
+    c("#2a78d6", "#1baf7a", "#cc3355", "#eb6834"),
+    c(sprintf("At the shore: %g m up or less, %g km from the coast or less",
+              rule$shore_height_m, rule$shore_distance_km),
+      "Low but further from the coast",
+      sprintf("Higher than %g m: a wrong position", rule$shore_height_m),
+      "Position in whole degrees")
+  )
+  cause_names <- setNames(names(cause_colours),
+                          c("shore", "low_far", "inland", "whole_degrees"))
+  causes <- causes |>
+    with_datasets() |>
+    arrange(order) |>
+    group_by(short) |>
+    mutate(share = n_profiles / sum(n_profiles),
+           row = paste0(short, " (", comma(sum(n_profiles)), ")")) |>
+    ungroup() |>
+    mutate(row = factor(row, levels = rev(unique(row))),
+           cause = factor(unname(cause_names[cause]), levels = names(cause_colours)))
+  plot <- ggplot(causes, aes(share, row, fill = cause)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+             position = position_stack(reverse = TRUE)) +
+    geom_text(data = filter(causes, share >= 0.08), colour = "white", size = 2.3,
+              aes(label = percent(share, accuracy = 1)),
+              position = position_stack(vjust = 0.5, reverse = TRUE)) +
+    scale_fill_manual(values = cause_colours, drop = FALSE) +
+    scale_x_continuous(labels = label_percent(), breaks = seq(0, 1, 0.25),
+                       expand = expansion(0)) +
+    guides(fill = guide_legend(ncol = 2)) +
+    labs(x = "Land profiles, by likely cause", y = NULL, fill = NULL)
+  save_figure(plot, "depth_land_cause", height = 78)
 }
 
 hist <- read_table("depth_elevation_hist")

@@ -37,9 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   rather than on rounded positions, which ctddump's rounding splits at a
   boundary.
 
-- The Depth page's coast scatter draws one point per position, sized by
-  its land profiles, marks positions given in whole degrees, and explains
-  how to read it.
+- The Depth page sorts the land profiles by likely cause: a position in
+  whole degrees, at the shore (at most 5 m up and 1 km from the coast),
+  low but further from the coast, or higher, a wrong position. It replaces
+  the scatter of height against distance to the coast.
 
 ### Fixed
 

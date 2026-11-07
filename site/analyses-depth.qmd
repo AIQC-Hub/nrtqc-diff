@@ -104,7 +104,8 @@ it.
 A grid cell that straddles the shore can put a profile taken just off it
 on land, a few metres up. A profile far inland, or well above sea level,
 has a position that is simply wrong. The histogram shows how the profiles
-spread around sea level; the scatter below it separates the cases.
+spread around sea level; the bars below it sort the land profiles by
+which of these is the likely cause.
 
 ```{ojs}
 meta ? app.analysisFigure(
@@ -114,35 +115,78 @@ meta ? app.analysisFigure(
 ) : html``
 ```
 
+Each land profile is filed under the first of these that fits:
+
+- **Position in whole degrees**: both its longitude and latitude are whole
+  degrees (10.0 E, 57.0 N). A station placed to the nearest degree, which
+  puts it where the degree lines cross, often well inland.
+- **At the shore**: at most ${shoreRule}. The cast was most likely at sea,
+  in a grid cell that is mostly land.
+- **Low but further from the coast**: as low, but further out. Water that
+  is not open sea, such as a lagoon or a fjord behind a narrow mouth, is a
+  likely reason: GEBCO puts it at sea level, while the nearest sea shore in
+  GSHHG is some way off.
+- **Higher than that: a wrong position.** Tens or hundreds of metres up,
+  on land proper.
+
+```{ojs}
+//| output: false
+shoreRule = meta
+  ? `${meta.rules.land.shore_height_m} m above sea level and ${meta.rules.land.shore_distance_km} km from the coast`
+  : "a few metres above sea level and close to the coast"
+```
+
 ```{ojs}
 meta ? app.analysisFigure(
-  "depth_land_coast",
-  "Each position with a profile on land, by its height above sea level (GEBCO) and its distance to the nearest shore (GSHHG), both on log scales. The size of a point is the number of land profiles at that position. Orange: positions given in whole degrees. Heights of exactly 0 m are drawn at 0.5 m, and distances under 10 m at 10 m.",
-  "Scatter plots of height against distance to the coast, one point per position sized by its profiles, by product and region."
+  "depth_land_cause",
+  "The land profiles of each product by their likely cause, as a share of the product's land profiles; the number of land profiles is in brackets. A profile goes under the first cause that fits, in the order of the list above.",
+  "Stacked bars per product of its land profiles by likely cause."
 ) : html``
 ```
 
-**Reading the scatter.** A point is a position, not a profile: a fixed
-station repeats one position for years, so a large point is usually one
-station rather than many casts. The heights come in whole metres, which is
-why the points line up in rows. Three parts of a panel tell different
-stories:
+```{ojs}
+causes = meta ? app.loadAnalysisTable("depth_land_cause") : null
+causeKeys = [
+  ["whole_degrees", "Whole degrees"],
+  ["shore", "At the shore"],
+  ["low_far", "Low, further out"],
+  ["inland", "Wrong position"]
+]
+causeRows = causes
+  ? [...new Set(causes.map((r) => r.dataset_id))].map((id) => {
+      const rows = causes.filter((r) => r.dataset_id === id);
+      const row = { key: id, dataset_id: id, n_land: rows.reduce((s, r) => s + r.n_profiles, 0) };
+      for (const [key] of causeKeys) {
+        const r = rows.find((x) => x.cause === key);
+        row[key] = r ? r.n_profiles : 0;
+        row[`${key}_positions`] = r ? r.n_positions : 0;
+      }
+      return row;
+    }).sort(byDataset)
+  : []
+meta ? table(causeRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "n_land", label: "Land profiles" },
+  ...causeKeys.map(([key, label]) => ({
+    key, label,
+    title: "Profiles, with their share of the land profiles, and the distinct positions they are at",
+    format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_land)}) at ${app.formatCount(r[`${key}_positions`])}`
+  }))
+]) : html``
+```
 
-- **Bottom left: a few metres up, close to the shore.** The coastline case.
-  The cast was most likely at sea, and the grid cell it falls in is mostly
-  land. A tolerance of a few metres, as in the table below, would let these
-  through.
-- **Up and to the right: tens or hundreds of metres up, kilometres
-  inland.** The position is wrong. In the Mediterranean, the points climb
-  with distance as the land does: positions on land proper, not on the
-  shore. In the Baltic, the largest of them are orange: stations whose
-  position is given to the nearest whole degree, which puts them where the
-  degree lines cross, often well inland. Both Baltic products carry the same
-  ones.
-- **Along the bottom, at sea level but kilometres from the coast.** Water
-  that is not open sea, such as a lagoon or a fjord behind a narrow mouth,
-  is likely to be the reason: GEBCO gives it a height of 0 m, while the
-  nearest sea shore in GSHHG is some way off.
+Each cause is given as profiles and the positions they are at: a fixed
+station repeats one position for years, so many profiles at few positions
+are a few stations. What the bars show:
+
+- **The Arctic regional product's land profiles are mostly at the shore**:
+  a matter of the grid, not of the positions.
+- **Almost half of the Baltic ones are in whole degrees**, at a handful of
+  positions. Both Baltic products carry the same ones.
+- **In the global and CORA products of the Mediterranean, most are wrong
+  positions**, well above sea level. The regional product has hardly any.
+- **The Arctic global and CORA products have all three of the other
+  causes**, with the low but distant profiles a sizeable part.
 
 How many land profiles remain if a position must be at least so high to
 count: those within a few metres of sea level are the ones a coarser rule

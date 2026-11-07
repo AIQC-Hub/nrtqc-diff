@@ -149,6 +149,7 @@ name or columns.
 | `depth_land_original` | dataset, variable, class | land profiles with every, some, no observation flagged by the input |
 | `depth_land_flags` | dataset, variable, flag | observations of land profiles by input flag |
 | `depth_land_profiles` | land profile | position, height, distance to the coast, flags |
+| `depth_land_cause` | dataset, likely cause | land profiles and their distinct positions: `whole_degrees` (both coordinates whole degrees), `shore` (at most 5 m up and 1 km from the coast), `low_far` (as low, further out), `inland` (higher), tested in that order |
 | `dm_groups` | dataset, data mode, group | profiles, observations and agreement counts |
 | `dm_share_hist` | dataset, data mode, share bin | profiles by input-only share; exactly 0 and exactly 1 are bins of their own |
 | `dm_threshold` | dataset, data mode, threshold | profiles at or above it |
@@ -213,7 +214,7 @@ the theme, the palettes and `save_figure()`.
 | Script | Figures |
 | --- | --- |
 | `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_coverage`, `conversion_coverage_years`, `conversion_match`, `conversion_match_kinds`, `conversion_match_levels` (same platform code only) |
-| `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_coast` |
+| `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_cause` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |
 
