@@ -50,7 +50,7 @@ region to product to profile, and two tabs show what is selected:
 The sidebar is shared, so switching tabs keeps the profile you were looking
 at, and either tab can be read against the other.
 
-**Data mode** splits the profiles into groups on every page. "NRT only"
+**Group** splits the profiles on every page, mostly by data mode. "NRT only"
 profiles have every observation in real time or adjusted in real time, so
 both sets of flags come from automated tests. "Delayed mode" profiles have
 at least one delayed mode observation, or temperature or salinity flags
@@ -60,9 +60,11 @@ Their input flags are likely to be an operator's decisions, and CORA is
 filed there whole, since its flags come from its own delayed mode QC:
 comparing those with `nrtqclib` asks whether the automated tests anticipate
 what an expert decided, which is a different question. "Data mode unknown"
-holds the profiles whose files do not say; a page offers it only when a
-product has any. NRT only is the default, and the summary page puts the
-groups side by side.
+holds the profiles whose files do not say. "On land" holds the profiles
+the bathymetry puts at or above sea level, whatever their data mode, since
+their disagreements are mostly about the position. A page offers a group
+only when a product has profiles in it. NRT only is the default, and the
+summary page puts the groups side by side.
 
 The profile plots put the measurement on the x axis and pressure on the y
 axis, increasing downwards, with every point coloured by which source flagged

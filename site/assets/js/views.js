@@ -905,7 +905,8 @@ export function profileFacts(profile, options = {}) {
   // reads very differently from one revised throughout; for an unknown one
   // how much has no mode; and for a dataset filed whole by its
   // configuration, that, since its own columns may say otherwise. A profile
-  // in delayed mode by estimate says which variables' flags put it there.
+  // in delayed mode by estimate says which variables' flags put it there,
+  // and one on land what its data mode is, since land outranks it.
   if (profile.data_mode) {
     const group = dataModes.find((mode) => mode.key === profile.data_mode);
     const total = formatCount(profile.n_obs);
@@ -916,7 +917,16 @@ export function profileFacts(profile, options = {}) {
       .filter(Boolean)
       .map((name) => (variables.find((v) => v.name === name)?.label ?? name).toLowerCase());
     let note = "";
-    if (datasetMode) {
+    if (profile.data_mode === "land") {
+      const declared = datasetMode
+        ? `${dataModes.find((mode) => mode.key === datasetMode)?.label ?? datasetMode} for the whole product`
+        : delayed > 0
+          ? `${formatCount(delayed)} of ${total} observations delayed`
+          : unknown > 0
+            ? `${formatCount(unknown)} of ${total} observations with no data mode`
+            : "real time throughout";
+      note = `(data mode: ${declared})`;
+    } else if (datasetMode) {
       note = "(set for the whole product)";
     } else if (profile.data_mode === "delayed" && estimated.length > 0) {
       // Only a profile its data mode columns did not call delayed is
@@ -927,7 +937,7 @@ export function profileFacts(profile, options = {}) {
     } else if (profile.data_mode === "unknown" && unknown > 0) {
       note = `(${formatCount(unknown)} of ${total} observations with no data mode)`;
     }
-    fact("Data mode", group?.label ?? profile.data_mode, note, group?.description);
+    fact("Group", group?.label ?? profile.data_mode, note, group?.description);
   }
   fact("File", profile.filename, "", "The input file the profile was read from");
   return root;

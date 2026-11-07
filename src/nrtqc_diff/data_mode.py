@@ -85,6 +85,25 @@ DATA_MODES: List[Dict[str, str]] = [
 
 assert [mode["key"] for mode in DATA_MODES] == DATA_MODE_KEYS
 
+#: The bathymetry puts a position of the profile at or above sea level.
+#: Not a data mode, so not one of :data:`DATA_MODES` (a dataset cannot be
+#: configured as it), but a group the site publishes, decided before them.
+LAND: str = "land"
+
+#: The groups the site publishes and offers, in that order: the data mode
+#: groups, then land. ``catalog.json`` carries them as ``data_modes``.
+PUBLISHED_GROUPS: List[Dict[str, str]] = DATA_MODES + [
+    {
+        "key": LAND,
+        "label": "On land",
+        "description": (
+            "Profiles with a position the bathymetry puts at or above sea "
+            "level, whatever their data mode: their disagreements are mostly "
+            "about the position rather than the tests. See the Depth page."
+        ),
+    }
+]
+
 #: The published per-observation column saying whether any configured data
 #: mode column holds a delayed value. The plots mark those observations.
 DELAYED_COLUMN: str = "delayed"

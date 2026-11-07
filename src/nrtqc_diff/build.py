@@ -23,9 +23,10 @@ import polars as pl
 
 from nrtqc_diff.config import REQUIRED_COLUMNS, BuildConfig, DatasetSpec, VariableSpec
 from nrtqc_diff.data_mode import (
-    DATA_MODES,
     DELAYED,
     DELAYED_COLUMN,
+    LAND,
+    PUBLISHED_GROUPS,
     input_only_share,
     is_delayed,
     is_estimated,
@@ -53,7 +54,7 @@ from nrtqc_diff.flags import (
 #: columns, file names or catalog fields, and a deploy carrying data from
 #: before that change stops instead of rendering a site against files that no
 #: longer match. `scripts/data_release.py` is what compares the two.
-DATA_FORMAT: int = 3
+DATA_FORMAT: int = 4
 
 #: The published profile column naming the variables whose flags put the
 #: profile in delayed mode by estimate, comma separated, or null.
@@ -127,7 +128,7 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
             entry = entries[-1]
             groups = ", ".join(
                 f"{mode['key']} {entry['modes'][mode['key']]['n_profiles']}"
-                for mode in DATA_MODES
+                for mode in PUBLISHED_GROUPS
             )
             filed = (
                 f", all filed as {spec.data_mode} by configuration"
@@ -244,13 +245,15 @@ def _profile_summary(
     profiles the trimming rule keeps, what the summary table's counts are, and
     which data mode group each profile belongs to.
 
-    The group is the data mode columns' (:func:`profile_data_mode`), unless
-    the flags of temperature or salinity are estimated to be delayed mode
-    ones (:func:`~nrtqc_diff.data_mode.is_estimated`): then the profile is
+    A profile with a position on land (:func:`~nrtqc_diff.data_mode.land_rule`)
+    is filed under ``land`` first, whatever its data mode, as in the
+    analyses. Otherwise the group is the data mode columns'
+    (:func:`profile_data_mode`), unless the flags of temperature or salinity
+    are estimated to be delayed mode ones
+    (:func:`~nrtqc_diff.data_mode.is_estimated`): then the profile is
     delayed mode, and :data:`ESTIMATED_COLUMN` names the variables. A
-    dataset filed whole by its configuration stays as configured, and a
-    profile on land (:func:`~nrtqc_diff.data_mode.land_rule`) is not
-    estimated, as in the analyses.
+    dataset filed whole by its configuration stays as configured, land
+    apart.
     The result is one row per profile, so collecting it is safe however large
     the input was.
 
@@ -328,7 +331,9 @@ def _profile_summary(
         .collect(engine="streaming")
         .with_columns(estimated.alias(ESTIMATED_COLUMN))
         .with_columns(
-            pl.when(pl.col(ESTIMATED_COLUMN).is_not_null())
+            pl.when(on_land)
+            .then(pl.lit(LAND))
+            .when(pl.col(ESTIMATED_COLUMN).is_not_null())
             .then(pl.lit(DELAYED))
             .otherwise(declared)
             .alias("data_mode")
@@ -347,10 +352,10 @@ def _mode_counts(summary: pl.DataFrame, kept: pl.DataFrame) -> Dict[str, Any]:
     :param summary: Every profile of the dataset, from :func:`_profile_summary`.
     :param kept: The profiles the trimming rule keeps.
     :return: ``{mode: {n_profiles, n_profiles_total, n_observations,
-             n_observations_total}}`` for every key of ``DATA_MODES``.
+             n_observations_total}}`` for every key of ``PUBLISHED_GROUPS``.
     """
     counts: Dict[str, Any] = {}
-    for mode in DATA_MODES:
+    for mode in PUBLISHED_GROUPS:
         total = summary.filter(pl.col("data_mode") == mode["key"])
         published = kept.filter(pl.col("data_mode") == mode["key"])
         counts[mode["key"]] = {
@@ -469,7 +474,7 @@ def _profile_frame(
     Per variable the row carries a count for every agreement category plus
     ``{variable}_n_disagree``, and the frame as a whole carries ``n_disagree``
     summed across variables, which is the table's default sort. ``data_mode``
-    says which group of ``DATA_MODES`` the profile is published under,
+    says which group of ``PUBLISHED_GROUPS`` the profile is published under,
     :data:`ESTIMATED_COLUMN` which variables put it in delayed mode by
     estimate, if any, and
     ``n_obs_delayed`` and ``n_obs_unknown`` how many of its observations are
@@ -591,10 +596,10 @@ def _catalog(config: BuildConfig, entries: List[Dict[str, Any]]) -> Dict[str, An
                 "min_observations": config.data_mode.estimated_min_observations,
                 "groups": config.data_mode.estimated_groups,
                 "column": ESTIMATED_COLUMN,
-                "land_column": land_rule(config)[0],
             },
+            "land_column": land_rule(config)[0],
         },
-        "data_modes": DATA_MODES,
+        "data_modes": PUBLISHED_GROUPS,
         "regions": regions,
     }
 

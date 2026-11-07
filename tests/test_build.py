@@ -12,7 +12,7 @@ from nrtqc_diff.config import (
     DatasetSpec,
     VariableSpec,
 )
-from nrtqc_diff.data_mode import DATA_MODES, DELAYED, NRT, UNKNOWN
+from nrtqc_diff.data_mode import DATA_MODES, DELAYED, LAND, NRT, UNKNOWN
 from nrtqc_diff.flags import (
     AGREE_BAD,
     AGREE_GOOD,
@@ -373,8 +373,9 @@ class TestDataMode:
         assert modes[DELAYED]["n_profiles_estimated"] == 1
         assert catalog["data_mode"]["estimated"]["min_observations"] == 3
 
-    def test_a_profile_on_land_is_not_estimated(self, tmp_path, nrt_qc_frame):
-        """As in the analyses: one position at or above sea level is land."""
+    def test_a_profile_on_land_is_its_own_group(self, tmp_path, nrt_qc_frame):
+        """As in the analyses: one position at or above sea level is land,
+        which outranks the data mode and is never estimated."""
         frame = nrt_qc_frame.with_columns(
             pl.when(pl.col("platform_code") == "INPUT")
             .then(pl.lit("R"))
@@ -396,11 +397,37 @@ class TestDataMode:
         rule = DataModeSpec(
             columns=["temp_dm", "pres_dm"], estimated_min_observations=3
         )
-        build_site_data(_single_dataset_config(tmp_path, frame, data_mode=rule))
+        catalog = build_site_data(
+            _single_dataset_config(tmp_path, frame, data_mode=rule)
+        )
         profiles = pl.read_parquet(tmp_path / "out" / "profiles.parquet")
         row = profiles.filter(pl.col("platform_code") == "INPUT")
-        assert row["data_mode"].item() == NRT
+        assert row["data_mode"].item() == LAND
         assert row["estimated_from"].item() is None
+        assert profiles.filter(pl.col("data_mode") == LAND).height == 1
+        modes = catalog["regions"][0]["products"][0]["datasets"][0]["modes"]
+        assert modes[LAND]["n_profiles"] == 1
+
+    def test_land_outranks_a_product_filed_whole(self, tmp_path, nrt_qc_frame):
+        frame = nrt_qc_frame.with_columns(
+            pl.when(pl.col("platform_code") == "AGREE")
+            .then(1.0)
+            .otherwise(-30.0)
+            .alias("bathymetry")
+        )
+        path = tmp_path / "input.parquet"
+        config = _single_dataset_config(
+            tmp_path,
+            frame,
+            datasets=[
+                DatasetSpec("one", "R", "P", "One", str(path), data_mode=DELAYED)
+            ],
+        )
+        build_site_data(config)
+        profiles = pl.read_parquet(tmp_path / "out" / "profiles.parquet")
+        modes = dict(zip(profiles["platform_code"], profiles["data_mode"]))
+        assert modes.pop("AGREE") == LAND
+        assert set(modes.values()) == {DELAYED}
 
     def test_the_estimate_can_be_turned_off(self, tmp_path, nrt_qc_frame):
         frame = nrt_qc_frame.with_columns(
@@ -463,6 +490,7 @@ class TestDataMode:
             NRT,
             DELAYED,
             UNKNOWN,
+            LAND,
         ]
         assert catalog["data_mode"]["columns"] == ["temp_dm", "pres_dm"]
         assert catalog["data_mode"]["delayed_values"] == ["D"]

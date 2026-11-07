@@ -18,15 +18,18 @@ dashboard answers the same question one profile at a time; this page is the
 view from above, and it is the place to start when you do not yet know which
 product is worth opening.
 
-The data mode decides which profiles are counted. "NRT only" compares two
+The group decides which profiles are counted. "NRT only" compares two
 sets of automated flags. "Delayed mode" compares nrtqclib with input flags
 that are likely to be an operator's decisions, which is a different
 question. It holds the profiles with a delayed mode observation, those whose
 temperature or salinity flags look like an operator's (see
 [NRT and delayed mode](analyses-data-mode.qmd)), and CORA whole, since its
-flags come from its own delayed mode QC. "Data mode unknown" holds the
-profiles whose files do not say, and is offered only when a product has
-any. The groups are kept apart unless you ask for all of them, and the last
+flags come from its own delayed mode QC. "On land" holds the profiles the
+bathymetry puts at or above sea level, whatever their data mode: their
+disagreements are mostly about the position (see
+[Depth](analyses-depth.qmd)). "Data mode unknown" holds the profiles whose
+files do not say. A group is offered only when a product has profiles in
+it. The groups are kept apart unless you ask for all of them, and the last
 section puts them side by side.
 
 ```{ojs}
@@ -136,7 +139,7 @@ flagged_statuses = statuses.filter((status) => status.flagged)
 
 ```{ojs}
 viewof summary_mode = Inputs.select(mode_options, {
-  label: "Data mode",
+  label: "Group",
   format: (mode) => mode.label
 })
 ```
@@ -282,9 +285,9 @@ app.statusLegend(statuses)
 }
 ```
 
-## NRT against delayed mode
+## The groups side by side
 
-The same products split by data mode, one row per group a product has, for
+The same products split by group, one row per group a product has, for
 the variable chosen above, each as a rate per 1,000 of its own published
 observations. Where a product has delayed mode profiles, this is where the
 difference shows: the automated tests and an operator tend to disagree in
@@ -333,7 +336,7 @@ other ways than two automated systems do.
     columns: [
       { key: "region", label: "Region", align: "left", format: text },
       { key: "product", label: "Product", align: "left", format: text },
-      { key: "mode", label: "Data mode", align: "left", format: text },
+      { key: "mode", label: "Group", align: "left", format: text },
       { key: "n_profiles", label: "Profiles", title: "Published profiles" },
       { key: "n_obs", label: "Observations", title: "Published observations" },
       {

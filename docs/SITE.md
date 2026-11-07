@@ -55,12 +55,12 @@ is the largest column on the page, and why the last column is a rate per 1,000
 published observations: it is the only figure on the row that compares fairly
 between a product of 800 observations and one of 25 million.
 
-**Every data page has a data mode choice**: "NRT only", "Delayed mode",
-"Data mode unknown" or "All profiles", the first three read from
+**Every data page has a group choice**: "NRT only", "Delayed mode",
+"Data mode unknown", "On land" or "All profiles", the first four read from
 `data_modes` in `catalog.json` and the last added by `dataModeOptions` in
 `labels.js`. A group no dataset published a profile in is left out of the
-choice (the per-group counts are `modes` in each catalog entry), so a batch
-with no unknown profiles offers three. "NRT
+choice (the per-group counts are `modes` in each catalog entry), so the
+current batch offers NRT only, Delayed mode, On land and All profiles. "NRT
 only" is the default, because it is the comparison the site is named for: two
 sets of automated flags. A delayed mode input flag is likely to be an
 operator's decision, and a disagreement with one means something else, so the

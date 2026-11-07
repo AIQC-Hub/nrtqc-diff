@@ -16,12 +16,16 @@ to list its profiles underneath it. The dashboard is where a single profile is
 plotted; this page is for finding the platforms worth looking at, and the
 profiles within them.
 
-"NRT only" compares two sets of automated flags. "Delayed mode" compares
-nrtqclib with input flags that are likely to be an operator's decisions,
-declared by the data mode or estimated from the flags, so a disagreement
-there means something different. "Data mode unknown" holds the profiles
-whose files do not say, and is offered only when a product has any. The
-groups are kept apart unless you ask for all of them.
+The group decides which profiles are counted. "NRT only" compares two sets
+of automated flags. "Delayed mode" compares nrtqclib with input flags that
+are likely to be an operator's decisions, declared by the data mode or
+estimated from the flags, so a disagreement there means something
+different. "On land" holds the profiles the bathymetry puts at or above
+sea level, whatever their data mode: their disagreements are mostly about
+the position (see [Depth](analyses-depth.qmd)). "Data mode unknown" holds
+the profiles whose files do not say. A group is offered only when a product
+has profiles in it, and the groups are kept apart unless you ask for all of
+them.
 
 ```{ojs}
 //| output: false
@@ -89,7 +93,7 @@ viewof variable = Inputs.select(variables, {
 
 ```{ojs}
 viewof data_mode = Inputs.select(app.dataModeOptions(catalog), {
-  label: "Data mode",
+  label: "Group",
   format: (mode) => mode.label
 })
 ```
