@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-07
+
 ### Changed
 
 - The input is now `nrtqclib` NRT QC output, built from ctddump, rather than
