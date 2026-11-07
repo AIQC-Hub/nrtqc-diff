@@ -18,6 +18,14 @@ dashboard answers the same question one profile at a time; this page is the
 view from above, and it is the place to start when you do not yet know which
 product is worth opening.
 
+The data mode decides which profiles are counted. "NRT only" compares two
+sets of automated flags. "Contains delayed mode" compares nrtqclib with input
+flags that are likely to be an operator's decisions, which is a different
+question, and CORA is filed there whole, since its flags come from its own
+delayed mode QC. "Data mode unknown" holds the profiles whose files do not
+say. The groups are kept apart unless you ask for all of them, and the last
+section puts them side by side.
+
 ```{ojs}
 //| output: false
 // The same single module the dashboard imports. Resolving the specifier
@@ -27,22 +35,37 @@ app = import(new URL("assets/js/app.js", document.baseURI).href)
 catalog = app.loadCatalog()
 variables = catalog.variables
 statuses = catalog.statuses
+mode_options = app.dataModeOptions(catalog)
+// One row per region, product and data mode group: both the filtered tables
+// and the side by side comparison are sums of these.
 counted = app.regionProductTotals(variables, statuses)
 
+// The rows of one data mode choice, one per region and product.
+//
 // The catalog lists every region and product; the query only returns the ones
 // that have published profiles. Building the rows from the catalog and
 // looking the counts up keeps a product whose profiles were all trimmed away
-// visible as a zero rather than absent.
-rows = {
-  const bySlot = new Map(
-    counted.map((row) => [`${row.region}|${row.product}`, row])
-  );
+// visible as a zero rather than absent. The source totals come from the
+// catalog too, per group, since the trimmed profiles are in no parquet.
+function rowsFor(mode) {
+  const bySlot = new Map();
+  for (const found of counted) {
+    if (mode !== app.ALL_MODES && found.data_mode !== mode) continue;
+    const key = `${found.region}|${found.product}`;
+    const sums = bySlot.get(key) ?? {};
+    for (const [field, value] of Object.entries(found)) {
+      if (field === "region" || field === "product" || field === "data_mode") {
+        continue;
+      }
+      sums[field] = (sums[field] ?? 0) + Number(value ?? 0);
+    }
+    bySlot.set(key, sums);
+  }
 
   return catalog.regions.flatMap((region) =>
     region.products.map((product) => {
       const found = bySlot.get(`${region.name}|${product.name}`) ?? {};
-      const total = (field) =>
-        product.datasets.reduce((sum, entry) => sum + entry[field], 0);
+      const total = (field) => app.productTotal(product, field, mode);
 
       const row = {
         key: `${region.name}|${product.name}`,
@@ -66,6 +89,8 @@ rows = {
     })
   );
 }
+
+rows = rowsFor(summary_mode.key)
 
 // Totals over every product, for the line under each table.
 grand = {
@@ -104,6 +129,17 @@ function perThousand(value) {
 // The categories where at least one source flagged the observation. The
 // build marks them, so this page never has to name them.
 flagged_statuses = statuses.filter((status) => status.flagged)
+```
+
+```{ojs}
+viewof summary_mode = Inputs.select(mode_options, {
+  label: "Data mode",
+  format: (mode) => mode.label
+})
+```
+
+```{ojs}
+htl.html`<p class="nq-note">${summary_mode.description}</p>`
 ```
 
 ## What was published
@@ -147,7 +183,7 @@ app.tableView(rows, {
 ```
 
 ```{ojs}
-htl.html`<p class="nq-meta">All products:
+htl.html`<p class="nq-meta">All products, ${summary_mode.label}:
   <strong>${app.formatCount(grand.n_profiles)}</strong> of
   ${app.formatCount(grand.n_profiles_total)} profiles published
   (${share(grand.n_profiles_total > 0 ? grand.n_profiles / grand.n_profiles_total : null)}),
@@ -183,8 +219,7 @@ app.statusLegend(statuses)
   // mostly observations both sources call good.
   const shaped = rows.map((row) => {
     const n_flagged = flagged.reduce((sum, s) => sum + row[`${name}_${s.key}`], 0);
-    const n_disagree =
-      row[`${name}_original_only`] + row[`${name}_aiqclib_only`];
+    const n_disagree = row[`${name}_original_only`] + row[`${name}_nrtqclib_only`];
     return {
       ...row,
       n_flagged,
@@ -236,10 +271,92 @@ app.statusLegend(statuses)
 {
   const name = summary_variable.name;
   const n_disagree =
-    grand[`${name}_original_only`] + grand[`${name}_aiqclib_only`];
+    grand[`${name}_original_only`] + grand[`${name}_nrtqclib_only`];
   return htl.html`<p class="nq-meta">All products, ${summary_variable.label.toLowerCase()}:
     <strong>${app.formatCount(n_disagree)}</strong> observations the two
     sources disagree on, ${perThousand(rate(n_disagree, grand.n_obs))} per
     1,000 published observations.</p>`;
+}
+```
+
+## NRT against delayed mode
+
+The same products split by data mode, one row per group a product has, for
+the variable chosen above, each as a rate per 1,000 of its own published
+observations. Where a product has delayed mode profiles, this is where the
+difference shows: the automated tests and an operator tend to disagree in
+other ways than two automated systems do.
+
+```{ojs}
+{
+  const name = summary_variable.name;
+  const groups = catalog.data_modes;
+  const byGroup = new Map(
+    groups.map((group) => [
+      group.key,
+      new Map(rowsFor(group.key).map((row) => [row.key, row]))
+    ])
+  );
+
+  // One row per product and group, rather than one per product with every
+  // group across: three groups of three columns do not fit beside the
+  // product's name. A group the product has nothing in is left out, and the
+  // table opens with each product's groups together, in catalog order.
+  const shaped = rowsFor(app.ALL_MODES).flatMap((all, productIndex) =>
+    groups.flatMap((group, groupIndex) => {
+      const found = byGroup.get(group.key).get(all.key);
+      if (!found || found.n_obs === 0) return [];
+      const original = found[`${name}_original_only`];
+      const computed = found[`${name}_nrtqclib_only`];
+      return [
+        {
+          key: `${all.key}|${group.key}`,
+          order: productIndex * groups.length + groupIndex,
+          region: all.region,
+          product: all.product,
+          mode: group.label,
+          n_profiles: found.n_profiles,
+          n_obs: found.n_obs,
+          original_rate: rate(original, found.n_obs),
+          nrtqclib_rate: rate(computed, found.n_obs),
+          disagree_rate: rate(original + computed, found.n_obs)
+        }
+      ];
+    })
+  );
+
+  const text = (value) => value;
+  return app.tableView(shaped, {
+    columns: [
+      { key: "region", label: "Region", align: "left", format: text },
+      { key: "product", label: "Product", align: "left", format: text },
+      { key: "mode", label: "Data mode", align: "left", format: text },
+      { key: "n_profiles", label: "Profiles", title: "Published profiles" },
+      { key: "n_obs", label: "Observations", title: "Published observations" },
+      {
+        key: "original_rate",
+        label: "Original only per 1,000",
+        format: perThousand,
+        title: `${summary_variable.label} flagged by the input alone, per 1,000 observations`
+      },
+      {
+        key: "nrtqclib_rate",
+        label: "nrtqclib only per 1,000",
+        format: perThousand,
+        title: `${summary_variable.label} flagged by nrtqclib alone, per 1,000 observations`
+      },
+      {
+        key: "disagree_rate",
+        label: "Disagree per 1,000",
+        format: perThousand,
+        title: "The two together: observations the sources disagree on, per 1,000"
+      }
+    ],
+    rowKey: "key",
+    sortKey: "order",
+    descending: false,
+    selectable: false,
+    empty: "No products are published. Run the build step."
+  });
 }
 ```

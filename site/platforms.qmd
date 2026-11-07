@@ -16,6 +16,12 @@ to list its profiles underneath it. The dashboard is where a single profile is
 plotted; this page is for finding the platforms worth looking at, and the
 profiles within them.
 
+"NRT only" compares two sets of automated flags. "Contains delayed mode"
+compares nrtqclib with input flags that are likely to be an operator's
+decisions, so a disagreement there means something different. "Data mode
+unknown" holds the profiles whose files do not say. The groups are kept apart
+unless you ask for all of them.
+
 ```{ojs}
 //| output: false
 // The same single module the other pages import. Resolving the specifier
@@ -80,6 +86,13 @@ viewof variable = Inputs.select(variables, {
 })
 ```
 
+```{ojs}
+viewof data_mode = Inputs.select(app.dataModeOptions(catalog), {
+  label: "Data mode",
+  format: (mode) => mode.label
+})
+```
+
 :::
 
 ```{ojs}
@@ -88,15 +101,22 @@ viewof variable = Inputs.select(variables, {
 // the filter and the sort below run in the page rather than in a query per
 // keystroke. The profiles are another matter and are fetched a page at a time
 // when a platform is opened.
-platforms = app.platformSummary(product.datasets, variables, statuses)
+platforms = app.platformSummary(
+  product.datasets,
+  variables,
+  statuses,
+  data_mode.key
+)
 ```
 
 ```{ojs}
 {
   const profiles = platforms.reduce((sum, row) => sum + row.n_profiles, 0);
   const observations = platforms.reduce((sum, row) => sum + row.n_obs, 0);
-  return htl.html`<p class="nq-meta">${region.name}, ${product.name}:
-    <strong>${app.formatCount(platforms.length)}</strong> platforms,
+  return htl.html`<p class="nq-meta">${region.name}, ${product.name},
+    ${data_mode.label}:
+    <strong>${app.formatCount(platforms.length)}</strong>
+    ${platforms.length === 1 ? "platform" : "platforms"},
     ${app.formatCount(profiles)} published profiles,
     ${app.formatCount(observations)} observations.</p>`;
 }
@@ -140,7 +160,7 @@ app.statusLegend(statuses)
   // mostly observations both sources call good.
   const shaped = platform_rows.map((row) => {
     const n_flagged = flagged.reduce((sum, s) => sum + row[`${name}_${s.key}`], 0);
-    const n_disagree = row[`${name}_original_only`] + row[`${name}_aiqclib_only`];
+    const n_disagree = row[`${name}_original_only`] + row[`${name}_nrtqclib_only`];
     return {
       ...row,
       n_flagged,
@@ -197,7 +217,7 @@ app.statusLegend(statuses)
     sortKey: "disagree_rate",
     selectable: false,
     empty: platforms.length === 0
-      ? "No profile of this product was published, so it has no platforms to list."
+      ? "No profile of this product was published in this data mode, so it has no platforms to list."
       : "No platform of this product matches.",
     // A platform's profiles, fetched a page at a time when it is opened: one
     // platform here runs to 8,541 of them. The same columns as the row above,
@@ -237,10 +257,16 @@ app.statusLegend(statuses)
         fetchRows: (request) =>
           app.profileSummary(product.datasets, {
             ...request,
-            platform: row.platform_code
+            platform: row.platform_code,
+            mode: data_mode.key
           }),
         countRows: (search) =>
-          app.profileCount(product.datasets, search, row.platform_code)
+          app.profileCount(
+            product.datasets,
+            search,
+            row.platform_code,
+            data_mode.key
+          )
       })
   });
 }

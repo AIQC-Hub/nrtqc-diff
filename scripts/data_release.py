@@ -1,7 +1,7 @@
 """
 Move the published site data between a working checkout and a GitHub release.
 
-The trimming happens where the inputs are. An `aiqclib` batch is 2.2 GB of
+The trimming happens where the inputs are. An `nrtqclib` batch is 2.2 GB of
 parquet that the build reads twice to write the 429 MB the site serves, and
 the deploy runs on every push to `main`, so rebuilding it there would spend
 two minutes and a 2.2 GB download re-deriving the same files on a commit that

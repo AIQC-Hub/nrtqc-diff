@@ -5,6 +5,50 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The input is now `nrtqclib` NRT QC output, built from ctddump, rather than
+  `aiqclib` output, and the site names `nrtqclib` throughout. The published
+  agreement category `aiqclib_only` is now `nrtqclib_only`.
+- **Data format 2.** Data published by an earlier version will not deploy;
+  rebuild it with `nrtqc-diff build`.
+- The configuration has a required `data_mode` section naming the data mode
+  columns (`temp_dm`, `psal_dm`, `pres_dm`) and the values that mean delayed
+  mode (`D` by default).
+
+### Added
+
+- Profiles are split by **data mode**. A profile with at least one delayed
+  mode observation, in temperature, salinity or pressure, is published as
+  "Contains delayed mode", since a delayed mode input flag is likely to be an
+  operator's decision rather than an automated one. One with no delayed
+  observation but an empty data mode, which ctddump writes when the file
+  gives no usable mode, is "Data mode unknown", and only the rest are "NRT
+  only". Every page has the choice, NRT only by default, and "All profiles"
+  puts the groups back together.
+- A dataset's configuration can file all of its profiles under one data mode
+  group with `data_mode`. The CORA datasets are filed as delayed mode: CORA's
+  `DATA_MODE` describes the original observation, not the reprocessing QC
+  that set its flags.
+- The summary page has a table comparing the groups within each product,
+  one row per product and group, as "original only", "nrtqclib only" and
+  disagreement rates per 1,000 observations.
+- The plots draw a delayed mode observation as a diamond in its category's
+  colour, and the hover box gives every data mode with its meaning. The
+  profile facts name the profile's group and, for a delayed one, how many of
+  its observations are delayed.
+- `profiles.parquet` carries `data_mode`, `n_obs_delayed` and
+  `n_obs_unknown`; the observation files carry the data mode columns and
+  `delayed`; each catalog entry carries its totals per group under `modes`
+  and its configured `data_mode`.
+
+### Fixed
+
+- `nrtqc-diff build -o` no longer drops `row_group_size` from the
+  configuration.
+
 ## [0.7.1] - 2026-09-24
 
 ### Fixed

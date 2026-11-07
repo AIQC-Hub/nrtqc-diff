@@ -6,7 +6,7 @@ This site compares two sets of near-real-time quality control flags over the
 same ocean profile observations:
 
 - the flags that **came with the input data**, written by whoever produced it, and
-- the flags **[`aiqclib`](https://github.com/AIQC-Hub/aiqclib) computed** by
+- the flags **[`nrtqclib`](https://nrtqclib.readthedocs.io/en/latest/) computed** by
   running the automated Argo/CTD real-time tests (RTQC2 to RTQC14) over the
   same measurements.
 
@@ -17,14 +17,14 @@ colours used throughout:
 | Case | Meaning |
 | --- | --- |
 | Both flagged | The two sources agree that the observation is bad. |
-| Original only | The input data flags it; `aiqclib` does not. |
-| aiqclib only | `aiqclib` flags it; the input data does not. |
+| Original only | The input data flags it; `nrtqclib` does not. |
+| nrtqclib only | `nrtqclib` flags it; the input data does not. |
 | Neither flagged | The two sources agree that the observation is good. |
 
 A fifth case, "no input flag", covers observations whose input flag is missing
-or unreadable **and** which `aiqclib` did not flag either: there is nothing to
+or unreadable **and** which `nrtqclib` did not flag either: there is nothing to
 compare, and they are kept visible rather than folded into "neither flagged".
-An observation with no input flag that `aiqclib` *did* flag counts as "aiqclib
+An observation with no input flag that `nrtqclib` *did* flag counts as "nrtqclib
 only", because hiding a computed flag on the grounds that the input said
 nothing would defeat the point of the comparison.
 
@@ -63,7 +63,7 @@ marks in the contingency table, and it is why a number alone cannot say
 whether an observation counts as flagged here: the same 6 can be an anomaly
 in one product and not in the next.
 
-## The checks `aiqclib` runs
+## The checks `nrtqclib` runs
 
 The computed flag is not one test but twelve. Eleven of them implement the
 Argo/CTD real-time tests, and the twelfth is a propagation rule. Each writes
@@ -91,22 +91,22 @@ that variable.
 `{var}` is `temp` or `psal`: a check that reads one variable writes one column
 per variable, and one that reads the profile or the pressure writes a single
 column shared by both. The gaps in the numbering are real-time tests
-`aiqclib` does not implement.
+`nrtqclib` does not implement.
 
 RTQC2, RTQC3, RTQC4 and RTQC13 judge the profile as a whole, so their flag is
 the same on every observation in it. The rest judge one observation at a time,
 which is why a spike or a density inversion shows up as a few marked points in
 the plots rather than a whole cast.
 
-Which checks ran is a setting of the `aiqclib` run, not a fixed list, so the
+Which checks ran is a setting of the `nrtqclib` run, not a fixed list, so the
 columns present in the data are the checks that were switched on for it: a
 check listed above can be missing from a product whose run left it out, and
 nothing here will claim otherwise, because the columns are what this site
-reads. The **aiqclib QC checks that flagged** panel on the dashboard names the
+reads. The **nrtqclib QC checks that flagged** panel on the dashboard names the
 ones that fired for the selected profile, in words and by column name, and
 links back to this table. Hovering a marker on the plots narrows that to a
 single observation: the box names the check or checks that set its computed
 flag, and any others that fired below them. Their default thresholds and the
-settings that change them are in the [`aiqclib` NRT QC
-guide](https://aiqclib.readthedocs.io/en/latest/how-to/nrt_qc.html), which is
+settings that change them are in the [`nrtqclib` NRT QC
+guide](https://nrtqclib.readthedocs.io/en/latest/tutorial/running_nrt_qc.html), which is
 the source this table summarises.

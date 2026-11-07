@@ -7,7 +7,7 @@
  * in rows and gets a node back.
  */
 
-import { flagMeaning, inputFlagNote } from "./labels.js";
+import { ALL_MODES, flagMeaning, inputFlagNote } from "./labels.js";
 
 /**
  * Create an element with a class and optional text.
@@ -75,13 +75,21 @@ export function formatTime(value) {
  * summary table below always answers "this product", however many files it
  * was built from.
  *
+ * The count beside a product is its published profiles in one data mode
+ * group, which :func:`setTreeMode` changes in place. In place rather than by
+ * drawing a new tree, because a new tree selects its first product and the
+ * reader would lose the one they were on.
+ *
  * @param {object} catalog the parsed catalog.json.
+ * @param {object} [options]
+ * @param {string} [options.mode="all"] the data mode group to count.
  * @returns {HTMLElement} a view whose value is `{region, product, datasets}`.
  */
-export function treeView(catalog) {
+export function treeView(catalog, options = {}) {
   const root = el("div", "nq-tree");
   const setValue = asView(root, null);
   const buttons = [];
+  const counters = [];
 
   for (const region of catalog.regions) {
     const section = el("details", "nq-region");
@@ -90,12 +98,13 @@ export function treeView(catalog) {
 
     const list = el("ul", "nq-products");
     for (const product of region.products) {
-      const profiles = product.datasets.reduce((n, d) => n + d.n_profiles, 0);
       const item = el("li", "nq-product");
       const button = el("button", "nq-product-button");
       button.type = "button";
       button.appendChild(el("span", "nq-product-name", product.name));
-      button.appendChild(el("span", "nq-product-count", formatCount(profiles)));
+      const count = el("span", "nq-product-count");
+      counters.push({ node: count, product });
+      button.appendChild(count);
       button.addEventListener("click", () => {
         for (const other of buttons) other.classList.remove("is-selected");
         button.classList.add("is-selected");
@@ -113,12 +122,60 @@ export function treeView(catalog) {
     root.appendChild(section);
   }
 
+  root.setMode = (mode) => {
+    for (const { node, product } of counters) {
+      node.textContent = formatCount(productProfiles(product, mode));
+    }
+  };
+  root.setMode(options.mode ?? ALL_MODES);
+
   if (buttons.length > 0) {
     // Opening on an empty main panel hides what the page is for, so the first
     // product is selected as soon as the tree exists.
     queueMicrotask(() => buttons[0].click());
   }
   return root;
+}
+
+/**
+ * Count one data mode group in a tree built by :func:`treeView`.
+ *
+ * @param {HTMLElement} tree the node `treeView` returned.
+ * @param {string} mode a `data_modes` key of catalog.json, or `all`.
+ * @returns {void}
+ */
+export function setTreeMode(tree, mode) {
+  tree.setMode?.(mode);
+}
+
+/**
+ * How many profiles a product published, in one data mode group or all.
+ *
+ * @param {object} product a product of catalog.json.
+ * @param {string} mode a `data_modes` key of catalog.json, or `all`.
+ * @returns {number}
+ */
+export function productProfiles(product, mode = ALL_MODES) {
+  return productTotal(product, "n_profiles", mode);
+}
+
+/**
+ * One of a product's catalog totals, in one data mode group or all.
+ *
+ * The catalog carries each total for the whole dataset and again per group,
+ * under `modes`; this picks the right one and adds the product's datasets.
+ *
+ * @param {object} product a product of catalog.json.
+ * @param {string} field `n_profiles`, `n_profiles_total`, `n_observations`
+ *        or `n_observations_total`.
+ * @param {string} mode a `data_modes` key of catalog.json, or `all`.
+ * @returns {number}
+ */
+export function productTotal(product, field, mode = ALL_MODES) {
+  return product.datasets.reduce((sum, entry) => {
+    const source = mode === ALL_MODES ? entry : entry.modes?.[mode];
+    return sum + Number(source?.[field] ?? 0);
+  }, 0);
 }
 
 /**
@@ -586,7 +643,7 @@ export function contingencyTable(rows, options = {}) {
   const {
     variable,
     rowLabel = "Flag in the input data",
-    columnLabel = "Flag aiqclib computed",
+    columnLabel = "Flag nrtqclib computed",
   } = options;
   const badValues = variable.bad_flag_values ?? [];
 
@@ -786,10 +843,21 @@ export function formatPosition(latitude, longitude) {
  *                 platform this product published.
  * @param {Array<number|null>} [options.pressure] `[shallowest, deepest]` in
  *                 dbar.
+ * @param {Array<object>} [options.dataModes] the `data_modes` array of
+ *                 catalog.json, which names the profile's group in words.
+ * @param {string|null} [options.datasetMode] the `data_mode` of the
+ *                 profile's catalog entry: set when the configuration filed
+ *                 the whole dataset under one group.
  * @returns {HTMLElement}
  */
 export function profileFacts(profile, options = {}) {
-  const { product, platformProfiles, pressure } = options;
+  const {
+    product,
+    platformProfiles,
+    pressure,
+    dataModes = [],
+    datasetMode = null,
+  } = options;
   const root = el("dl", "nq-facts");
 
   function fact(label, value, note, title) {
@@ -828,6 +896,26 @@ export function profileFacts(profile, options = {}) {
   // a profile could disagree on more observations than it has; the tables
   // give the disagreements one variable at a time.
   fact("Observations", formatCount(profile.n_obs));
+  // Which group the profile is published under, and why: for a delayed one
+  // how much of it is delayed, since a profile with one revised pressure
+  // reads very differently from one revised throughout; for an unknown one
+  // how much has no mode; and for a dataset filed whole by its
+  // configuration, that, since its own columns may say otherwise.
+  if (profile.data_mode) {
+    const group = dataModes.find((mode) => mode.key === profile.data_mode);
+    const total = formatCount(profile.n_obs);
+    const delayed = Number(profile.n_obs_delayed ?? 0);
+    const unknown = Number(profile.n_obs_unknown ?? 0);
+    let note = "";
+    if (datasetMode) {
+      note = "(set for the whole product)";
+    } else if (profile.data_mode === "delayed" && delayed > 0) {
+      note = `(${formatCount(delayed)} of ${total} observations delayed)`;
+    } else if (profile.data_mode === "unknown" && unknown > 0) {
+      note = `(${formatCount(unknown)} of ${total} observations with no data mode)`;
+    }
+    fact("Data mode", group?.label ?? profile.data_mode, note, group?.description);
+  }
   fact("File", profile.filename, "", "The input file the profile was read from");
   return root;
 }
@@ -849,9 +937,12 @@ export function loadingNote(text = "Loading the profile") {
  * The colour key shared by the plots and the summary table.
  *
  * @param {Array<object>} statuses the `statuses` array of catalog.json.
+ * @param {object} [options]
+ * @param {boolean} [options.delayed=false] add the marker shape the plots
+ *        give a delayed mode observation. Only where there is one to explain.
  * @returns {HTMLElement}
  */
-export function statusLegend(statuses) {
+export function statusLegend(statuses, options = {}) {
   const root = el("div", "nq-legend");
   for (const status of statuses) {
     const item = el("span", "nq-legend-item");
@@ -859,6 +950,15 @@ export function statusLegend(statuses) {
     swatch.style.backgroundColor = status.color;
     item.appendChild(swatch);
     item.appendChild(el("span", "nq-legend-label", status.label));
+    root.appendChild(item);
+  }
+  if (options.delayed) {
+    const item = el("span", "nq-legend-item");
+    item.title =
+      "The colour still says which source flagged it; the shape says the " +
+      "observation is in delayed mode.";
+    item.appendChild(el("span", "nq-swatch nq-swatch-delayed"));
+    item.appendChild(el("span", "nq-legend-label", "Delayed mode (diamond)"));
     root.appendChild(item);
   }
   return root;

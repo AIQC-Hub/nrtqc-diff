@@ -3,14 +3,14 @@
 # Paths are resolved relative to this file, so the whole project can be moved
 # without editing them. Run `python scripts/make_demo_data.py` once to create
 # the demo inputs this file points at, or replace the `path` entries with your
-# own aiqclib NRT QC output and leave everything else alone.
+# own nrtqclib NRT QC output and leave everything else alone.
 
 site:
   title: NRT QC flag differences
   data_dir: ../site/data
 
 # The variables whose two flag columns are compared. `flag` is the flag that
-# came with the input data, `nrt_flag` is the one aiqclib computed.
+# came with the input data, `nrt_flag` is the one nrtqclib computed.
 # `bad_flag_values` says which values of `flag` count as an anomaly; the
 # computed flag always follows the IOC/Argo scheme, where anything above 1 is
 # an anomaly, so it needs no list.
@@ -28,6 +28,23 @@ variables:
     nrt_flag: psal_nrt_flag
     bad_flag_values: [3, 4, 6, 7]
 
+# Where the observation-level data mode lives: `R` (real time), `A` (adjusted
+# in real time) or `D` (delayed mode), as ctddump writes it and nrtqclib
+# passes it through. A profile with a delayed value in any of these columns
+# is published as "contains delayed mode" rather than "NRT only", because its
+# input flags are likely to be an operator's decisions. One with no delayed
+# value but an empty one, which ctddump writes when the file gives no usable
+# mode, is published as "data mode unknown": NRT only takes positive
+# evidence. Pressure is listed too: a profile whose pressure was revised in
+# delayed mode was touched by one. `delayed_values` defaults to [D].
+#
+# A dataset entry can set `data_mode` to file all of its profiles under one
+# group regardless, for a product whose flags come from its own delayed mode
+# QC.
+data_mode:
+  columns: [temp_dm, psal_dm, pres_dm]
+  delayed_values: [D]
+
 # One entry per published dataset. `region` and `product` build the tree in
 # the site's sidebar; datasets sharing a region and product sit together.
 datasets:
@@ -44,6 +61,9 @@ datasets:
     label: Baltic CORA delayed mode 2021
     description: Demo dataset showing a second product under the same region.
     path: ../demo-data/bal_cora_dm.parquet
+    # Filed whole as delayed mode, as the real CORA datasets are: their flags
+    # come from CORA's own delayed mode QC, whatever the data mode columns say.
+    data_mode: delayed
 
   - id: arc_cora_nrt
     region: Arctic Ocean

@@ -8,7 +8,7 @@
  */
 
 import { LIB_ROOT } from "./db.js";
-import { firedChecks, flagWithMeaning } from "./labels.js";
+import { dataModeWithMeaning, firedChecks, flagWithMeaning } from "./labels.js";
 
 let plotlyPromise = null;
 
@@ -192,19 +192,24 @@ function holdSpanWhileDragging(Plotly, node) {
  * a reader can see that a spike was called bad while the gradient check only
  * called it probably good.
  *
+ * Last, the data mode of every configured column, because a delayed mode
+ * input flag is an operator's decision rather than an automated one, and
+ * that changes what a disagreement means.
+ *
  * @param {object} row one observation.
  * @param {object} variable a `variables` entry of catalog.json.
  * @param {Array<object>} variables the `variables` array of catalog.json.
+ * @param {object|null} dataMode the `data_mode` entry of catalog.json.
  * @returns {string} Plotly hover markup, one item per line.
  */
-function flagStory(row, variable, variables) {
+function flagStory(row, variable, variables, dataMode) {
   // Muted, like the column names elsewhere on the dashboard: it answers a
   // second question, asked by fewer readers than ask the first.
   const column = (name) => `<span style="color:#667079">${name}</span>`;
   const lines = [
     `Flag in the input data ${column(variable.flag)}: ` +
       flagWithMeaning(row[variable.flag]),
-    `Flag aiqclib computed ${column(variable.nrt_flag)}: ` +
+    `Flag nrtqclib computed ${column(variable.nrt_flag)}: ` +
       flagWithMeaning(row[variable.nrt_flag]),
   ];
 
@@ -219,7 +224,13 @@ function flagStory(row, variable, variables) {
     lines.push(`${heading}: ${named.join(", ")}`);
   }
   if (decisive.length === 0 && others.length === 0) {
-    lines.push("No aiqclib check flagged this observation.");
+    lines.push("No nrtqclib check flagged this observation.");
+  }
+  if (dataMode) {
+    const modes = dataMode.columns.map(
+      (name) => `${dataModeWithMeaning(row[name])} ${column(name)}`
+    );
+    lines.push(`Data mode: ${modes.join(", ")}`);
   }
   return lines.join("<br>");
 }
@@ -240,13 +251,23 @@ function flagStory(row, variable, variables) {
  *   catalog.json, which the hover text needs to tell a check that reads this
  *   variable from one that judges the whole profile. Left out, only this
  *   variable's own columns are recognised.
+ * @param {object} [options.dataMode] the `data_mode` entry of catalog.json.
+ *   Given, a delayed mode observation is drawn as a diamond rather than a
+ *   circle, in the same colour, and the hover box names every data mode.
  * @param {number} [options.height] the plot height in pixels. Left out, the
  *   plot fills the box it is put in: it is created responsive, so it follows
  *   that box for the life of the page.
  * @returns {Promise<HTMLElement>} the plot node.
  */
 export async function profilePlot(rows, options) {
-  const { variable, statuses, height, variables = [variable] } = options;
+  const {
+    variable,
+    statuses,
+    height,
+    variables = [variable],
+    dataMode = null,
+  } = options;
+  const delayed = (row) => Boolean(dataMode && row[dataMode.delayed_column]);
   const node = document.createElement("div");
   node.className = "nq-plot";
 
@@ -280,20 +301,32 @@ export async function profilePlot(rows, options) {
       (row) => row[variable.status_column] === status.key
     );
     if (subset.length === 0) continue;
+    const quiet = status.key === "agree_good";
     traces.push({
       x: subset.map((row) => row[variable.name]),
       y: subset.map((row) => row.pres),
       customdata: subset.map((row) => [
         row.observation_no,
-        flagStory(row, variable, variables),
+        flagStory(row, variable, variables, dataMode),
       ]),
       mode: "markers",
       type: "scatter",
       name: status.label,
       marker: {
         color: status.color,
-        size: status.key === "agree_good" ? 5 : 9,
-        line: { color: "#33383d", width: status.key === "agree_good" ? 0 : 0.8 },
+        // A delayed mode observation keeps its category colour and changes
+        // shape, so the colour still answers "which source flagged it". The
+        // small grey markers of "neither flagged" are drawn open, because a
+        // filled grey diamond of that size is not told from a circle.
+        symbol: subset.map((row) =>
+          delayed(row) ? (quiet ? "diamond-open" : "diamond") : "circle"
+        ),
+        size: subset.map((row) => (quiet ? (delayed(row) ? 6 : 5) : 9)),
+        // An open marker is drawn by its line alone, so it needs a width.
+        line: {
+          color: "#33383d",
+          width: quiet ? subset.map((row) => (delayed(row) ? 1.2 : 0)) : 0.8,
+        },
       },
       // White box with the category's colour as its border, rather than the
       // colour behind the text: this label is five lines of flags and check

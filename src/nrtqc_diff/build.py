@@ -22,6 +22,13 @@ from typing import Any, Dict, List
 import polars as pl
 
 from nrtqc_diff.config import REQUIRED_COLUMNS, BuildConfig, DatasetSpec, VariableSpec
+from nrtqc_diff.data_mode import (
+    DATA_MODES,
+    DELAYED_COLUMN,
+    is_delayed,
+    is_unknown,
+    profile_data_mode,
+)
 from nrtqc_diff.flags import (
     STATUSES,
     computed_flag,
@@ -40,7 +47,7 @@ from nrtqc_diff.flags import (
 #: columns, file names or catalog fields, and a deploy carrying data from
 #: before that change stops instead of rendering a site against files that no
 #: longer match. `scripts/data_release.py` is what compares the two.
-DATA_FORMAT: int = 1
+DATA_FORMAT: int = 2
 
 #: The key identifying a profile everywhere in the site.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -82,7 +89,7 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
         scan = _scan_dataset(spec, config)
         _check_input_order(spec, scan)
 
-        summary = _profile_summary(scan, config)
+        summary = _profile_summary(scan, spec, config)
         kept = summary.filter(pl.col(KEEP_COLUMN))
 
         profiles = _profile_frame(kept, spec, config)
@@ -102,14 +109,25 @@ def build_site_data(config: BuildConfig, verbose: bool = False) -> Dict[str, Any
                 "n_profiles_total": summary.height,
                 "n_observations": int(kept["n_obs"].sum()),
                 "n_observations_total": int(summary["n_obs"].sum()),
+                "data_mode": spec.data_mode,
+                "modes": _mode_counts(summary, kept),
             }
         )
         if verbose:
             entry = entries[-1]
+            groups = ", ".join(
+                f"{mode['key']} {entry['modes'][mode['key']]['n_profiles']}"
+                for mode in DATA_MODES
+            )
+            filed = (
+                f", all filed as {spec.data_mode} by configuration"
+                if spec.data_mode
+                else ""
+            )
             print(
                 f"[nrtqc-diff] {spec.id}: kept {entry['n_profiles']} of "
                 f"{entry['n_profiles_total']} profiles, "
-                f"{entry['n_observations']} observations"
+                f"{entry['n_observations']} observations ({groups}{filed})"
             )
 
     profile_path = os.path.join(config.data_dir, "profiles.parquet")
@@ -165,6 +183,7 @@ def _check_columns(spec: DatasetSpec, config: BuildConfig, columns: List[str]) -
     needed = list(REQUIRED_COLUMNS)
     for variable in config.variables:
         needed += [variable.name, variable.flag, variable.nrt_flag]
+    needed += config.data_mode.columns
 
     missing = [column for column in needed if column not in columns]
     if missing:
@@ -204,19 +223,24 @@ def _check_input_order(spec: DatasetSpec, scan: pl.LazyFrame) -> None:
         )
 
 
-def _profile_summary(scan: pl.LazyFrame, config: BuildConfig) -> pl.DataFrame:
+def _profile_summary(
+    scan: pl.LazyFrame, spec: DatasetSpec, config: BuildConfig
+) -> pl.DataFrame:
     """
     One row per profile of the whole input, kept or not.
 
-    This is the pass that reads every observation. It answers three questions
+    This is the pass that reads every observation. It answers four questions
     at once: how many profiles and observations the input holds, which
-    profiles the trimming rule keeps, and what the summary table's counts are.
+    profiles the trimming rule keeps, what the summary table's counts are, and
+    which data mode group each profile belongs to.
     The result is one row per profile, so collecting it is safe however large
     the input was.
 
     :param scan: The scan produced by :func:`_scan_dataset`.
+    :param spec: The dataset being built, for its data mode override.
     :param config: The build configuration.
-    :return: The grouped frame, with a :data:`KEEP_COLUMN` flag.
+    :return: The grouped frame, with a :data:`KEEP_COLUMN` flag and the
+             profile's ``data_mode``.
     """
     present = [
         name
@@ -236,12 +260,53 @@ def _profile_summary(scan: pl.LazyFrame, config: BuildConfig) -> pl.DataFrame:
                 .alias(f"{variable.name}_n_{status['key']}")
             )
     aggregations.append(
+        is_delayed(config.data_mode).sum().cast(pl.Int32).alias("n_obs_delayed")
+    )
+    aggregations.append(
+        is_unknown(config.data_mode).sum().cast(pl.Int32).alias("n_obs_unknown")
+    )
+    aggregations.append(
         pl.any_horizontal([is_anomaly(v) for v in config.variables])
         .any()
         .alias(KEEP_COLUMN)
     )
 
-    return scan.group_by(PROFILE_KEYS).agg(aggregations).collect(engine="streaming")
+    return (
+        scan.group_by(PROFILE_KEYS)
+        .agg(aggregations)
+        .collect(engine="streaming")
+        .with_columns(
+            profile_data_mode(
+                pl.col("n_obs_delayed"), pl.col("n_obs_unknown"), spec.data_mode
+            ).alias("data_mode")
+        )
+    )
+
+
+def _mode_counts(summary: pl.DataFrame, kept: pl.DataFrame) -> Dict[str, Any]:
+    """
+    The published and source totals of one dataset, per data mode group.
+
+    The same four numbers the dataset entry carries for the whole dataset, so
+    a page filtered to one group can still say how much of that group the
+    trimming left out.
+
+    :param summary: Every profile of the dataset, from :func:`_profile_summary`.
+    :param kept: The profiles the trimming rule keeps.
+    :return: ``{mode: {n_profiles, n_profiles_total, n_observations,
+             n_observations_total}}`` for every key of ``DATA_MODES``.
+    """
+    counts: Dict[str, Any] = {}
+    for mode in DATA_MODES:
+        total = summary.filter(pl.col("data_mode") == mode["key"])
+        published = kept.filter(pl.col("data_mode") == mode["key"])
+        counts[mode["key"]] = {
+            "n_profiles": published.height,
+            "n_profiles_total": total.height,
+            "n_observations": int(published["n_obs"].sum()),
+            "n_observations_total": int(total["n_obs"].sum()),
+        }
+    return counts
 
 
 def _write_observations(
@@ -292,7 +357,8 @@ def _observation_frame(
     scan: pl.LazyFrame, spec: DatasetSpec, config: BuildConfig
 ) -> pl.LazyFrame:
     """
-    One row per published observation, with both flags and the category.
+    One row per published observation, with both flags, the category and the
+    data mode.
 
     The rows keep the order they had in the input, which
     :func:`_check_input_order` has already required to be by platform. The
@@ -320,6 +386,11 @@ def _observation_frame(
             computed_flag(variable).alias(variable.nrt_flag),
             status_expression(variable),
         ]
+    # The data mode as the input had it, for the hover box, and whether it
+    # makes the observation a delayed mode one, for the marker. The second is
+    # derivable from the first, but only with the configured values in hand.
+    columns += [pl.col(name).cast(pl.Utf8) for name in config.data_mode.columns]
+    columns.append(is_delayed(config.data_mode).alias(DELAYED_COLUMN))
 
     items = item_columns(
         scan.collect_schema().names(), [v.name for v in config.variables]
@@ -337,7 +408,11 @@ def _profile_frame(
 
     Per variable the row carries a count for every agreement category plus
     ``{variable}_n_disagree``, and the frame as a whole carries ``n_disagree``
-    summed across variables, which is the table's default sort.
+    summed across variables, which is the table's default sort. ``data_mode``
+    says which group of ``DATA_MODES`` the profile is published under, and
+    ``n_obs_delayed`` and ``n_obs_unknown`` how many of its observations are
+    delayed and have no data mode. The two counts are what the data mode
+    columns say even for a dataset filed whole under one group.
 
     :param kept: The rows of :func:`_profile_summary` the trimming rule keeps.
     :param spec: The dataset being built.
@@ -349,7 +424,7 @@ def _profile_frame(
     disagreement: List[pl.Expr] = []
     for variable in config.variables:
         per_variable = pl.col(f"{variable.name}_n_original_only") + pl.col(
-            f"{variable.name}_n_aiqclib_only"
+            f"{variable.name}_n_nrtqclib_only"
         )
         disagreement.append(
             per_variable.cast(pl.Int32).alias(f"{variable.name}_n_disagree")
@@ -372,7 +447,7 @@ def _profile_frame(
             ["dataset_id", "region", "product", "profile_id"]
             + PROFILE_KEYS
             + present
-            + ["n_obs", "n_disagree"]
+            + ["data_mode", "n_obs", "n_obs_delayed", "n_obs_unknown", "n_disagree"]
             + [
                 column
                 for variable in config.variables
@@ -443,6 +518,12 @@ def _catalog(config: BuildConfig, entries: List[Dict[str, Any]]) -> Dict[str, An
             for variable in config.variables
         ],
         "statuses": STATUSES,
+        "data_mode": {
+            "columns": config.data_mode.columns,
+            "delayed_values": config.data_mode.delayed_values,
+            "delayed_column": DELAYED_COLUMN,
+        },
+        "data_modes": DATA_MODES,
         "regions": regions,
     }
 

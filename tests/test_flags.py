@@ -7,8 +7,8 @@ from nrtqc_diff.config import VariableSpec
 from nrtqc_diff.flags import (
     AGREE_BAD,
     AGREE_GOOD,
-    AIQCLIB_ONLY,
     NO_INPUT_FLAG,
+    NRTQCLIB_ONLY,
     ORIGINAL_ONLY,
     STATUSES,
     is_anomaly,
@@ -32,7 +32,7 @@ class TestStatusExpression:
         The category of one observation.
 
         :param flag: The input's flag, as it appears in the file.
-        :param computed: The flag aiqclib computed.
+        :param computed: The flag nrtqclib computed.
         :return: The agreement category.
         """
         variable = VariableSpec(
@@ -50,7 +50,7 @@ class TestStatusExpression:
             ("1", 1, AGREE_GOOD),
             ("4", 4, AGREE_BAD),
             ("4", 1, ORIGINAL_ONLY),
-            ("1", 4, AIQCLIB_ONLY),
+            ("1", 4, NRTQCLIB_ONLY),
             # 2 (probably good), 5 (value changed) and 8 (interpolated) are
             # all judgements that the observation is usable.
             ("2", 1, AGREE_GOOD),
@@ -74,12 +74,12 @@ class TestStatusExpression:
 
     @pytest.mark.parametrize("flag", ["0", "9", "", None])
     def test_a_computed_flag_still_wins(self, flag):
-        """The point of the site is what aiqclib found, so it stays visible."""
-        assert self.status(flag, computed=4) == AIQCLIB_ONLY
+        """The point of the site is what nrtqclib found, so it stays visible."""
+        assert self.status(flag, computed=4) == NRTQCLIB_ONLY
 
     def test_an_empty_value_list_still_covers_every_row(self):
         """
-        ``_is_one_of`` is anchored to the column, not written as a literal.
+        ``is_one_of`` is anchored to the column, not written as a literal.
 
         A bare literal would collapse to one row and the per-profile counts
         would stop summing to the observation count.
@@ -121,7 +121,7 @@ class TestFlaggedMarker:
     CASES = {
         AGREE_BAD: ("4", 4),
         ORIGINAL_ONLY: ("4", 1),
-        AIQCLIB_ONLY: ("1", 4),
+        NRTQCLIB_ONLY: ("1", 4),
         AGREE_GOOD: ("1", 1),
         NO_INPUT_FLAG: ("9", 1),
     }
