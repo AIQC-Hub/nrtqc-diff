@@ -53,6 +53,29 @@ is the largest column on the page, and why the last column is a rate per 1,000
 published observations: it is the only figure on the row that compares fairly
 between a product of 800 observations and one of 25 million.
 
+**Every data page has a data mode choice**: "NRT only", "Contains delayed
+mode", "Data mode unknown" or "All profiles", the first three read from
+`data_modes` in `catalog.json` and the last added by `dataModeOptions` in
+`labels.js`. "NRT
+only" is the default, because it is the comparison the site is named for: two
+sets of automated flags. A delayed mode input flag is likely to be an
+operator's decision, and a disagreement with one means something else, so the
+groups are kept apart unless the reader asks for all of them. `docs/DATA_MODEL.md` has
+the rule. The choice is one `AND data_mode = ...` clause, `modeClause` in
+`queries.js`, added to every query over `profiles`, so the three pages
+cannot filter differently. Observation files are not filtered: they are only
+read for a profile already chosen.
+
+On the summary page it governs both tables, with the source totals read from
+the per-group `modes` of each catalog entry, and a third table, **NRT against
+delayed mode**, ignores it on purpose: it lists every group a product has,
+one row per product and group with each product's rows together, as rates of
+"original only", "nrtqclib only" and both per 1,000 of each group's own
+observations. That is where the difference between the groups shows, and
+the reason for having them. `regionProductTotals` groups by
+`data_mode` as well as region and product, so all three tables are sums over
+one query.
+
 **`index.qmd` is the drill-down.** It is a Quarto dashboard with two pages of
 its own, `Plots` and `Tables`, declared as level 1 headings and drawn as tabs
 in the dashboard's own navbar, under the site navbar. A third level 1 heading,
@@ -63,10 +86,15 @@ project title, so repeating it there said nothing twice.
 
 **The sidebar is the whole selection**, and nothing else:
 
-1. **Product**, from the tree (`treeView`). Selecting one sets
+1. **Data mode**, a radio of four, with one line under it saying what the
+   chosen group means. It restricts the profile list and the tree's counts.
+2. **Product**, from the tree (`treeView`). Selecting one sets
    `selection = {region, product, datasets}`. The first product selects itself
-   on load, because opening on an empty panel reads as a broken page.
-2. **The profile**, from a searchable paged list (`profileListView`), three
+   on load, because opening on an empty panel reads as a broken page. The
+   count beside a product is its published profiles in the chosen data mode,
+   which `setTreeMode` rewrites in place: a tree drawn again would select its
+   first product again, and the reader would lose the one they were on.
+3. **The profile**, from a searchable paged list (`profileListView`), three
    columns wide because the sidebar is narrow. It opens on the first page,
    worst disagreement first, with a row already selected: an empty panel
    reads as a broken page. Its value is the selected row, `null` when nothing
@@ -103,6 +131,11 @@ in it; that lives on the Tables page instead, for the selected profile.
 selected profile, side by side: measurement on the x axis, pressure down the y
 axis, markers coloured by agreement category, with pan, box zoom, scroll zoom
 and double click to reset. Zooming and panning stop at the data: see Plotting.
+A delayed mode observation is a diamond rather than a circle, in the same
+colour, so the colour still answers which source flagged it; the small grey
+markers of "neither flagged" become open diamonds, because a filled grey one
+that size is not told from a circle. The observation file carries `delayed`
+for this, worked out at build time from the configured data mode columns.
 Side by side rather than stacked because a cast is tall and narrow, so two
 plots fit the page where two stacked ones do not. Past two or three variables
 they wrap and the box scrolls. `.nq-plot` has a 320px minimum, which is what
@@ -111,7 +144,9 @@ decides when that happens.
 Both pages open on the same line of **profile facts** (`profileFacts`): the
 profile id, its platform and how many profiles of that platform the product
 published, the product, the time, the position, the pressure range, the
-number of observations and the input file. Everything about the cast that is
+number of observations, the data mode group and the input file. The group
+says why: how many observations are delayed or have no mode, or that the
+configuration set it for the whole product. Everything about the cast that is
 not QC, so a reader on either page knows which one they are looking at
 without going back to the sidebar. The input carries no platform name or
 type, only the code, and every file here is a CTD cast, so the code and the
@@ -123,7 +158,9 @@ draws none, so it asks `profilePressureRange`.
 The **colour key** (`statusLegend`) heads that same panel, above the markers
 it explains, so no card is spent on it and nothing pushes it off the screen.
 Five categories take one row on any usual window and fall into two on a narrow
-one, which is what the base `.nq-legend` rule already does.
+one, which is what the base `.nq-legend` rule already does. A profile with a
+delayed mode observation adds the diamond to the key, and only such a profile:
+on an NRT profile it would explain nothing on screen.
 
 **The hover box** on a marker is where that observation says what happened to
 it. Both flag columns are named the way the contingency tables name them, in
@@ -138,7 +175,10 @@ that fired is listed under them with its own flag, which is how a reader sees
 that the spike test called a point bad while the gradient test only called it
 probably good. `firedChecks` in `labels.js` does the splitting, off the item
 columns of the observation row that `SELECT *` has already brought back, so
-the hover costs no query. The label itself is a white box with the category's
+the hover costs no query. The last line gives every configured data mode
+column with its meaning, `D (delayed mode) temp_dm`, because whether the input
+flag above it came from an operator changes what a disagreement means. The
+label itself is a white box with the category's
 colour as its border rather than that colour behind the text: five lines of
 white on crimson is not a paragraph anybody reads.
 
@@ -148,15 +188,15 @@ takes what the key leaves, and `.nq-plot` is the full height of that, with a
 and `fitToBox` watches the node, so the plots follow the panel: a taller
 window means taller plots, not more white space.
 
-The lower row is **`aiqclib QC checks that flagged`** (`profileItemBreakdown`):
-which of `aiqclib`'s own checks raised a flag on this profile, and on how many
+The lower row is **`nrtqclib QC checks that flagged`** (`profileItemBreakdown`):
+which of `nrtqclib`'s own checks raised a flag on this profile, and on how many
 observations. It answers the question the plots raise, which is why it sits
 under them rather than with the tables. The code calls this an item firing;
 the panel says it in words a reader who has never seen the code can follow.
 The check is named twice over, in words and as the column it writes under
 them, and the name links to the table on the About page that describes it.
 
-`aiqclib` is in the title because the plots beside it draw both sources at
+`nrtqclib` is in the title because the plots beside it draw both sources at
 once, and a table of flag values headed `QC check` could be read as either of
 them.
 
@@ -198,8 +238,8 @@ line above the tables says what the red means, because that one is a setting
 of the build rather than anything the scheme fixes.
 
 **`platforms.qmd` sits between the two.** An ordinary page, not a dashboard:
-a region, a product and a variable are chosen at the top, and under them is
-one row per platform of that product, with the same agreement counts, flagged
+a region, a product, a variable and a data mode are chosen at the top, and
+under them is one row per platform of that product, with the same agreement counts, flagged
 mix and rate per 1,000 as the summary page. Clicking a platform opens a row
 under it listing that platform's profiles, and clicking it again closes it.
 It answers the question the other two pages leave open: which platforms of a
@@ -223,10 +263,10 @@ would put its page size and its `Next` step past the right edge. The
 container query units that do this are in `dashboard.css`.
 
 **`about.qmd` is the prose page**, and carries one thing worth keeping
-current: a table of the `aiqclib` QC checks, one row per check, with the
-column name it writes. The `aiqclib QC checks that flagged` panel shows those
+current: a table of the `nrtqclib` QC checks, one row per check, with the
+column name it writes. The `nrtqclib QC checks that flagged` panel shows those
 same column names and links to this table, which is how a reader turns
-`temp_qc_spike` into a sentence. It is a summary of the `aiqclib` NRT QC guide
+`temp_qc_spike` into a sentence. It is a summary of the `nrtqclib` NRT QC guide
 it links to; if that library adds or renames a check, this table is the place
 in this repository that goes stale, together with `QC_CHECKS` in `labels.js`.
 
@@ -282,7 +322,10 @@ Adding a category in `flags.py` makes it appear in the legend, the plots and
 both summary tables without touching the site. That extends to which
 categories mean a source flagged something: the build publishes a `flagged`
 marker on each category, and `summary.qmd` filters on it rather than naming
-`agree_bad`, `original_only` and `aiqclib_only`.
+`agree_bad`, `original_only` and `nrtqclib_only`. The data mode groups are the
+same: their keys, labels and descriptions come from `data_modes`, so a group
+added in `data_mode.py` reaches every page's choice, the tree and the side by
+side table without touching the site.
 
 ## The data access seam
 
@@ -324,7 +367,7 @@ the seam, so here is the trade-off recorded while it is fresh:
 DuckDB wins here because observation-level data grows quickly, because the
 per-dataset split lets a reader pay only for what they open, and because the
 QC item breakdown is an `UNPIVOT` over a column set discovered at runtime.
-The real batch settles the first two: 430 MB of observations, read a couple
+The real batch settles the first two: 418 MB of observations, read a couple
 of megabytes at a time. Reconsider if a deployment's published data settles
 below roughly 20 MB in total and the 7 MB engine starts to dominate, or if
 the site has to work with no network at all: DuckDB always fetches its main
@@ -376,6 +419,10 @@ The site has no test runner. After a change:
    switch the variable and confirm the counts change with it. On the
    platforms page, pick a product, open its largest platform and page through
    it, and confirm the platforms' profile counts add up to the summary page's
-   figure for that product.
+   figure for that product. Then switch the data mode on each page: on the
+   dashboard the tree's counts change while the selected product stays
+   selected, the list holds only that group, and a delayed profile draws
+   diamonds and names its data mode in the facts; on the summary and
+   platforms pages the three groups add up to "All profiles".
 3. The browser console must be clean. DuckDB's own logger is chatty at info
    level; anything at error level is a real problem.

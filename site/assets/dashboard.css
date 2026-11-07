@@ -704,3 +704,26 @@
   margin-bottom: 0.45rem;
   padding-bottom: 0.15rem;
 }
+
+/* ----------------------------------------------------------- data mode --- */
+
+/* The key for a delayed mode observation: a diamond outline, the shape the
+   plots draw it with, in no category's colour because it keeps its own. */
+.nq-swatch-delayed {
+  background: transparent;
+  border: 1.5px solid #33383d;
+  border-radius: 0;
+  transform: rotate(45deg) scale(0.85);
+}
+
+/* The data mode choice sits above the tree and keeps the height it asks for:
+   three short options, which the tree and the list must not squeeze. */
+.sidebar .cell-output-display:has(.nq-mode) {
+  flex: 0 0 auto;
+}
+
+.nq-mode-note {
+  color: var(--nq-muted);
+  font-size: 0.8rem;
+  margin: 0.25rem 0 0;
+}

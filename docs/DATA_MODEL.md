@@ -35,18 +35,18 @@ honest about what was left out.
 Every observation falls into exactly one category per variable, computed at
 build time in `src/nrtqc_diff/flags.py` and stored as `{variable}_status`.
 
-| Key | Input flag | aiqclib flag | Meaning |
+| Key | Input flag | nrtqclib flag | Meaning |
 | --- | --- | --- | --- |
 | `agree_bad` | in `bad_flag_values` | above 1 | Both sources flag it |
 | `original_only` | in `bad_flag_values` | 1 | Only the input flags it |
-| `aiqclib_only` | good or missing | above 1 | Only aiqclib flags it |
+| `nrtqclib_only` | good or missing | above 1 | Only nrtqclib flags it |
 | `no_input_flag` | in `missing_flag_values`, or unreadable | 1 | Nothing to compare |
 | `agree_good` | anything else | 1 | Neither flags it |
 
 The order of the table is the order of the test. The flagged cases are
-decided before the missing-flag case, so an observation aiqclib flagged is
+decided before the missing-flag case, so an observation nrtqclib flagged is
 always visible as flagged, whatever the input said. That is why
-`aiqclib_only` covers both "the input called it good" and "the input said
+`nrtqclib_only` covers both "the input called it good" and "the input said
 nothing".
 
 Two per-variable lists decide the rest, because datasets differ in how they
@@ -70,12 +70,69 @@ above 1 is an anomaly, so it needs no list.
 derives both the published `{variable}_status` column and the per-profile
 counts from it.
 
+## The data mode groups
+
+The input carries a data mode per observation and parameter, as ctddump
+writes it from the NetCDF files and `nrtqclib` passes it through: `temp_dm`,
+`psal_dm` and `pres_dm`, each `R` (real time), `A` (adjusted in real time),
+`D` (delayed mode) or empty. A delayed mode flag is likely to be an
+operator's decision rather than the automated tests', so comparing it with
+the flags `nrtqclib` computes asks a different question: not whether two
+automated systems agree, but whether the automated tests anticipate what an
+expert decided. The site keeps them apart.
+
+ctddump reads the values and flags from the plain variables (`TEMP`,
+`TEMP_QC`), never from `*_ADJUSTED`. It writes an empty data mode whenever
+the file gives no usable one: a fill cell of a `<PARAM>_DM` variable, a
+parameter marked `M` (mixed) with no per-level variable, a parameter with no
+mode at all, a CORA file without `DATA_MODE`. An empty mode can therefore
+hide delayed mode data, and it does not mean the measurement is missing.
+
+Every published profile belongs to exactly one group, computed at build time
+in `src/nrtqc_diff/data_mode.py` and stored as `data_mode`:
+
+| Key | Label | Rule |
+| --- | --- | --- |
+| `nrt` | NRT only | Every observation is `R` or `A` in every configured data mode column |
+| `delayed` | Contains delayed mode | At least one observation is delayed in at least one column |
+| `unknown` | Data mode unknown | None is delayed, but at least one is empty in at least one column |
+
+The order of the table is the order of the test: a delayed value decides
+the profile even when another cell of it is empty. "NRT only" takes positive
+evidence, which is why an empty mode is a group of its own rather than a
+quiet NRT.
+
+The columns and the values that mean delayed are the `data_mode` section of
+the configuration, `[temp_dm, psal_dm, pres_dm]` and `[D]` in both shipped
+configs. Pressure counts: a profile whose pressure alone was revised in
+delayed mode was still touched by an operator. `A` is an automatic adjustment
+and counts as NRT.
+
+**A dataset can be filed whole** under one group by setting `data_mode` on
+its configuration entry, whatever its columns say. The three CORA datasets
+are filed as `delayed`: CORA's `DATA_MODE` is the mode of the original
+observation, not of the reprocessing QC that set CORA's flags, so a CORA
+profile marked `R` throughout still carries delayed mode flags.
+`n_obs_delayed` and `n_obs_unknown` keep what the columns say even then.
+
+The split is by profile, like the trimming, because a profile is what a
+reader opens. On the real batch that loses very little. Delayed mode data is
+in the two Arctic NRT products and one Mediterranean profile, and a profile
+mixing delayed with real time observations is rare (about 1,450 of 295,000
+in the largest product), nearly always one whose deepest pressures were
+revised. `n_obs_delayed` keeps the number of delayed observations per
+profile, so splitting "all delayed" from "mixed" needs no rebuild of the
+counts if it is ever wanted.
+
+The trimming rule does not look at the data mode: a profile is published or
+not on its flags alone, and then filed under its group.
+
 ## `catalog.json`
 
 ```json
 {
   "generated": "2026-09-21T18:34:38+00:00",
-  "data_format": 1,
+  "data_format": 2,
   "title": "NRT QC flag differences",
   "variables": [
     {
@@ -88,6 +145,16 @@ counts from it.
   "statuses": [
     { "key": "agree_bad", "label": "Both flagged",
       "color": "#3f6fb5", "flagged": true }
+  ],
+  "data_mode": {
+    "columns": ["temp_dm", "psal_dm", "pres_dm"],
+    "delayed_values": ["D"],
+    "delayed_column": "delayed"
+  },
+  "data_modes": [
+    { "key": "nrt", "label": "NRT only", "description": "..." },
+    { "key": "delayed", "label": "Contains delayed mode", "description": "..." },
+    { "key": "unknown", "label": "Data mode unknown", "description": "..." }
   ],
   "regions": [
     {
@@ -102,7 +169,16 @@ counts from it.
               "label": "Baltic CORA NRT 2021", "description": "",
               "observations_file": "obs/bal_cora_nrt.parquet",
               "n_profiles": 26, "n_profiles_total": 40,
-              "n_observations": 1002, "n_observations_total": 1556
+              "n_observations": 1002, "n_observations_total": 1556,
+              "data_mode": null,
+              "modes": {
+                "nrt": { "n_profiles": 21, "n_profiles_total": 32,
+                         "n_observations": 810, "n_observations_total": 1243 },
+                "delayed": { "n_profiles": 5, "n_profiles_total": 8,
+                             "n_observations": 192, "n_observations_total": 313 },
+                "unknown": { "n_profiles": 0, "n_profiles_total": 0,
+                             "n_observations": 0, "n_observations_total": 0 }
+              }
             }
           ]
         }
@@ -125,6 +201,14 @@ configured separately, so the tree cannot disagree with what was built. The
 colour key lives here too: the legend, the tables and the plots all read
 `statuses`, so they cannot drift apart.
 
+`modes` repeats the four totals of a dataset per data mode group, so a page
+filtered to one group can still say how much of that group the trimming left
+out; the trimmed profiles are in no parquet. The groups add up to the
+dataset's own totals. `data_mode` on an entry is the group its configuration
+filed it under whole, or `null` when its profiles were classified one by one. `data_modes` lists the groups in the order the site
+offers them, with the words it uses, read from `DATA_MODES` in
+`data_mode.py`, and `data_mode` records what decided them.
+
 `flagged` on a status says whether at least one of the two sources flagged the
 observation, which is the rule the trimming applies. It is published so a page
 can select those categories without naming them, and `flags.py` builds
@@ -140,9 +224,12 @@ One row per published profile, across every dataset.
 | `profile_id` | str | `platform_code:profile_no`, the site's selection key |
 | `platform_code`, `profile_no` | str, i32 | The original key |
 | `profile_timestamp`, `longitude`, `latitude`, `filename` | varies | Copied when the input carries them |
+| `data_mode` | str | `nrt`, `delayed` or `unknown`; see "The data mode groups" |
 | `n_obs` | i64 | Observations in the profile |
+| `n_obs_delayed` | i32 | Observations delayed in at least one data mode column |
+| `n_obs_unknown` | i32 | Observations empty in at least one data mode column |
 | `n_disagree` | i32 | Disagreements summed over variables; the default sort |
-| `{variable}_n_disagree` | i32 | `original_only` plus `aiqclib_only` |
+| `{variable}_n_disagree` | i32 | `original_only` plus `nrtqclib_only` |
 | `{variable}_n_{category}` | i32 | One column per agreement category |
 
 The per-category columns of a variable sum to `n_obs`, which is what
@@ -159,8 +246,10 @@ One row per published observation.
 | `pres` | f64 | Pressure in decibars, the plots' y axis |
 | `{variable}` | f64 | The measurement, the plots' x axis |
 | `{variable}_qc` | i64 | The input's flag, cast to a whole number |
-| `{variable}_nrt_flag` | i64 | The flag aiqclib computed |
+| `{variable}_nrt_flag` | i64 | The flag nrtqclib computed |
 | `{variable}_status` | str | The agreement category |
+| `temp_dm`, `psal_dm`, `pres_dm` | str | The configured data mode columns, as the input had them |
+| `delayed` | bool | Whether any of them holds a delayed value |
 | `qc_{item}`, `{variable}_qc_{item}` | i32 | Every per-item flag column found in the input |
 
 The item columns are copied through rather than being selected by name, so a
@@ -195,13 +284,13 @@ Parquet with zstd compresses flag columns very well, since they are mostly
 runs of `1`.
 
 The `test_nrt` batch is the realistic measure: 8 datasets, 330 million
-observations in, 430 MB out.
+observations in, 426 MB out.
 
 | File | Size | Rule of thumb |
 | --- | --- | --- |
-| `catalog.json` | 6 KB | Grows with the number of datasets, not their size |
-| `profiles.parquet` | 8.3 MB for 357,445 profiles | About 23 bytes per published profile |
-| `obs/` | 421 MB for 87.7 M observations | About 5 bytes per published observation |
+| `catalog.json` | 11 KB | Grows with the number of datasets, not their size |
+| `profiles.parquet` | 7.9 MB for 343,431 profiles | About 23 bytes per published profile |
+| `obs/` | 418 MB for 82.8 M observations | About 5 bytes per published observation |
 
 `profiles.parquet` is fetched whole at startup, so it is the one file whose
 size the reader waits for. The observation files are not: they are read by

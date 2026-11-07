@@ -1,7 +1,7 @@
 /**
  * Plain names for the things the data calls by column name.
  *
- * The columns this site reads are the `aiqclib` output's own: `temp_qc`,
+ * The columns this site reads are the `nrtqclib` output's own: `temp_qc`,
  * `temp_nrt_flag`, `psal_qc_spike`. Whoever ran the build reads those at a
  * glance and nobody else does, so no panel shows one without words beside it.
  * The words live here, in one module, rather than in whichever page happened
@@ -9,7 +9,7 @@
  *
  * Nothing here is configurable, because none of it is a choice the build
  * makes: the flag scheme is the IOC/Argo one and the check names are
- * `aiqclib`'s. What the build does decide, which input values count as an
+ * `nrtqclib`'s. What the build does decide, which input values count as an
  * anomaly, is read from the variable entry instead of being restated here.
  */
 
@@ -30,7 +30,7 @@ const FLAG_MEANINGS = new Map([
 ]);
 
 /**
- * The checks `aiqclib` runs, keyed by the item part of the column name.
+ * The checks `nrtqclib` runs, keyed by the item part of the column name.
  *
  * The same list is in the table on the About page, which describes what each
  * one looks for; this is the short name and the test number alone, because a
@@ -77,6 +77,61 @@ export function flagWithMeaning(value) {
 }
 
 /**
+ * What the data mode codes stand for, as ctddump writes them.
+ *
+ * Per observation and parameter: `temp_dm`, `psal_dm`, `pres_dm`. An empty
+ * cell is a fill value and says nothing.
+ */
+const DATA_MODE_MEANINGS = new Map([
+  ["R", "real time"],
+  ["A", "adjusted in real time"],
+  ["D", "delayed mode"],
+]);
+
+/**
+ * The key of the data mode choice that applies no filter.
+ *
+ * Not one of the build's groups: every profile is published under exactly
+ * one of those, and this is the two of them together.
+ */
+export const ALL_MODES = "all";
+
+/**
+ * The data mode choices a page offers, the build's groups first.
+ *
+ * The first is the default, and the build lists "NRT only" first: a reader
+ * who chooses nothing compares two sets of automated flags, which is what
+ * the site is named for, rather than an automated set against an operator's.
+ *
+ * @param {object} catalog the parsed catalog.json.
+ * @returns {Array<object>} `{key, label, description}` entries.
+ */
+export function dataModeOptions(catalog) {
+  return [
+    ...(catalog.data_modes ?? []),
+    {
+      key: ALL_MODES,
+      label: "All profiles",
+      description:
+        "Every group together, which mixes automated input flags with " +
+        "delayed mode ones.",
+    },
+  ];
+}
+
+/**
+ * One data mode code with its meaning: `D (delayed mode)`.
+ *
+ * @param {string|null} value a code from a `_dm` column.
+ * @returns {string}
+ */
+export function dataModeWithMeaning(value) {
+  if (value === null || value === undefined || value === "") return "not given";
+  const meaning = DATA_MODE_MEANINGS.get(String(value));
+  return meaning === undefined ? String(value) : `${value} (${meaning})`;
+}
+
+/**
  * What this product does with one value of its input flag, in a sentence.
  *
  * The scheme cannot answer this on its own. Which input values count as an
@@ -93,7 +148,7 @@ export function inputFlagNote(value, variable) {
   if (value === null || value === undefined) {
     return (
       "No usable flag came with these observations, so there is nothing to " +
-      "compare unless aiqclib flagged them."
+      "compare unless nrtqclib flagged them."
     );
   }
   const meaning = flagMeaning(value);
@@ -114,7 +169,7 @@ export function inputFlagNote(value, variable) {
  *
  * An item writes either one column per variable (`temp_qc_spike`) or one for
  * the whole profile (`qc_impossible_date`), and the set of items is whatever
- * the `aiqclib` run wrote, so a column this list does not know still has to
+ * the `nrtqclib` run wrote, so a column this list does not know still has to
  * come back with something readable.
  *
  * @param {string} column the column name.

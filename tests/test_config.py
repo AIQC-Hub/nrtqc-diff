@@ -22,6 +22,7 @@ def write_config(tmp_path, **overrides):
                 "nrt_flag": "temp_nrt_flag",
             }
         ],
+        "data_mode": {"columns": ["temp_dm", "pres_dm"]},
         "datasets": [
             {
                 "id": "one",
@@ -156,3 +157,56 @@ def test_a_row_group_size_of_zero_is_rejected(tmp_path):
     path = write_config(tmp_path, site={"data_dir": "out", "row_group_size": 0})
     with pytest.raises(ValueError, match="row_group_size"):
         read_config(str(path))
+
+
+def test_data_mode_values_default_to_delayed_mode(tmp_path):
+    config = read_config(str(write_config(tmp_path)))
+    assert config.data_mode.columns == ["temp_dm", "pres_dm"]
+    assert config.data_mode.delayed_values == ["D"]
+
+
+def test_data_mode_values_can_be_set(tmp_path):
+    path = write_config(
+        tmp_path, data_mode={"columns": ["temp_dm"], "delayed_values": ["D", "M"]}
+    )
+    assert read_config(str(path)).data_mode.delayed_values == ["D", "M"]
+
+
+def test_the_data_mode_section_is_required(tmp_path):
+    """Calling every profile NRT by omission would defeat the split."""
+    path = write_config(tmp_path)
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    del document["data_mode"]
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    with pytest.raises(ValueError, match="data_mode"):
+        read_config(str(path))
+
+
+def test_data_mode_needs_a_column(tmp_path):
+    path = write_config(tmp_path, data_mode={"columns": []})
+    with pytest.raises(ValueError, match="data_mode.columns"):
+        read_config(str(path))
+
+
+def test_a_dataset_can_be_filed_under_one_data_mode(tmp_path):
+    entry = {
+        "id": "cora",
+        "region": "R",
+        "product": "P",
+        "path": "a.parquet",
+        "data_mode": "delayed",
+    }
+    config = read_config(str(write_config(tmp_path, datasets=[entry])))
+    assert config.datasets[0].data_mode == "delayed"
+
+
+def test_a_dataset_data_mode_must_be_a_group(tmp_path):
+    entry = {
+        "id": "cora",
+        "region": "R",
+        "product": "P",
+        "path": "a.parquet",
+        "data_mode": "D",
+    }
+    with pytest.raises(ValueError, match="cora"):
+        read_config(str(write_config(tmp_path, datasets=[entry])))

@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 `nrtqc-diff`: a static Quarto dashboard comparing the NRT QC flags already
-present in ocean profile data with the flags `aiqclib` computes for the same
-observations. Two halves: a Python **build step** that trims `aiqclib` NRT QC
+present in ocean profile data with the flags `nrtqclib` computes for the same
+observations. Two halves: a Python **build step** that trims `nrtqclib` NRT QC
 output into small web-ready parquet files, and a **Quarto site** that queries
 those files in the browser with DuckDB WASM (no server, no backend).
 
@@ -64,4 +64,4 @@ bash scripts/serve.sh                                   # renders and previews
 
 `site/data/`, `site/libs/` and `site/_site/` are all generated and are in
 `.gitignore`. Nothing derived from a source dataset belongs in the repository:
-the build step reproduces it from the `aiqclib` output named in the config.
+the build step reproduces it from the `nrtqclib` output named in the config.

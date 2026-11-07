@@ -36,8 +36,44 @@ datasets_by_id = new Map(
 ```
 
 ```{ojs}
+//| title: Data mode
+
+// Which profiles to compare. A delayed mode input flag is likely to be an
+// operator's decision, so comparing it with nrtqclib asks a different
+// question from comparing two sets of automated flags; the two are kept
+// apart unless the reader asks for both. "NRT only" comes first, so it is
+// what a reader who chooses nothing sees.
+viewof data_mode = {
+  const options = app.dataModeOptions(catalog);
+  const input = Inputs.radio(options, {
+    format: (mode) => mode.label,
+    value: options[0]
+  });
+  input.classList.add("nq-mode");
+  // One line saying what the choice means, under it rather than in a
+  // tooltip, because the difference is the point of the choice.
+  const note = htl.html`<p class="nq-mode-note"></p>`;
+  const describe = () => (note.textContent = input.value.description);
+  input.addEventListener("input", describe);
+  describe();
+  input.append(note);
+  return input;
+}
+```
+
+```{ojs}
 //| title: Regions and products
-viewof selection = app.treeView(catalog)
+// Built once and recounted in place by the cell below: a tree drawn again on
+// every change of data mode would select its first product again, and the
+// reader would lose the one they were on.
+viewof selection = app.treeView(catalog, {
+  mode: app.dataModeOptions(catalog)[0].key
+})
+```
+
+```{ojs}
+//| output: false
+app.setTreeMode(viewof selection, data_mode.key)
 ```
 
 ```{ojs}
@@ -68,9 +104,11 @@ viewof profile_row = app.profileListView({
   rowKey: "profile_id",
   sortKey: "n_disagree",
   searchLabel: "Profile or platform",
-  empty: "No profile of this product matches.",
-  fetchRows: (request) => app.profileSummary(selection.datasets, request),
-  countRows: (search) => app.profileCount(selection.datasets, search)
+  empty: "No profile of this product matches, in this data mode.",
+  fetchRows: (request) =>
+    app.profileSummary(selection.datasets, { ...request, mode: data_mode.key }),
+  countRows: (search) =>
+    app.profileCount(selection.datasets, search, null, data_mode.key)
 })
 ```
 
@@ -138,21 +176,33 @@ platform_profiles = profile_row
     app.profileFacts(profile_row, {
       product: entry.label,
       platformProfiles: platform_profiles,
-      pressure
+      pressure,
+      dataModes: catalog.data_modes,
+      datasetMode: entry.data_mode
     })
   );
   // The colour key rides at the top of this panel, above the markers it
   // explains and inside the same card, so it is on screen whatever the plots
   // do below it. Five categories take one row on a wide window and two on a
   // narrow one.
+  // The diamond joins the key only when the profile has something drawn as
+  // one, so an NRT profile's key is the five categories and nothing else.
+  const delayed = observations.some(
+    (row) => row[catalog.data_mode.delayed_column]
+  );
   box.appendChild(
-    htl.html`<div class="nq-plot-legend">${app.statusLegend(statuses)}</div>`
+    htl.html`<div class="nq-plot-legend">${app.statusLegend(statuses, { delayed })}</div>`
   );
   const plots = document.createElement("div");
   plots.className = "nq-plots";
   for (const variable of variables) {
     plots.appendChild(
-      await app.profilePlot(observations, { variable, statuses, variables })
+      await app.profilePlot(observations, {
+        variable,
+        statuses,
+        variables,
+        dataMode: catalog.data_mode
+      })
     );
   }
   box.appendChild(plots);
@@ -163,12 +213,12 @@ platform_profiles = profile_row
 ## Row {height="300px"}
 
 ```{ojs}
-//| title: aiqclib QC checks that flagged
+//| title: nrtqclib QC checks that flagged
 
-// Under the plots, because it answers the question they raise: when aiqclib
+// Under the plots, because it answers the question they raise: when nrtqclib
 // marked something the input did not, which of its checks was it? "Fired" is
 // what the code calls it; this is the same thing said plainly. The title
-// names aiqclib because the page carries two sets of flags, and a panel of
+// names nrtqclib because the page carries two sets of flags, and a panel of
 // flag values headed "QC check" could be read as either of them.
 {
   if (profile_row === false) return app.loadingNote();
@@ -196,7 +246,7 @@ platform_profiles = profile_row
           key: "check",
           label: "QC check",
           align: "left",
-          title: "The aiqclib test that raised the flag, and the column it writes",
+          title: "The nrtqclib test that raised the flag, and the column it writes",
           // The name in words, with the column it writes under it: the same
           // pairing the contingency table heads its axes with. Under rather
           // than beside, because a column of its own pushed the counts off
@@ -207,7 +257,7 @@ platform_profiles = profile_row
           // href is the rendered page, because Quarto rewrites `.qmd` links
           // in markdown and this node is built in the browser.
           render: (value, row) =>
-            htl.html`<div><a href="about.html#the-checks-aiqclib-runs"
+            htl.html`<div><a href="about.html#the-checks-nrtqclib-runs"
               title="${app.checkNote(row.item, variables)}">${value}</a>
               <span class="nq-colname">${row.item}</span></div>`
         },
@@ -222,7 +272,7 @@ platform_profiles = profile_row
       rowKey: "item",
       sortKey: "n",
       selectable: false,
-      empty: `No aiqclib check flagged ${variable.label.toLowerCase()} here.`
+      empty: `No nrtqclib check flagged ${variable.label.toLowerCase()} here.`
     });
     return htl.html`<section class="nq-qc-block">
       <p class="nq-meta">${variable.label}</p>
@@ -290,7 +340,9 @@ platform_profiles = profile_row
     app.profileFacts(profile_row, {
       product: entry.label,
       platformProfiles: platform_profiles,
-      pressure: await app.profilePressureRange(entry, profile_row.profile_id)
+      pressure: await app.profilePressureRange(entry, profile_row.profile_id),
+      dataModes: catalog.data_modes,
+      datasetMode: entry.data_mode
     })
   );
   const row = document.createElement("div");
@@ -360,7 +412,7 @@ platform_profiles = profile_row
 //| title: Contingency
 
 // The cross-tabulation the whole project is about: how the input's flag value
-// and the value aiqclib computed line up, for this profile alone.
+// and the value nrtqclib computed line up, for this profile alone.
 {
   if (profile_row === false) return app.loadingNote();
   const box = document.createElement("div");

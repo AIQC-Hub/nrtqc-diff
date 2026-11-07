@@ -41,7 +41,7 @@ jobs:
           uv run ruff check src tests scripts
           uv run pytest -q
 
-      # The data is built where the inputs are, not here: an aiqclib batch
+      # The data is built where the inputs are, not here: an nrtqclib batch
       # is 2.2 GB that the build reads twice, and this workflow runs on every
       # push to main, so a commit touching a docstring would re-derive files
       # identical to the ones already published. The variable holds the tag to
