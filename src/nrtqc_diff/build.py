@@ -30,7 +30,9 @@ from nrtqc_diff.data_mode import (
     is_delayed,
     is_estimated,
     is_unknown,
+    land_rule,
     profile_data_mode,
+    sea_floor_elevation,
 )
 from nrtqc_diff.flags import (
     STATUSES,
@@ -246,7 +248,9 @@ def _profile_summary(
     the flags of temperature or salinity are estimated to be delayed mode
     ones (:func:`~nrtqc_diff.data_mode.is_estimated`): then the profile is
     delayed mode, and :data:`ESTIMATED_COLUMN` names the variables. A
-    dataset filed whole by its configuration stays as configured.
+    dataset filed whole by its configuration stays as configured, and a
+    profile on land (:func:`~nrtqc_diff.data_mode.land_rule`) is not
+    estimated, as in the analyses.
     The result is one row per profile, so collecting it is safe however large
     the input was.
 
@@ -287,6 +291,14 @@ def _profile_summary(
         .any()
         .alias(KEEP_COLUMN)
     )
+    land_column, positive_depth = land_rule(config)
+    if land_column in names:
+        aggregations.append(
+            sea_floor_elevation(land_column, positive_depth).max().alias("_elevation")
+        )
+        on_land = (pl.col("_elevation") >= 0).fill_null(False)
+    else:
+        on_land = pl.lit(False)
 
     declared = profile_data_mode(
         pl.col("n_obs_delayed"), pl.col("n_obs_unknown"), spec.data_mode
@@ -297,7 +309,8 @@ def _profile_summary(
         estimated = pl.concat_str(
             [
                 pl.when(
-                    is_estimated(
+                    ~on_land
+                    & is_estimated(
                         input_only_share(v.name, config.data_mode),
                         declared,
                         config.data_mode,
@@ -578,6 +591,7 @@ def _catalog(config: BuildConfig, entries: List[Dict[str, Any]]) -> Dict[str, An
                 "min_observations": config.data_mode.estimated_min_observations,
                 "groups": config.data_mode.estimated_groups,
                 "column": ESTIMATED_COLUMN,
+                "land_column": land_rule(config)[0],
             },
         },
         "data_modes": DATA_MODES,

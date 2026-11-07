@@ -69,8 +69,9 @@ data_mode:
   # salinity look like an operator's is filed as delayed mode too: at least
   # min_share of that variable's observations with a usable input flag are
   # flagged by the input and not by nrtqclib, counting only a variable with
-  # min_observations such values. `estimated: false` turns it off. The
-  # analyses apply the same rule per variable.
+  # min_observations such values. A profile on land (analyses.land below) is
+  # not estimated. `estimated: false` turns it off. The analyses apply the
+  # same rule per variable.
   estimated:
     min_share: 0.6
     min_observations: 5

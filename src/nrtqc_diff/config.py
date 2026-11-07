@@ -71,6 +71,9 @@ DEFAULT_ESTIMATED_MIN_OBSERVATIONS: int = 5
 #: The thresholds of the estimated delayed mode sensitivity table.
 DEFAULT_ESTIMATED_SENSITIVITY: List[float] = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
+#: The sea floor column seastamp adds: GEBCO elevation, negative under water.
+DEFAULT_BATHYMETRY_COLUMN: str = "bathymetry"
+
 #: Columns every dataset must carry, whatever else it holds.
 REQUIRED_COLUMNS: List[str] = [
     "platform_code",
@@ -212,7 +215,7 @@ class AnalysesSpec:
     ctddump_headers: Optional[str] = None
     ctddump_dups: Optional[str] = None
     seastamp_reports: Optional[str] = None
-    bathymetry_column: str = "bathymetry"
+    bathymetry_column: str = DEFAULT_BATHYMETRY_COLUMN
     positive_depth: bool = False
     land_margins_m: List[float] = field(
         default_factory=lambda: list(DEFAULT_LAND_MARGINS_M)
@@ -480,7 +483,7 @@ def _analyses(raw: Any, base_dir: str) -> Optional[AnalysesSpec]:
         ctddump_headers=directory("ctddump_headers"),
         ctddump_dups=directory("ctddump_dups"),
         seastamp_reports=directory("seastamp_reports"),
-        bathymetry_column=str(land.get("column", "bathymetry")),
+        bathymetry_column=str(land.get("column", DEFAULT_BATHYMETRY_COLUMN)),
         positive_depth=bool(land.get("positive_depth", False)),
         land_margins_m=[
             float(value) for value in land.get("margins_m", DEFAULT_LAND_MARGINS_M)

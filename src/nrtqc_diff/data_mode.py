@@ -33,7 +33,12 @@ from typing import Dict, List, Optional, Sequence
 
 import polars as pl
 
-from nrtqc_diff.config import DATA_MODE_KEYS, DataModeSpec
+from nrtqc_diff.config import (
+    DATA_MODE_KEYS,
+    DEFAULT_BATHYMETRY_COLUMN,
+    BuildConfig,
+    DataModeSpec,
+)
 from nrtqc_diff.flags import is_one_of
 
 #: Every observation of the profile is real time or adjusted in real time.
@@ -204,3 +209,28 @@ def is_estimated(share: pl.Expr, declared: pl.Expr, spec: DataModeSpec) -> pl.Ex
     return declared.is_in(spec.estimated_groups) & (
         share >= spec.estimated_min_share
     ).fill_null(False)
+
+
+def sea_floor_elevation(column: str, positive_depth: bool) -> pl.Expr:
+    """
+    The height of the sea floor above sea level: negative under water.
+
+    :param column: The sea floor column.
+    :param positive_depth: Whether that column is positive under water.
+    :return: A ``Float64`` expression.
+    """
+    value = pl.col(column).cast(pl.Float64, strict=False)
+    return -value if positive_depth else value
+
+
+def land_rule(config: BuildConfig) -> tuple:
+    """
+    The sea floor column and its sign, as ``(column, positive_depth)``: the
+    ``analyses.land`` settings when there are any, else seastamp's defaults.
+    A profile with any position at or above sea level is on land, and its
+    flags are not estimated: an operator's rejection and a position on land
+    look alike in the flags.
+    """
+    if config.analyses is not None:
+        return config.analyses.bathymetry_column, config.analyses.positive_depth
+    return DEFAULT_BATHYMETRY_COLUMN, False

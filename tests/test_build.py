@@ -373,6 +373,35 @@ class TestDataMode:
         assert modes[DELAYED]["n_profiles_estimated"] == 1
         assert catalog["data_mode"]["estimated"]["min_observations"] == 3
 
+    def test_a_profile_on_land_is_not_estimated(self, tmp_path, nrt_qc_frame):
+        """As in the analyses: one position at or above sea level is land."""
+        frame = nrt_qc_frame.with_columns(
+            pl.when(pl.col("platform_code") == "INPUT")
+            .then(pl.lit("R"))
+            .otherwise(pl.col(c))
+            .alias(c)
+            for c in ("temp_dm", "pres_dm")
+        ).with_columns(
+            pl.when(pl.col("platform_code") == "INPUT")
+            .then(4)
+            .otherwise(pl.col("temp_qc"))
+            .alias("temp_qc"),
+            pl.when(
+                (pl.col("platform_code") == "INPUT") & (pl.col("observation_no") == 1)
+            )
+            .then(2.0)
+            .otherwise(-30.0)
+            .alias("bathymetry"),
+        )
+        rule = DataModeSpec(
+            columns=["temp_dm", "pres_dm"], estimated_min_observations=3
+        )
+        build_site_data(_single_dataset_config(tmp_path, frame, data_mode=rule))
+        profiles = pl.read_parquet(tmp_path / "out" / "profiles.parquet")
+        row = profiles.filter(pl.col("platform_code") == "INPUT")
+        assert row["data_mode"].item() == NRT
+        assert row["estimated_from"].item() is None
+
     def test_the_estimate_can_be_turned_off(self, tmp_path, nrt_qc_frame):
         frame = nrt_qc_frame.with_columns(
             pl.when(pl.col("platform_code") == "INPUT")

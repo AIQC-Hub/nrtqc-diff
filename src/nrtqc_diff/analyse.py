@@ -56,6 +56,7 @@ from nrtqc_diff.data_mode import (
     is_estimated,
     is_unknown,
     profile_data_mode,
+    sea_floor_elevation,
 )
 from nrtqc_diff.flags import (
     AGREE_BAD,
@@ -266,8 +267,7 @@ def elevation(spec: AnalysesSpec) -> pl.Expr:
     :param spec: The analyses section, for the column and its sign.
     :return: A ``Float64`` expression.
     """
-    column = pl.col(spec.bathymetry_column).cast(pl.Float64, strict=False)
-    return -column if spec.positive_depth else column
+    return sea_floor_elevation(spec.bathymetry_column, spec.positive_depth)
 
 
 def profile_summary(

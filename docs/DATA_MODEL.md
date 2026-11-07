@@ -112,9 +112,13 @@ observations with a usable input flag (present, and not a missing flag
 value) are flagged by the input and not by nrtqclib, counting only a
 variable with at least `min_observations` (5) such observations. An
 automated test rarely rejects most of a profile; an operator who judges a
-cast bad often rejects all of it. `estimated_from` names the variables, and
-the rule is `data_mode.estimated` in the configuration (`estimated: false`
-turns it off). The Analyses pages apply the same rule per variable. "NRT only" takes positive
+cast bad often rejects all of it. A profile with any position the
+bathymetry puts at or above sea level is not estimated, since a position on
+land draws rejections of its own; the column is `analyses.land.column`, or
+`bathymetry` without an analyses section, and an input without it has no
+land. `estimated_from` names the variables, and the rule is
+`data_mode.estimated` in the configuration (`estimated: false` turns it
+off). The Analyses pages apply the same rule per variable. "NRT only" takes positive
 evidence, which is why an empty mode is a group of its own rather than a
 quiet NRT.
 
@@ -167,7 +171,8 @@ not on its flags alone, and then filed under its group.
     "delayed_values": ["D"],
     "delayed_column": "delayed",
     "estimated": { "enabled": true, "min_share": 0.6, "min_observations": 5,
-                   "groups": ["nrt", "unknown"], "column": "estimated_from" }
+                   "groups": ["nrt", "unknown"], "column": "estimated_from",
+                   "land_column": "bathymetry" }
   },
   "data_modes": [
     { "key": "nrt", "label": "NRT only", "description": "..." },
