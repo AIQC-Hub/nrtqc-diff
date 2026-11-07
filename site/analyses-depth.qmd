@@ -59,8 +59,8 @@ meta ? table((summary ?? []).sort(byDataset), [
 ```{ojs}
 meta ? app.analysisFigure(
   "depth_land_qc",
-  "Profiles on land by what the input's flags said about them: the position flagged bad, every observation of a variable flagged, some flagged, or nothing.",
-  "Stacked bars per product of land profiles by input flag."
+  "The share of each product's land profiles that the input flagged in any way: the position flagged bad, every observation of a variable flagged, or some flagged. The rest of the land profiles, not drawn, were not flagged at all. The label gives the share flagged and the number of land profiles it is a share of.",
+  "Stacked bars per product of the share of land profiles the input flagged, by kind of flag."
 ) : html``
 ```
 

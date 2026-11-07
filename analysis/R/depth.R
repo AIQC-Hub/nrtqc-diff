@@ -32,14 +32,32 @@ if (!is.null(land)) {
       class = factor(class, levels = names(land_classes))
     )
 
-  # How the land profiles split by what the input said, per dataset.
-  counts <- land |> count(short, class)
-  plot <- ggplot(counts, aes(n, forcats::fct_rev(short), fill = class)) +
+  # What the input flagged on the land profiles, as a share of each
+  # dataset's land profiles. The unflagged rest, most of every bar, is left
+  # out so the flagged part can be read; the label keeps the whole in view.
+  flagged_classes <- land_classes[names(land_classes) != "Not flagged"]
+  totals <- land |>
+    count(short, name = "n_land") |>
+    left_join(land |> filter(class != "Not flagged") |> count(short, name = "n_flagged"),
+              by = "short") |>
+    mutate(n_flagged = coalesce(n_flagged, 0L), share = n_flagged / n_land)
+  counts <- land |>
+    filter(class != "Not flagged") |>
+    count(short, class) |>
+    left_join(select(totals, short, n_land), by = "short") |>
+    mutate(share = n / n_land, class = factor(class, levels = names(flagged_classes)))
+  plot <- ggplot(counts, aes(share, forcats::fct_rev(short), fill = class)) +
     geom_col(width = 0.7, colour = "white", linewidth = 0.3,
-             position = position_fill(reverse = TRUE), show.legend = TRUE) +
-    scale_fill_manual(values = land_classes, drop = FALSE) +
-    scale_x_continuous(labels = label_percent(), expand = expansion(0)) +
-    labs(x = "Profiles on land", y = NULL)
+             position = position_stack(reverse = TRUE), show.legend = TRUE) +
+    geom_text(data = totals, inherit.aes = FALSE,
+              aes(share, forcats::fct_rev(short),
+                  label = paste0(percent(share, accuracy = 0.1), " of ", comma(n_land))),
+              hjust = -0.1, size = 2.4) +
+    scale_fill_manual(values = flagged_classes, drop = FALSE) +
+    scale_y_discrete(limits = rev(levels(droplevels(totals$short)))) +
+    scale_x_continuous(labels = label_percent(), expand = expansion(mult = c(0, 0.3))) +
+    labs(x = "Land profiles the input flagged, share of the product's land profiles",
+         y = NULL)
   save_figure(plot, "depth_land_qc", height = 62)
 
   # Height above sea level against distance to the coast: a grid cell that
