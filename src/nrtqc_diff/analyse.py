@@ -17,11 +17,13 @@ page:
    run.
 2. **Delayed mode.** A profile with a delayed mode observation is filed as
    ``delayed``, as on the rest of the site. An NRT profile whose input flags
-   look like an operator's, because most of its observations are flagged by
-   the input and not by nrtqclib, is filed as ``estimated_delayed``.
-3. **What is left** is ``nrt`` (or ``unknown``), and the per-item tables are
-   computed over ``nrt`` alone: two sets of automated flags, on positions at
-   sea.
+   of one variable look like an operator's, because most of its
+   observations are flagged by the input and not by nrtqclib, is filed as
+   ``estimated_delayed`` for that variable. Temperature and salinity are
+   judged apart: an operator often reworks one and not the other.
+3. **What is left** is ``nrt`` (or ``unknown``), and the per-item tables of
+   each variable are computed over the profiles ``nrt`` for it: two sets of
+   automated flags, on positions at sea.
 
 Like the build, nothing here holds a dataset in memory. Each dataset is read
 in a streaming pass that yields one row per profile, which decides the
@@ -70,7 +72,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 7
+ANALYSES_FORMAT: int = 8
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -104,9 +106,10 @@ ANALYSIS_GROUPS: List[Dict[str, str]] = [
         "key": ESTIMATED_DELAYED,
         "label": "Estimated delayed mode",
         "description": (
-            "Marked NRT, or with no data mode, but most observations with a "
-            "usable input flag are flagged by the input and not by nrtqclib, "
-            "which is what an operator's edits look like."
+            "Marked NRT, or with no data mode, but most of the variable's "
+            "observations with a usable input flag are flagged by the input "
+            "and not by nrtqclib, which is what an operator's edits look like. "
+            "Decided per variable."
         ),
     },
     {
@@ -193,16 +196,20 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
         scan = _scan(dataset, spec)
         mine = profiles.filter(pl.col("dataset_id") == dataset.id)
 
-        land = mine.filter(pl.col("group") == LAND).select(PROFILE_KEYS)
+        land = mine.filter(pl.col("land")).select(PROFILE_KEYS)
         if land.height:
             land_flags.append(land_flag_table(scan, land, dataset, config))
 
-        nrt = mine.filter(pl.col("group") == NRT).select(PROFILE_KEYS)
-        if nrt.height:
+        nrt = {
+            v.name: mine.filter(pl.col(f"{v.name}_group") == NRT).select(PROFILE_KEYS)
+            for v in config.variables
+        }
+        if any(keys.height for keys in nrt.values()):
             if verbose:
+                counts = ", ".join(f"{n} {k.height}" for n, k in nrt.items())
                 print(
-                    f"[nrtqc-diff] {dataset.id}: comparing items over "
-                    f"{nrt.height} NRT profiles"
+                    f"[nrtqc-diff] {dataset.id}: comparing items over the NRT "
+                    f"profiles of each variable ({counts})"
                 )
             for name, table in item_tables_for(scan, nrt, dataset, config).items():
                 item_tables.setdefault(name, []).append(table)
@@ -356,66 +363,89 @@ def classify(
     profiles: pl.DataFrame, config: BuildConfig, spec: AnalysesSpec
 ) -> pl.DataFrame:
     """
-    File every profile under one of :data:`ANALYSIS_GROUPS`.
+    File every profile under one of :data:`ANALYSIS_GROUPS`, per variable.
 
-    The share of a variable is the observations only the input flags, over
-    those whose input flag says anything; it is computed only for a variable
-    with at least ``estimated_min_observations`` such observations. A
-    profile's share is the larger of its variables', so a profile whose
-    salinity alone was reworked by an operator is caught too.
+    Land and declared delayed mode are properties of the profile, so they
+    are the same for every variable. The estimate is not: the share of a
+    variable is the observations only the input flags, over those whose
+    input flag says anything, computed only for a variable with at least
+    ``estimated_min_observations`` such observations, and a profile is
+    estimated delayed mode for each variable whose share reaches
+    ``estimated_min_share``. An operator who reworked the salinity of a
+    cast and left its temperature alone takes it out of the salinity
+    comparison only.
 
     :param profiles: The output of :func:`profile_summary`, any number of
                      datasets stacked.
     :param config: The build configuration.
     :param spec: The analyses section.
-    :return: The profiles with ``land``, ``{variable}_share``, ``share``,
-             ``estimated_delayed`` and ``group`` added.
+    :return: The profiles with ``land`` added, and per variable
+             ``{variable}_share``, ``{variable}_estimated`` and
+             ``{variable}_group``.
     """
-    shares = []
-    for variable in config.variables:
-        usable = pl.col(f"{variable.name}_n_usable")
-        shares.append(
-            pl.when(usable >= spec.estimated_min_observations)
-            .then(pl.col(f"{variable.name}_n_{ORIGINAL_ONLY}") / usable)
-            .otherwise(None)
-            .alias(f"{variable.name}_share")
-        )
     land = (pl.col("elevation") >= 0).fill_null(False)
-    estimated = (
-        pl.col("data_mode").is_in(spec.estimated_groups)
-        & ~pl.col("land")
-        & (pl.col("share") >= spec.estimated_min_share).fill_null(False)
-    )
-    group = (
-        pl.when(pl.col("land"))
-        .then(pl.lit(LAND))
-        .when(pl.col("data_mode") == DELAYED)
-        .then(pl.lit(DELAYED))
-        .when(pl.col("estimated_delayed"))
-        .then(pl.lit(ESTIMATED_DELAYED))
-        .otherwise(pl.col("data_mode"))
-    )
-    share_columns = [f"{v.name}_share" for v in config.variables]
-    return (
-        profiles.with_columns(land.alias("land"), *shares)
-        .with_columns(pl.max_horizontal(share_columns).alias("share"))
-        .with_columns(estimated.alias("estimated_delayed"))
-        .with_columns(group.alias("group"))
-    )
+    candidate = pl.col("data_mode").is_in(spec.estimated_groups) & ~pl.col("land")
+    per_variable = []
+    for variable in config.variables:
+        name = variable.name
+        usable = pl.col(f"{name}_n_usable")
+        share = (
+            pl.when(usable >= spec.estimated_min_observations)
+            .then(pl.col(f"{name}_n_{ORIGINAL_ONLY}") / usable)
+            .otherwise(None)
+        )
+        estimated = candidate & (share >= spec.estimated_min_share).fill_null(False)
+        group = (
+            pl.when(pl.col("land"))
+            .then(pl.lit(LAND))
+            .when(pl.col("data_mode") == DELAYED)
+            .then(pl.lit(DELAYED))
+            .when(estimated)
+            .then(pl.lit(ESTIMATED_DELAYED))
+            .otherwise(pl.col("data_mode"))
+        )
+        per_variable += [
+            share.alias(f"{name}_share"),
+            estimated.alias(f"{name}_estimated"),
+            group.alias(f"{name}_group"),
+        ]
+    return profiles.with_columns(land.alias("land")).with_columns(per_variable)
+
+
+def by_variable(profiles: pl.DataFrame, config: BuildConfig) -> pl.DataFrame:
+    """
+    The profiles once per variable, with that variable's columns under
+    generic names: ``variable``, ``group``, ``share``, ``estimated``,
+    ``n_usable`` and ``n_{status}``.
+    """
+    common = [
+        c
+        for c in _dataset_columns()
+        + ["platform_code", "profile_no", "data_mode", "land", "n_obs"]
+        if c in profiles.columns
+    ]
+    frames = []
+    for variable in config.variables:
+        name = variable.name
+        frames.append(
+            profiles.select(
+                *common,
+                pl.lit(name).alias("variable"),
+                pl.col(f"{name}_group").alias("group"),
+                pl.col(f"{name}_share").alias("share"),
+                pl.col(f"{name}_estimated").alias("estimated"),
+                pl.col(f"{name}_n_usable").alias("n_usable"),
+                *[
+                    pl.col(f"{name}_n_{s['key']}").alias(f"n_{s['key']}")
+                    for s in STATUSES
+                ],
+            )
+        )
+    return pl.concat(frames)
 
 
 def _dataset_columns() -> List[str]:
     return ["dataset_id", "region", "product", "label"]
-
-
-def _counts_by(
-    profiles: pl.DataFrame, keys: List[str], config: BuildConfig
-) -> pl.DataFrame:
-    """Profiles, observations and status counts summed over ``keys``."""
-    sums = [pl.len().cast(pl.Int64).alias("n_profiles"), pl.col("n_obs").sum()]
-    for variable in config.variables:
-        sums += [pl.col(f"{variable.name}_n_{s['key']}").sum() for s in STATUSES]
-    return profiles.group_by(keys, maintain_order=True).agg(sums)
 
 
 def depth_tables(
@@ -611,16 +641,23 @@ def data_mode_tables(
 ) -> Dict[str, pl.DataFrame]:
     """
     The tables of the NRT and delayed mode page, from the profile summary.
+    Every table has a ``variable`` column: the groups are decided per
+    variable (:func:`classify`).
 
     :return: ``dm_groups``, ``dm_share_hist``, ``dm_threshold``,
              ``dm_estimated_platforms`` and ``dm_estimated_profiles``.
     """
-    keys = _dataset_columns()
-    at_sea = profiles.filter(~pl.col("land"))
+    keys = _dataset_columns() + ["variable"]
+    long = by_variable(profiles, config)
+    at_sea = long.filter(~pl.col("land"))
     eligible = at_sea.filter(pl.col("share").is_not_null())
 
-    groups = _counts_by(profiles, keys + ["data_mode", "group"], config).sort(
-        keys + ["data_mode", "group"]
+    sums = [pl.len().cast(pl.Int64).alias("n_profiles"), pl.col("n_obs").sum()]
+    sums += [pl.col(f"n_{s['key']}").sum() for s in STATUSES]
+    groups = (
+        long.group_by(keys + ["data_mode", "group"], maintain_order=True)
+        .agg(sums)
+        .sort(keys + ["data_mode", "group"])
     )
 
     width = SHARE_BIN_WIDTH
@@ -667,11 +704,13 @@ def data_mode_tables(
         .agg(
             pl.len().cast(pl.Int64).alias("n_profiles"),
             candidate.sum().cast(pl.Int64).alias("n_candidates"),
-            pl.col("estimated_delayed").sum().cast(pl.Int64).alias("n_estimated"),
+            pl.col("estimated").sum().cast(pl.Int64).alias("n_estimated"),
             (pl.col("data_mode") == DELAYED).sum().cast(pl.Int64).alias("n_delayed"),
         )
         .filter(pl.col("n_estimated") > 0)
-        .sort(["dataset_id", "n_estimated"], descending=[False, True])
+        .sort(
+            ["dataset_id", "variable", "n_estimated"], descending=[False, False, True]
+        )
     )
 
     listed = [
@@ -683,11 +722,14 @@ def data_mode_tables(
             + [f"{v.name}_n_usable" for v in config.variables]
             + [f"{v.name}_n_{ORIGINAL_ONLY}" for v in config.variables]
             + [f"{v.name}_share" for v in config.variables]
+            + [f"{v.name}_estimated" for v in config.variables]
         )
         if c in profiles.columns
     ]
     estimated = (
-        profiles.filter(pl.col("group") == ESTIMATED_DELAYED)
+        profiles.filter(
+            pl.any_horizontal([pl.col(f"{v.name}_estimated") for v in config.variables])
+        )
         .select(listed)
         .sort(["dataset_id", "platform_code", "profile_no"])
     )
@@ -770,12 +812,12 @@ def pres_band_labels() -> List[Dict[str, Any]]:
 
 def item_tables_for(
     scan: pl.LazyFrame,
-    keep: pl.DataFrame,
+    keep: Dict[str, pl.DataFrame],
     dataset: DatasetSpec,
     config: BuildConfig,
 ) -> Dict[str, pl.DataFrame]:
     """
-    The per-item tables of one dataset, over the profiles in ``keep``.
+    The per-item tables of one dataset, each variable over its own profiles.
 
     Every table is derived from one cube per variable: the observations
     counted by pressure band, input flag, computed flag and which items
@@ -783,7 +825,9 @@ def item_tables_for(
     attached to the cube after collecting it rather than computed per row.
 
     :param scan: The dataset.
-    :param keep: The keys of the profiles to count.
+    :param keep: Per variable name, the keys of the profiles to count it
+                 over: a profile estimated delayed mode for salinity is left
+                 out of the salinity tables only.
     :param dataset: The dataset's configuration.
     :param config: The build configuration.
     :return: ``items_cube``, ``items_status``, ``items_by_item``,
@@ -792,7 +836,10 @@ def item_tables_for(
     """
     names = scan.collect_schema().names()
     variable_names = [v.name for v in config.variables]
-    kept = scan.join(keep.lazy(), on=PROFILE_KEYS, how="semi")
+
+    def kept_for(variable: VariableSpec) -> pl.LazyFrame:
+        return scan.join(keep[variable.name].lazy(), on=PROFILE_KEYS, how="semi")
+
     bands = {b["band"]: b["label"] for b in pres_band_labels()}
 
     queries = []
@@ -818,27 +865,31 @@ def item_tables_for(
             .alias(variable.nrt_flag),
         ] + fails
         queries.append(
-            kept.select(keys)
+            kept_for(variable)
+            .select(keys)
             .group_by(pl.all())
             .agg(pl.len().cast(pl.Int64).alias("n_obs"))
         )
 
-    platform_sums: List[pl.Expr] = [
-        pl.col("profile_no").n_unique().cast(pl.Int64).alias("n_profiles"),
-        pl.len().cast(pl.Int64).alias("n_obs"),
-    ]
+    # Per platform, each variable over its own profiles.
     for variable in config.variables:
         predicates = status_predicates(variable)
-        for status in STATUSES:
-            platform_sums.append(
-                predicates[status["key"]]
-                .sum()
-                .cast(pl.Int64)
-                .alias(f"{variable.name}_n_{status['key']}")
+        queries.append(
+            kept_for(variable)
+            .group_by(pl.col("platform_code").cast(pl.Utf8))
+            .agg(
+                pl.col("profile_no").n_unique().cast(pl.Int64).alias("n_profiles"),
+                pl.len().cast(pl.Int64).alias("n_obs"),
+                *[
+                    predicates[status["key"]]
+                    .sum()
+                    .cast(pl.Int64)
+                    .alias(f"n_{status['key']}")
+                    for status in STATUSES
+                ],
             )
-    queries.append(
-        kept.group_by(pl.col("platform_code").cast(pl.Utf8)).agg(platform_sums)
-    )
+            .with_columns(pl.lit(variable.name).alias("variable"))
+        )
 
     # One at a time: collect_all runs the queries side by side, and on the
     # Arctic NRT file that doubled the peak for no gain, since each query
@@ -852,7 +903,9 @@ def item_tables_for(
     ]
 
     cubes, status, by_item, combos, depth, flags = [], [], [], [], [], []
-    for variable, columns, cube in zip(config.variables, item_lists, results):
+    n_variables = len(config.variables)
+    cube_results, platform_results = results[:n_variables], results[n_variables:]
+    for variable, columns, cube in zip(config.variables, item_lists, cube_results):
         items = [item_name(c, variable) for c in columns]
         cube = cube.with_columns(
             status_expression(variable).alias("status"),
@@ -951,7 +1004,9 @@ def item_tables_for(
         "items_original_flags": pl.concat(flags).sort(
             ["variable", "original_flag", "nrtqclib_bad"], nulls_last=True
         ),
-        "items_platforms": results[-1].select(label + [pl.all()]).sort("platform_code"),
+        "items_platforms": pl.concat(platform_results)
+        .select(label + ["variable", pl.all().exclude("variable")])
+        .sort("variable", "platform_code"),
     }
     if by_item:
         tables["items_by_item"] = pl.concat(by_item)

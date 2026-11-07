@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the scatter of height against distance to the coast.
 - The NRT and delayed mode page leaves profiles on land out of its groups
   table and figure, which now cover the profiles at sea only.
+- Estimated delayed mode is decided per variable: a profile whose salinity
+  looks reworked by an operator leaves the salinity comparison and stays in
+  the temperature one. The NRT and delayed mode page and the Flag
+  differences page show the two variables apart.
 
 ### Fixed
 

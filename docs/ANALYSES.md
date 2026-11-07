@@ -97,15 +97,19 @@ folder left out of the section only leaves its tables out.
 
 ## The groups
 
-Every profile is filed under exactly one group, decided in this order:
+Every profile is filed under exactly one group per variable, decided in
+this order. Land and declared delayed mode are the same for every variable;
+the estimate is made for each variable on its own, since an operator often
+reworks salinity and leaves temperature alone (on this batch, most
+estimated profiles are estimated for salinity only).
 
 | Group | Rule |
 | --- | --- |
 | `land` | The highest sea floor elevation among its positions is at or above 0 m. The rule of nrtqclib's position on land test (RTQC4), which the batch did not run. |
 | `delayed` | A delayed mode observation in a data mode column, or a product configured as delayed (CORA), as on the rest of the site. |
-| `estimated_delayed` | Marked NRT, or with no data mode, and at least `min_share` of its observations with a usable input flag are flagged by the input and not by nrtqclib, in either variable. A variable counts only with `min_observations` or more such observations. |
+| `estimated_delayed` | Marked NRT, or with no data mode, and at least `min_share` of the variable's observations with a usable input flag are flagged by the input and not by nrtqclib. The variable counts only with `min_observations` or more such observations. |
 | `unknown` | No delayed mode observation, but one with no data mode. |
-| `nrt` | Everything else: at sea, real time throughout, not estimated. The item tables are computed over this group alone. |
+| `nrt` | Everything else: at sea, real time throughout, not estimated for the variable. Each variable's item tables are computed over its own `nrt` profiles. |
 
 The land group is the Depth page's subject. The NRT and delayed mode page
 shows the other groups only, over the profiles at sea, and the analyses
@@ -150,18 +154,18 @@ name or columns.
 | `depth_land_flags` | dataset, variable, flag | observations of land profiles by input flag |
 | `depth_land_profiles` | land profile | position, height, distance to the coast, flags |
 | `depth_land_cause` | dataset, likely cause | land profiles and their distinct positions: `whole_degrees` (both coordinates whole degrees), `shore` (at most 5 m up and 1 km from the coast), `low_far` (as low, further out), `inland` (higher), tested in that order |
-| `dm_groups` | dataset, data mode, group | profiles, observations and agreement counts |
-| `dm_share_hist` | dataset, data mode, share bin | profiles by input-only share; exactly 0 and exactly 1 are bins of their own |
-| `dm_threshold` | dataset, data mode, threshold | profiles at or above it |
-| `dm_estimated_platforms` | platform with an estimated profile | its profiles, candidates, estimated and declared delayed ones |
-| `dm_estimated_profiles` | estimated profile | its counts and shares |
+| `dm_groups` | dataset, variable, data mode, group | profiles, observations and the variable's agreement counts |
+| `dm_share_hist` | dataset, variable, data mode, share bin | profiles by input-only share; exactly 0 and exactly 1 are bins of their own |
+| `dm_threshold` | dataset, variable, data mode, threshold | profiles at or above it |
+| `dm_estimated_platforms` | platform and variable with an estimated profile | its profiles, candidates, estimated and declared delayed ones |
+| `dm_estimated_profiles` | profile estimated for either variable | its counts, and per variable its share and whether it is estimated |
 | `items_cube` | dataset, variable, pressure band, input flag, nrtqclib flag, failing checks | observations: every `items_` table below is a sum over this |
 | `items_status` | dataset, variable, category | observations of NRT profiles |
 | `items_by_item` | dataset, variable, check | failures, with the input too, only nrtqclib, and that check alone |
 | `items_combinations` | dataset, variable, category, set of failing checks | observations |
 | `items_depth` | dataset, variable, pressure band, category | observations |
 | `items_original_flags` | dataset, variable, input flag, nrtqclib bad | observations |
-| `items_platforms` | dataset, platform | profiles, observations and agreement counts |
+| `items_platforms` | dataset, variable, platform | profiles, observations and agreement counts, over the variable's NRT profiles |
 
 ### Matching profiles across products
 

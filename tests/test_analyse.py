@@ -11,6 +11,7 @@ import yaml
 from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
     check_conversion_steps,
+    classify,
     land_causes,
     match_tables,
     overlap_table,
@@ -411,6 +412,48 @@ def test_land_profiles_are_filed_by_their_likely_cause():
     assert causes["cause"].to_list() == ["whole_degrees", "shore", "low_far", "inland"]
     assert causes["n_profiles"].to_list() == [1, 1, 1, 2]
     assert causes["n_positions"].to_list() == [1, 1, 1, 1]
+
+
+def test_each_variable_is_estimated_on_its_own(tmp_path):
+    """Salinity reworked, temperature not: out of the salinity comparison only."""
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "variables": [
+                    {"name": n, "flag": f"{n}_qc", "nrt_flag": f"{n}_nrt"}
+                    for n in ("temp", "psal")
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [{"id": "a", "region": "R", "product": "P", "path": "a"}],
+                "analyses": {"out_dir": "out"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = read_config(str(path))
+    profiles = pl.DataFrame(
+        {
+            "dataset_id": ["a", "a", "a"],
+            "platform_code": ["SAL", "BOTH", "DM"],
+            "profile_no": [1, 1, 1],
+            "elevation": [-50.0] * 3,
+            "data_mode": ["nrt", "nrt", "delayed"],
+            "temp_n_usable": [10, 10, 10],
+            "temp_n_original_only": [0, 9, 9],
+            "psal_n_usable": [10, 10, 10],
+            "psal_n_original_only": [9, 9, 9],
+        }
+    )
+    groups = {
+        row["platform_code"]: (row["temp_group"], row["psal_group"])
+        for row in classify(profiles, config, config.analyses).iter_rows(named=True)
+    }
+    assert groups == {
+        "SAL": ("nrt", "estimated_delayed"),
+        "BOTH": ("estimated_delayed", "estimated_delayed"),
+        "DM": ("delayed", "delayed"),
+    }
 
 
 def _two_dataset_config(tmp_path, delayed=None):

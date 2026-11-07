@@ -16,7 +16,7 @@ import { tableView } from "./views.js";
 export const ANALYSES_ROOT = DATA_ROOT + "analyses/";
 
 /** The `analyses_format` these pages read. See ANALYSES_FORMAT in analyse.py. */
-const ANALYSES_FORMAT = 7;
+const ANALYSES_FORMAT = 8;
 
 /**
  * Columns kept as text whatever they hold: a platform code such as 6901234

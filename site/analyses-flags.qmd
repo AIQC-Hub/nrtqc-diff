@@ -8,7 +8,10 @@ execute:
 ---
 
 What is left after the two previous pages: profiles at sea, marked NRT, and
-not estimated to carry delayed mode flags. Both flags on them should come
+not estimated to carry delayed mode flags. The estimate is made per
+variable, so each variable is counted over its own profiles: one whose
+salinity looks reworked by an operator is in the temperature figures and
+not in the salinity ones. Both flags on them should come
 from automated tests, so where they disagree, the tests differ. Either one
 side runs a test the other does not, or both run it with different logic or
 thresholds.
@@ -162,24 +165,30 @@ viewof platformDataset = meta && platforms
 ```
 
 ```{ojs}
+// One row per platform, each variable's counts over its own NRT profiles.
+platformRows = platforms
+  ? [...platforms
+      .filter((r) => r.dataset_id === platformDataset)
+      .reduce((m, r) => {
+        const row = m.get(r.platform_code) ?? { key: r.platform_code, platform_code: r.platform_code };
+        row[`${r.variable}_profiles`] = r.n_profiles;
+        row[`${r.variable}_obs`] = r.n_obs;
+        row[`${r.variable}_oo`] = app.perThousandOf(r.n_original_only, r.n_obs);
+        row[`${r.variable}_no`] = app.perThousandOf(r.n_nrtqclib_only, r.n_obs);
+        m.set(r.platform_code, row);
+        return m;
+      }, new Map()).values()]
+  : []
 meta && platforms ? table(
-  platforms.filter((r) => r.dataset_id === platformDataset).map((r) => {
-    const row = { ...r };
-    for (const v of meta.variables) {
-      row[`${v.name}_oo`] = app.perThousandOf(r[`${v.name}_n_original_only`], r.n_obs);
-      row[`${v.name}_no`] = app.perThousandOf(r[`${v.name}_n_nrtqclib_only`], r.n_obs);
-    }
-    return row;
-  }),
+  platformRows,
   [
     { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
-    { key: "n_profiles", label: "Profiles" },
-    { key: "n_obs", label: "Observations" },
     ...meta.variables.flatMap((v) => [
-      { key: `${v.name}_oo`, label: `${v.label}: original only per 1,000`, format: app.formatRate },
+      { key: `${v.name}_profiles`, label: `${v.label}: profiles`, format: (x) => (x == null ? "" : app.formatCount(x)) },
+      { key: `${v.name}_oo`, label: `original only per 1,000`, format: app.formatRate },
       { key: `${v.name}_no`, label: `nrtqclib only per 1,000`, format: app.formatRate }
     ])
   ],
-  { sortKey: "n_obs", descending: true }
+  { sortKey: `${meta.variables[0].name}_profiles`, descending: true }
 ) : html``
 ```

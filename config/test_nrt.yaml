@@ -83,9 +83,10 @@ analyses:
     positive_depth: false
     margins_m: [0, 5, 10, 20, 50, 100]
   # An NRT profile (or one with no data mode) is estimated to carry delayed
-  # mode flags when at least min_share of its observations with a usable
-  # input flag are flagged by the input and not by nrtqclib, in either
-  # variable, counting only a variable with min_observations such values.
+  # mode flags in a variable when at least min_share of its observations of
+  # that variable with a usable input flag are flagged by the input and not
+  # by nrtqclib, counting only a variable with min_observations such values.
+  # Each variable is judged on its own and leaves only its own comparison.
   estimated_delayed:
     min_share: 0.6
     min_observations: 5
