@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from nrtqc_diff.analyse import (
+    COVERAGE_CLASSES,
     check_conversion_steps,
     compare_levels,
     match_tables,
@@ -334,13 +335,59 @@ def test_matched_profiles_are_compared_with_the_delayed_product(tmp_path):
     assert summary["n_same_obs"] == 1
     assert summary["n_more_in_dataset"] == 1
     assert summary["n_more_in_compared"] == 1
-    difference = tables["conversion_match_difference"]
-    assert dict(zip(difference["difference"], difference["n_profiles"])) == {
-        "+1": 1,
-        "-9 to -2": 1,
-    }
+    assert summary["coverage"] == "same_platform"
     assert "conversion_match_levels" not in tables  # no scans given
     assert tables["conversion_match_platforms"]["platform_code"].to_list() == ["P", "Q"]
+
+
+def test_each_nrt_profile_is_filed_by_whether_the_delayed_product_has_it(tmp_path):
+    when = datetime(2020, 1, 1, 6)
+    later = datetime(2021, 6, 1, 6)
+    rows = [
+        # dataset, platform, profile, time, longitude
+        ("a", "P", 1, when, 1.0),  # same platform, date and place
+        ("a", "P", 2, when, 2.0),  # under another code in b
+        ("a", "P", 3, when, 3.0),  # 0.005 degrees off: nearby
+        ("a", "P", 4, when, 4.0),  # P is in b, this cast is not
+        ("a", "Z", 1, when, 5.0),  # Z is not in b at all
+        ("a", "P", 5, later, 1.0),  # after b's last profile
+        ("b", "P", 1, when, 1.0),
+        ("b", "Q", 1, when, 2.0),
+        ("b", "P", 3, when, 3.005),
+        ("b", "P", 9, datetime(2019, 1, 1), 9.0),
+    ]
+    profiles = pl.DataFrame(
+        rows,
+        schema=[
+            "dataset_id",
+            "platform_code",
+            "profile_no",
+            "profile_timestamp",
+            "longitude",
+        ],
+        orient="row",
+    ).with_columns(pl.lit(50.0).alias("latitude"), pl.lit(10).alias("n_obs"))
+    tables = match_tables(profiles, _two_dataset_config(tmp_path, delayed="b"))
+    row = tables["conversion_coverage"].row(0, named=True)
+    assert row["n_profiles"] == 6
+    assert {name: row[f"n_{name}"] for name in COVERAGE_CLASSES} == {
+        "same_platform": 1,
+        "other_platform": 1,
+        "nearby": 1,
+        "platform_only": 1,
+        "no_platform": 1,
+        "outside_period": 1,
+    }
+    assert str(row["period_end"]) == "2020-01-01"
+    summary = tables["conversion_match"]
+    assert dict(zip(summary["coverage"], summary["n_matched"])) == {
+        "same_platform": 1,
+        "other_platform": 1,
+    }
+    years = tables["conversion_coverage_years"]
+    assert years.filter(pl.col("year") == 2021)["coverage"].to_list() == [
+        "outside_period"
+    ]
 
 
 def _levels_frame(rows):

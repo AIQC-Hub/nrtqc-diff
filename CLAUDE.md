@@ -48,7 +48,7 @@ Rscript analysis/run_all.R                          # site/data/analyses/figures
   machine before.
 - Polars passes must stay streaming: no cast before `first()` inside an
   aggregation, and no `collect_all` over large scans. Check memory on the
-  real batch before committing a new pass (the full run peaks near 3 GB).
+  real batch before committing a new pass (the full run peaks near 4 GB).
 
 ## Tests, lint, format
 

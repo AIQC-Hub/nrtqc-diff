@@ -22,8 +22,9 @@ writes as it goes. A full ctddump report for one product is
 CORA is a reprocessed collection: its profiles have been through quality
 control again after the fact, with automated tests and checks by
 operators, so its flags are closer to delayed mode than to NRT. It is converted
-here the same way as the NRT products, so its steps, duplicates and overlap
-sit beside theirs. The rest of the site files every CORA profile as delayed
+here the same way as the NRT products, so its steps and duplicates sit
+beside theirs, and the section on NRT and CORA asks how much of each NRT
+product it holds. The rest of the site files every CORA profile as delayed
 mode, even though its files declare them real time (R) wherever they
 declare a mode at all.
 :::
@@ -267,105 +268,166 @@ meta && dupSets ? table(
 ) : html``
 ```
 
-## Overlap between products
+## NRT and CORA
 
-The products of one region come from different streams, and part of what
-one holds the other holds too. Two profiles of different products are taken
-to be the same cast when they share a date and their positions are within
-0.001° of each other in longitude and in latitude (about 100 m or less).
-The products rarely store a position to the same last digit, so this is a
-tolerance rather than ctddump's rounding to three decimals, which misses a
-pair whose two positions fall either side of a rounding boundary. The match
-is made twice: with the platform code, and on date and place alone, which
-also finds a cast the two products name differently.
+An NRT product and CORA hold the same casts with different quality
+control: the NRT product carries the real time QC done as the data arrived,
+CORA the delayed mode QC done since. So CORA should hold every profile of
+the NRT products of its region, at least up to its own last profile, and
+each cast should have the same observations in both. This section checks
+both.
+
+### Coverage: the NRT profiles CORA holds
+
+Each NRT profile is looked for in the CORA of its region. Two profiles are
+taken to be the same cast when they share a date and their positions are
+within 0.001° of each other in longitude and in latitude (about 100 m or
+less). The products rarely store a position to the same last digit, so this
+is a tolerance rather than ctddump's rounding to three decimals, which
+misses a pair whose two positions fall either side of a rounding boundary.
+Each profile is paired at most once. Each NRT profile is then filed under
+the first of these that fits:
+
+- **Outside CORA's period**: dated after CORA's last profile (or before its
+  first), so CORA cannot hold it yet. It is left out of the coverage.
+- **Same platform code**: CORA has the cast under the same platform code.
+- **Another platform code**: CORA has a profile of the same date and place
+  under a different code, among the profiles not yet paired.
+- **Nearby, not paired**: CORA has a profile of the same platform and date
+  within 0.01° (about 1 km). Probably the same cast with its position
+  stored differently, but not counted as found.
+- **Platform in CORA, cast not**: CORA has the platform, not this cast.
+- **Platform not in CORA**: CORA has nothing under this platform code.
+
+The coverage is the share found, under the same code or another, of the
+profiles in CORA's period.
 
 ```{ojs}
 meta ? app.analysisFigure(
-  "conversion_overlap",
-  "The share of the first product's profiles that the second also has. Dark: matched with the same platform code. Light: matched only on date and place, under a different code.",
-  "Stacked bars per pair of products of one region of the share of profiles they share."
+  "conversion_coverage",
+  "Where the NRT profiles dated within CORA's period were found in the CORA of their region. The figure on each bar is the coverage: the share found under the same platform code or another. The number of profiles in CORA's period is in brackets.",
+  "Stacked bars per NRT product of its profiles by whether and how CORA holds them."
 ) : html``
 ```
 
-A cast an NRT product shares with CORA has been through CORA's
-reprocessing as well, so the share of an NRT product found in CORA is how
-much of it has a delayed mode counterpart. A regional and a global NRT
-product share no platform code, so only the match on date and place can find
-what they have in common. Where it finds little, the two products hold
-different casts rather than the same casts under different names.
-
 ```{ojs}
-overlap = meta ? app.loadAnalysisTable("conversion_overlap") : null
-compare = meta ? app.loadAnalysisTable("conversion_compare") : null
-ctddumpMatch = (ref, other) => (compare ?? []).find((c) => c.reference_id === ref && c.compared_id === other)?.matched_profiles ?? null
-meta ? table((overlap ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}`, ctddump: ctddumpMatch(r.dataset_id, r.compared_id) })), [
+coverage = meta ? app.loadAnalysisTable("conversion_coverage") : null
+share = (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_inside)})`
+meta ? table((coverage ?? []).map((r) => ({
+  ...r,
+  key: `${r.dataset_id}|${r.compared_id}`,
+  n_inside: r.n_profiles - r.n_outside_period,
+  n_found: r.n_same_platform + r.n_other_platform
+})).sort(byDataset), [
   { key: "dataset_id", label: "Product", align: "left", format: name },
-  { key: "compared_id", label: "Also in", align: "left", format: name },
+  { key: "period_end", label: "CORA's period", align: "left", title: "The dates of CORA's first and last profiles in the region", format: (v, r) => `${r.period_start} to ${v}` },
   { key: "n_profiles", label: "Profiles" },
-  { key: "n_matched_same_platform", label: "Same platform code", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` },
-  { key: "n_matched_any_platform", label: "On date and place", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` },
-  { key: "ctddump", label: "ctddump's match", title: "Profiles ctddump's own comparison matches with the platform code, on positions rounded to three decimals", format: (v) => (v === null ? "" : app.formatCount(v)) }
+  { key: "n_outside_period", label: "Outside the period" },
+  { key: "n_inside", label: "In the period" },
+  { key: "n_found", label: "Coverage", title: "Found in CORA under the same platform code or another, as a share of the profiles in CORA's period", format: share },
+  { key: "n_same_platform", label: "Same code", format: share },
+  { key: "n_other_platform", label: "Another code", format: share },
+  { key: "n_nearby", label: "Nearby", format: share },
+  { key: "n_platform_only", label: "Platform in CORA, cast not", format: share },
+  { key: "n_no_platform", label: "Platform not in CORA", format: share }
 ]) : html``
 ```
 
-### The same cast in NRT and in CORA
+Year by year, the same classes show when the gaps are:
 
-A profile an NRT product shares with CORA, on the same platform, date and
-place, is one cast in two versions. It should hold the same observations in
-both. Most pairs do; the rest differ in their number of observations, and
-how they differ says what happened to the cast between the two.
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_coverage_years",
+  "The NRT profiles of each year by whether and how the CORA of their region holds them, the years after CORA's last profile in grey. Each panel has its own scale.",
+  "Stacked bars per NRT product and year of its profiles by whether and how CORA holds them."
+) : html``
+```
+
+What the coverage shows:
+
+- **The Mediterranean regional product is in CORA in full**, under the same
+  platform codes.
+- **The Arctic regional product is almost entirely in CORA.** Most of it is
+  under the same codes. Ice-tethered profilers go by their own number in
+  the NRT product and by a WMO number in CORA, so they are found under
+  another code. The little that is missing is split between nearby
+  profiles, casts CORA lacks on platforms it has (some platforms' records
+  in CORA end earlier than in NRT), and platforms CORA does not have.
+- **The Arctic part of the global product is in CORA too, a large part of
+  it under other codes**, especially in recent years. The naming goes the
+  other way here: the profilers have a WMO number in the NRT product and
+  their own number in CORA, and a fixed station has a name in one and a
+  number in the other.
+- **The Baltic product holds many profiles from platforms CORA does not
+  have at all**, most of them from the 1990s and 2000s. These are casts
+  CORA has not taken in, rather than casts it holds under another name:
+  the match on date and place alone finds little more.
+- **The Mediterranean part of the global product is mostly in CORA.** The
+  largest gap is one platform in one recent year, a platform CORA has
+  otherwise.
+
+### Observations: what each pair holds
+
+A pair is one cast in two versions. CORA's reprocessing reviews its
+flags, but the cast should keep its observations, so the two versions
+should hold the same number of them.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_match",
+  "The pairs of each NRT product and the CORA of its region, by whether the two versions hold the same number of observations. Pairs under the same platform code and under another are shown apart; the number of pairs is in brackets.",
+  "Stacked bars per NRT product and kind of pair of the share of pairs with the same number of observations, more in NRT, or more in CORA."
+) : html``
+```
 
 ```{ojs}
 matches = meta ? app.loadAnalysisTable("conversion_match") : null
-meta ? table((matches ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}` })).sort(byDataset), [
+codeName = (v) => (v === "same_platform" ? "Same" : "Another")
+meta ? table((matches ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}|${r.coverage}` })).sort(byDataset), [
   { key: "dataset_id", label: "Product", align: "left", format: name },
-  { key: "compared_id", label: "Matched in", align: "left", format: name },
+  { key: "coverage", label: "Platform code", align: "left", format: codeName },
   { key: "n_matched", label: "Pairs" },
   { key: "n_same_obs", label: "Same observations", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})` },
-  { key: "n_more_in_dataset", label: "NRT has more" },
-  { key: "n_more_in_compared", label: "CORA has more" },
-  { key: "n_within_minute", label: "Times within a minute", title: "Pairs whose two profile times are no more than 60 s apart", format: (v, r) => app.formatShare(v, r.n_matched) }
+  { key: "n_more_in_dataset", label: "NRT has more", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})` },
+  { key: "n_more_in_compared", label: "CORA has more", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})` }
 ]) : html``
 ```
 
-```{ojs}
-meta ? app.analysisFigure(
-  "conversion_match_difference",
-  "Pairs of the same cast whose numbers of observations differ, by how much: observations in the NRT profile minus those in the CORA profile. Pairs with the same number are left out; the table above counts them.",
-  "Bar charts per NRT product of mismatched pairs by the difference in observations."
-) : html``
-```
+Under the same platform code, nearly every pair holds the same number of
+observations. Under another code, most pairs do not: the two products carry
+these instruments' records at different vertical sampling, so the
+two versions of a cast hold different levels throughout.
 
-#### Level by level
+#### Where the observations differ
 
-The mismatched pairs, compared level by level. The levels of the two
-versions are matched by pressure, within 0.05 dbar: a pressure converted
-from depth can differ in its last digits between the two versions, so
-exact pressures would split one level in two. A level held twice in one
-version and once in the other counts as one extra level.
-
-First, how the two versions of each mismatched pair relate: one is the
-other with levels removed, one holds every level of the other exactly
-twice, or each has levels the other lacks.
+The pairs whose numbers of observations differ, compared level by level.
+The levels of the two versions are matched by pressure, within 0.05 dbar:
+a pressure converted from depth can differ in its last digits between the
+two versions, so exact pressures would split one level in two. A level
+held twice in one version and once in the other counts as one extra level.
+First, how the two versions of each such pair relate: one is the other
+with levels removed, one holds every level of the other exactly twice, or
+each has levels the other lacks.
 
 ```{ojs}
 meta ? app.analysisFigure(
   "conversion_match_kinds",
-  "Mismatched pairs by how the levels of their two versions relate. The number is the mismatched pairs of the product.",
-  "Stacked bars per NRT product of mismatched pairs by how the two versions' levels relate."
+  "Pairs with different numbers of observations, by how the levels of their two versions relate, under the same platform code and under another. The number is the pairs of the product.",
+  "Stacked bars per NRT product, in two panels by platform code, of mismatched pairs by how the two versions' levels relate."
 ) : html``
 ```
 
-Then the levels found in one version only: where they sit against the
-levels the two versions share (above the shallowest, between, below the
-deepest, or in a pair with no level in common), and what they hold. "No
-value" is a level where no compared variable has a value; "repeat" is a
-second level at a pressure the other version holds once.
+Then, for the pairs under the same code, the levels found in one version
+only: where they sit against the levels the two versions share (above the
+shallowest, between, below the deepest, or in a pair with no level in
+common), and what they hold. "No value" is a level where no compared
+variable has a value; "repeat" is a second level at a pressure the other
+version holds once.
 
 ```{ojs}
 meta ? app.analysisFigure(
   "conversion_match_levels",
-  "Levels found in only one version of a mismatched pair, by where they sit against the shared levels and what they hold, as a share of the row. Each row is one side of one NRT product's comparison with the CORA of its region; the number of levels is in brackets.",
+  "Levels found in only one version of a pair under the same platform code, by where they sit against the shared levels and what they hold, as a share of the row. Each row is one side of one NRT product's comparison with the CORA of its region; the number of levels is in brackets.",
   "Stacked bars per NRT product and side of levels in one version only, in four panels by position."
 ) : html``
 ```
@@ -381,17 +443,19 @@ kindKeys = [
 ]
 meta ? table(
   matchKinds
-    ? app.widen(matchKinds, { index: ["dataset_id"], column: "kind", value: "n_pairs" })
-        .map((r) => ({ ...r, key: r.dataset_id })).sort(byDataset)
+    ? app.widen(matchKinds, { index: ["dataset_id", "coverage"], column: "kind", value: "n_pairs" })
+        .map((r) => ({ ...r, key: `${r.dataset_id}|${r.coverage}` }))
+        .sort((a, b) => byDataset(a, b) || (a.coverage < b.coverage ? 1 : -1))
     : [],
   [
     { key: "dataset_id", label: "Product", align: "left", format: name },
+    { key: "coverage", label: "Platform code", align: "left", format: codeName },
     ...kindKeys.map(([key, label]) => ({ key, label }))
   ]
 ) : html``
 ```
 
-What the comparison shows:
+What the comparison shows, for the pairs under the same code:
 
 - **CORA is the NRT profile with levels removed.** The commonest relation
   in every product, and nearly the only one in the Baltic. What CORA leaves
@@ -409,7 +473,7 @@ What the comparison shows:
   levels in the global products, in both directions: the two versions of
   these casts are sampled at different levels.
 
-The platforms with mismatched pairs, per product:
+The platforms with pairs whose observations differ, per product:
 
 ```{ojs}
 matchPlatforms = meta ? app.loadAnalysisTable("conversion_match_platforms") : null
@@ -422,16 +486,38 @@ viewof matchDataset = meta && matchPlatforms
 meta && matchPlatforms ? table(
   matchPlatforms.filter((r) => r.dataset_id === matchDataset).map((r) => ({ ...r, key: r.platform_code })),
   [
-    { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
+    { key: "platform_code", label: "Platform (NRT code)", align: "left", format: (v) => v },
     { key: "n_matched", label: "Pairs" },
-    { key: "n_mismatched", label: "Mismatched" },
+    { key: "n_mismatched", label: "Different observations" },
     { key: "share", label: "Share", format: (_, r) => app.formatShare(r.n_mismatched, r.n_matched) },
     { key: "n_more_in_dataset", label: "NRT has more" },
     { key: "n_more_in_compared", label: "CORA has more" },
-    { key: "median_difference", label: "Median difference", title: "Of the mismatched pairs: observations in NRT minus observations in CORA", format: (v) => (v === null ? "" : (v > 0 ? `+${v}` : `${v}`)) }
+    { key: "median_difference", label: "Median difference", title: "Of the pairs whose observations differ: observations in NRT minus observations in CORA", format: (v) => (v === null ? "" : (v > 0 ? `+${v}` : `${v}`)) }
   ],
   { sortKey: "n_mismatched", descending: true }
 ) : html``
+```
+
+## Overlap between NRT products
+
+The Arctic and the Mediterranean each have a regional and a global NRT
+product, built from different streams. The same match as above, on date
+and place, says how much of one the other holds too. The two share no
+platform code, so only the match without it can find what they have in
+common; where it finds little, the two products hold different casts
+rather than the same casts under different names.
+
+```{ojs}
+overlap = meta ? app.loadAnalysisTable("conversion_overlap") : null
+isCora = (id) => (meta?.datasets ?? []).find((d) => d.id === id)?.product === "CORA"
+meta ? table((overlap ?? []).filter((r) => !isCora(r.dataset_id) && !isCora(r.compared_id))
+  .map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}` })), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "compared_id", label: "Also in", align: "left", format: name },
+  { key: "n_profiles", label: "Profiles" },
+  { key: "n_matched_same_platform", label: "Same platform code", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` },
+  { key: "n_matched_any_platform", label: "On date and place", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` }
+]) : html``
 ```
 
 ## Other parameters

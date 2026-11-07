@@ -70,7 +70,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 4
+ANALYSES_FORMAT: int = 5
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -901,23 +901,26 @@ def item_tables_for(
 #: boundary: the products rarely store a position to the same last digit.
 MATCH_TOLERANCE_DEG: float = 0.001
 
+#: A looser tolerance, in degrees, for a profile left unmatched: the same
+#: platform on the same date within about 1 km is most likely the same cast
+#: with its position stored differently, but it is not counted as a pair.
+NEARBY_TOLERANCE_DEG: float = 0.01
+
+#: How :func:`cover_profiles` files each profile of an NRT product against
+#: the delayed mode product of its region, in order.
+COVERAGE_CLASSES: List[str] = [
+    "same_platform",
+    "other_platform",
+    "nearby",
+    "platform_only",
+    "no_platform",
+    "outside_period",
+]
+
 #: How many rounds of pairing :func:`match_profiles` runs at most. A round
 #: offers the profiles left unpaired their next best candidate, and pairing
 #: stops early once a round finds nothing new.
 MATCH_ROUNDS: int = 5
-
-#: Classes of the difference in observations between matched profiles, as
-#: ``(label, lowest, highest)`` with None for unbounded.
-MATCH_DIFFERENCE_BINS: List[tuple] = [
-    ("-100 or less", None, -100),
-    ("-99 to -10", -99, -10),
-    ("-9 to -2", -9, -2),
-    ("-1", -1, -1),
-    ("+1", 1, 1),
-    ("+2 to +9", 2, 9),
-    ("+10 to +99", 10, 99),
-    ("+100 or more", 100, None),
-]
 
 #: The columns each profile is matched and compared on.
 _MATCH_COLUMNS: List[str] = [
@@ -930,11 +933,10 @@ _MATCH_COLUMNS: List[str] = [
 
 def _match_frame(profiles: pl.DataFrame, dataset_id: str) -> pl.DataFrame:
     """
-    One dataset's profiles, ready to match: the date, the position as a float,
-    and the cell of :data:`MATCH_TOLERANCE_DEG` it falls in. A profile with no
-    time or position cannot be matched and is left out.
+    One dataset's profiles, ready to match: the date and the position as a
+    float. A profile with no time or position cannot be matched and is left
+    out.
     """
-    cells = 1.0 / MATCH_TOLERANCE_DEG
     present = [c for c in _MATCH_COLUMNS if c in profiles.columns]
     return (
         profiles.filter(pl.col("dataset_id") == dataset_id)
@@ -945,22 +947,30 @@ def _match_frame(profiles: pl.DataFrame, dataset_id: str) -> pl.DataFrame:
             pl.col("profile_timestamp").dt.date().alias("_date"),
         )
         .drop_nulls(["_date", "_lon", "_lat"])
-        .with_columns(
-            (pl.col("_lon") * cells).floor().cast(pl.Int64).alias("_cx"),
-            (pl.col("_lat") * cells).floor().cast(pl.Int64).alias("_cy"),
-        )
+    )
+
+
+def _with_cells(frame: pl.DataFrame, tolerance: float) -> pl.DataFrame:
+    """The cell of ``tolerance`` degrees each position falls in."""
+    cells = 1.0 / tolerance
+    return frame.with_columns(
+        (pl.col("_lon") * cells).floor().cast(pl.Int64).alias("_cx"),
+        (pl.col("_lat") * cells).floor().cast(pl.Int64).alias("_cy"),
     )
 
 
 def match_profiles(
-    mine: pl.DataFrame, theirs: pl.DataFrame, same_platform: bool
+    mine: pl.DataFrame,
+    theirs: pl.DataFrame,
+    same_platform: bool,
+    tolerance: float = MATCH_TOLERANCE_DEG,
 ) -> pl.DataFrame:
     """
     Pair each profile of one product with the same cast in another.
 
     Two profiles are a pair when they share a date (and the platform code,
-    if asked) and lie within :data:`MATCH_TOLERANCE_DEG` of each other in
-    both coordinates. Within that tolerance a position can only fall in its
+    if asked) and lie within ``tolerance`` of each other in both
+    coordinates. Within that tolerance a position can only fall in its
     own cell or a neighbouring one, so the candidates come from joining on
     the nine cells around each profile rather than on every profile of the
     day. Each profile is paired at most once, the closest in time first,
@@ -970,10 +980,15 @@ def match_profiles(
     :param mine: The first product, from :func:`_match_frame`.
     :param theirs: The second product, the same way.
     :param same_platform: Whether the platform code must be equal too.
-    :return: One row per pair, the second product's columns suffixed ``_c``,
-             with ``_dt`` the time between them in seconds.
+    :param tolerance: The largest difference in either coordinate, degrees.
+    :return: One row per pair, the second product's columns suffixed ``_c``
+             (``platform_code_c`` included), with ``_dt`` the time between
+             them in seconds.
     """
     by = ["_date", "_cx", "_cy"] + (["platform_code"] if same_platform else [])
+    mine, theirs = _with_cells(mine, tolerance), _with_cells(theirs, tolerance)
+    if same_platform:
+        theirs = theirs.with_columns(pl.col("platform_code").alias("platform_code_c"))
     around = pl.concat(
         [
             theirs.with_columns(pl.col("_cx") + dx, pl.col("_cy") + dy)
@@ -981,7 +996,7 @@ def match_profiles(
             for dy in (-1, 0, 1)
         ]
     )
-    reach = MATCH_TOLERANCE_DEG * (1 + 1e-9)
+    reach = tolerance * (1 + 1e-9)
     candidates = (
         mine.join(around, on=by, suffix="_c")
         .filter(
@@ -1013,10 +1028,7 @@ def match_profiles(
     # best partner and drops pairs whose partner is taken twice; the next
     # round offers what is left its next best, until nothing changes.
     mine_key = ["platform_code", "profile_no"]
-    theirs_key = [
-        "platform_code" if same_platform else "platform_code_c",
-        "profile_no_c",
-    ]
+    theirs_key = ["platform_code_c", "profile_no_c"]
     matched = []
     for _ in range(MATCH_ROUNDS):
         if candidates.height == 0:
@@ -1090,19 +1102,6 @@ def overlap_table(profiles: pl.DataFrame, config: BuildConfig) -> pl.DataFrame:
             }
         )
     return pl.DataFrame(rows) if rows else pl.DataFrame()
-
-
-def _difference_bin() -> pl.Expr:
-    """The :data:`MATCH_DIFFERENCE_BINS` label of ``_dn``."""
-    expr = None
-    for label, low, high in MATCH_DIFFERENCE_BINS:
-        test = pl.lit(True)
-        if low is not None:
-            test = test & (pl.col("_dn") >= low)
-        if high is not None:
-            test = test & (pl.col("_dn") <= high)
-        expr = (pl.when(test) if expr is None else expr.when(test)).then(pl.lit(label))
-    return expr.otherwise(pl.lit(None, pl.Utf8))
 
 
 #: Pressures (dbar) of two versions of a cast closer than this are the same
@@ -1296,45 +1295,139 @@ def compare_levels(mine: pl.DataFrame, theirs: pl.DataFrame) -> Dict[str, pl.Dat
     }
 
 
+def _unmatched(frame: pl.DataFrame, pairs: pl.DataFrame, side: str) -> pl.DataFrame:
+    """The profiles of ``frame`` that ``pairs`` has not used on ``side``."""
+    suffix = "" if side == "mine" else "_c"
+    taken = pairs.select(
+        pl.col(f"platform_code{'_c' if suffix else ''}").alias("platform_code"),
+        pl.col(f"profile_no{suffix}").alias("profile_no"),
+    )
+    return frame.join(taken, on=["platform_code", "profile_no"], how="anti")
+
+
+def cover_profiles(mine: pl.DataFrame, theirs: pl.DataFrame) -> Dict[str, pl.DataFrame]:
+    """
+    Whether each profile of an NRT product is in the delayed mode product.
+
+    The delayed mode product should hold every cast of the NRT product it
+    covers, so each NRT profile is looked for in it and filed under the
+    first of :data:`COVERAGE_CLASSES` that fits:
+
+    - ``outside_period``: dated before the delayed mode product's first
+      profile or after its last, so it cannot be there yet;
+    - ``same_platform``: the same platform, date and position
+      (:func:`match_profiles`);
+    - ``other_platform``: the same date and position under another platform
+      code, among the profiles left;
+    - ``nearby``: the same platform and date, positions within
+      :data:`NEARBY_TOLERANCE_DEG`: probably the same cast, not paired;
+    - ``platform_only``: its platform is in the delayed mode product, the
+      cast is not;
+    - ``no_platform``: its platform is not in the delayed mode product.
+
+    :param mine: The NRT product, from :func:`_match_frame`.
+    :param theirs: The delayed mode product, the same way.
+    :return: ``profiles``: ``platform_code``, ``profile_no``, ``_date`` and
+             ``coverage`` for every profile of ``mine``; and ``pairs``: the
+             profiles paired as the same cast (``same_platform`` and
+             ``other_platform``), as :func:`match_profiles` gives them, with
+             ``coverage``.
+    """
+    first, last = theirs["_date"].min(), theirs["_date"].max()
+    inside = mine.filter(pl.col("_date").is_between(first, last))
+    same = match_profiles(inside, theirs, same_platform=True)
+    left, left_c = _unmatched(inside, same, "mine"), _unmatched(theirs, same, "theirs")
+    other = match_profiles(left, left_c, same_platform=False)
+    left, left_c = _unmatched(left, other, "mine"), _unmatched(left_c, other, "theirs")
+    nearby = match_profiles(
+        left, left_c, same_platform=True, tolerance=NEARBY_TOLERANCE_DEG
+    )
+    pairs = pl.concat(
+        [
+            same.with_columns(pl.lit("same_platform").alias("coverage")),
+            other.with_columns(
+                pl.when(pl.col("platform_code") == pl.col("platform_code_c"))
+                .then(pl.lit("same_platform"))
+                .otherwise(pl.lit("other_platform"))
+                .alias("coverage")
+            ),
+        ],
+        how="diagonal_relaxed",
+    )
+    key = ["platform_code", "profile_no"]
+    filed = pl.concat(
+        [
+            pairs.select(*key, "coverage"),
+            nearby.select(*key, pl.lit("nearby").alias("coverage")),
+        ]
+    )
+    platforms = theirs.select(pl.col("platform_code").unique()).with_columns(
+        pl.lit(True).alias("_known")
+    )
+    profiles = (
+        mine.select(*key, "_date")
+        .join(filed, on=key, how="left")
+        .join(platforms, on="platform_code", how="left")
+        .with_columns(
+            pl.when(~pl.col("_date").is_between(first, last))
+            .then(pl.lit("outside_period"))
+            .when(pl.col("coverage").is_not_null())
+            .then(pl.col("coverage"))
+            .when(pl.col("_known").fill_null(False))
+            .then(pl.lit("platform_only"))
+            .otherwise(pl.lit("no_platform"))
+            .alias("coverage")
+        )
+        .drop("_known")
+    )
+    return {"profiles": profiles, "pairs": pairs}
+
+
 def match_tables(
     profiles: pl.DataFrame,
     config: BuildConfig,
     scans: Optional[Dict[str, pl.LazyFrame]] = None,
 ) -> Dict[str, pl.DataFrame]:
     """
-    How the same cast compares in an NRT product and a reprocessed one.
+    How much of an NRT product the reprocessed product of its region holds,
+    and how the casts they share compare.
 
-    Each product is paired with every product of its region configured as
-    delayed mode throughout (CORA), profile for profile, on the platform
-    code, the date and the position (:func:`match_profiles`). A pair should
-    be one cast in two versions, so its number of observations should be
-    equal; where it is not, the tables say by how much, on which side, and
-    which levels are in one version only (:func:`compare_levels`).
+    An NRT product carries real time QC and the reprocessed product (CORA)
+    delayed mode QC of the same casts, so each NRT product is compared with
+    every product of its region configured as delayed mode throughout:
+    first which of its profiles the other has (:func:`cover_profiles`),
+    then, for the pairs, whether the two versions hold the same number of
+    observations, and where they do not, which levels are in one version
+    only (:func:`compare_levels`).
 
     :param profiles: One row per profile of every dataset, with ``n_obs``,
                      the observation counts and positions.
     :param config: The build configuration.
     :param scans: The datasets by id, to compare the levels of mismatched
                   pairs; without them the level tables are left out.
-    :return: ``conversion_match`` (one row per pair of products),
-             ``conversion_match_difference`` (pairs by the difference in
-             observations), ``conversion_match_platforms`` (the platforms
-             with mismatched pairs), ``conversion_match_levels`` (levels in
+    :return: ``conversion_coverage`` (one row per pair of products, with the
+             profiles in each coverage class), ``conversion_coverage_years``
+             (the same by year), ``conversion_match`` (the pairs' numbers of
+             observations, by coverage class),
+             ``conversion_match_platforms`` (the platforms with mismatched
+             pairs), ``conversion_match_levels`` (levels in
              one version only) and ``conversion_match_kinds`` (mismatched
-             pairs by how their versions relate).
+             pairs by how their versions relate), the last two by coverage
+             class too.
     """
     needed = {"profile_timestamp", "longitude", "latitude", "n_obs"}
     if not needed <= set(profiles.columns):
         return {}
     present = set(profiles["dataset_id"].unique().to_list())
-    summary, difference, platforms, levels, kinds = [], [], [], [], []
+    coverage, years, summary, platforms, levels, kinds = [], [], [], [], [], []
     for reference, other in _region_pairs(config, present):
         if reference.data_mode is not None or other.data_mode != DELAYED:
             continue
-        mine = _match_frame(profiles, reference.id)
-        pairs = match_profiles(
-            mine, _match_frame(profiles, other.id), same_platform=True
-        ).with_columns(
+        theirs = _match_frame(profiles, other.id)
+        if theirs.height == 0:
+            continue
+        covered = cover_profiles(_match_frame(profiles, reference.id), theirs)
+        pairs = covered["pairs"].with_columns(
             (pl.col("n_obs").cast(pl.Int64) - pl.col("n_obs_c").cast(pl.Int64)).alias(
                 "_dn"
             )
@@ -1347,53 +1440,69 @@ def match_tables(
             pl.lit(other.id).alias("compared_id"),
             pl.lit(other.label).alias("compared_label"),
         ]
-        summary.append(
-            pairs.select(
+        filed = covered["profiles"]
+        coverage.append(
+            filed.select(
                 *labels,
-                pl.lit(mine.height, pl.Int64).alias("n_profiles"),
+                pl.lit(theirs["_date"].min()).alias("period_start"),
+                pl.lit(theirs["_date"].max()).alias("period_end"),
+                pl.len().cast(pl.Int64).alias("n_profiles"),
+                *[
+                    (pl.col("coverage") == name).sum().cast(pl.Int64).alias(f"n_{name}")
+                    for name in COVERAGE_CLASSES
+                ],
+            )
+        )
+        years.append(
+            filed.group_by(
+                pl.col("_date").dt.year().cast(pl.Int64).alias("year"), "coverage"
+            )
+            .agg(pl.len().cast(pl.Int64).alias("n_profiles"))
+            .sort("year", "coverage")
+            .select(*labels, pl.all())
+        )
+        summary.append(
+            pairs.group_by("coverage")
+            .agg(
                 pl.len().cast(pl.Int64).alias("n_matched"),
                 (pl.col("_dn") == 0).sum().cast(pl.Int64).alias("n_same_obs"),
                 (pl.col("_dn") > 0).sum().cast(pl.Int64).alias("n_more_in_dataset"),
                 (pl.col("_dn") < 0).sum().cast(pl.Int64).alias("n_more_in_compared"),
-                (pl.col("_dt") == 0).sum().cast(pl.Int64).alias("n_same_time"),
-                (pl.col("_dt") <= 60).sum().cast(pl.Int64).alias("n_within_minute"),
             )
-        )
-        differ = pairs.filter(pl.col("_dn") != 0)
-        order = {label: i for i, (label, _, _) in enumerate(MATCH_DIFFERENCE_BINS)}
-        difference.append(
-            differ.group_by(_difference_bin().alias("difference"))
-            .agg(pl.len().cast(pl.Int64).alias("n_profiles"))
-            .with_columns(
-                pl.col("difference")
-                .replace_strict(order, return_dtype=pl.Int64)
-                .alias("difference_order")
-            )
-            .sort("difference_order")
+            .sort("coverage", descending=True)
             .select(*labels, pl.all())
         )
+        differ = pairs.filter(pl.col("_dn") != 0)
         if scans is not None and differ.height:
             keyed = differ.with_row_index("pair").with_columns(
                 pl.col("pair").cast(pl.Int64)
             )
-            compared = compare_levels(
-                _levels(
-                    scans[reference.id],
-                    keyed.select("pair", "platform_code", "profile_no"),
-                    config,
-                ),
-                _levels(
-                    scans[other.id],
-                    keyed.select(
-                        "pair",
-                        "platform_code",
-                        pl.col("profile_no_c").alias("profile_no"),
-                    ),
-                    config,
-                ),
+            # Each file is read once, for every class; the classes are
+            # compared apart, since a cast under two codes is often two
+            # processings of one instrument's record.
+            mine_levels = _levels(
+                scans[reference.id],
+                keyed.select("pair", "platform_code", "profile_no"),
+                config,
             )
-            levels.append(compared["levels"].select(*labels, pl.all()))
-            kinds.append(compared["kinds"].select(*labels, pl.all()))
+            theirs_levels = _levels(
+                scans[other.id],
+                keyed.select(
+                    "pair",
+                    pl.col("platform_code_c").alias("platform_code"),
+                    pl.col("profile_no_c").alias("profile_no"),
+                ),
+                config,
+            )
+            for name, group in keyed.group_by("coverage", maintain_order=True):
+                ids = group.select("pair")
+                compared = compare_levels(
+                    mine_levels.join(ids, on="pair", how="semi"),
+                    theirs_levels.join(ids, on="pair", how="semi"),
+                )
+                tag = pl.lit(name[0]).alias("coverage")
+                levels.append(compared["levels"].select(*labels, tag, pl.all()))
+                kinds.append(compared["kinds"].select(*labels, tag, pl.all()))
         platforms.append(
             pairs.group_by("platform_code")
             .agg(
@@ -1415,8 +1524,9 @@ def match_tables(
         return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame()
 
     tables = {
+        "conversion_coverage": stack(coverage),
+        "conversion_coverage_years": stack(years),
         "conversion_match": stack(summary),
-        "conversion_match_difference": stack(difference),
         "conversion_match_platforms": stack(platforms),
         "conversion_match_levels": stack(levels),
         "conversion_match_kinds": stack(kinds),

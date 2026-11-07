@@ -27,12 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   platform, those across platforms, and groups that are both (from its `.dups.tsv` lists, named by
   `analyses.ctddump_dups`), and matches the products of a region on date
   and place with and without the platform code.
-- The Data conversion page compares the same cast in an NRT product and in
-  CORA: how many pairs differ in their number of observations, by how much,
-  on which side, and at which end of the profile. Profiles are matched
-  within 0.001° rather than on rounded positions, which ctddump's rounding
-  splits at a boundary. The mismatched pairs are compared level by level:
-  which levels one version lacks, where they sit, and what they hold.
+- The Data conversion page asks how much of each NRT product the CORA of
+  its region holds: every NRT profile in CORA's period is filed as found
+  under the same platform code, found under another, nearby, on a platform
+  CORA has, or on a platform it lacks, overall and year by year. The pairs
+  found are then checked for the same number of observations, and those
+  that differ are compared level by level: which levels one version lacks,
+  where they sit, and what they hold. Profiles are matched within 0.001°
+  rather than on rounded positions, which ctddump's rounding splits at a
+  boundary.
 
 - The Depth page's coast scatter draws one point per position, sized by
   its land profiles, marks positions given in whole degrees, and explains

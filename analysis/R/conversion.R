@@ -1,6 +1,6 @@
 # Figures of the Data conversion page: what ctddump kept at each step, the
-# data modes it found, the duplicates it removed, and how far the products of
-# one region hold the same profiles.
+# data modes it found, the duplicates it removed, how much of each NRT product
+# CORA holds, and how the casts they share compare.
 
 source("analysis/R/setup.R")
 message("Data conversion")
@@ -108,76 +108,106 @@ if (!is.null(kinds) && !is.null(before)) {
   save_figure(plot, "conversion_duplicates", height = 70)
 }
 
-# Overlap: of each product's profiles, how many another product of the region
-# also has, matched with the platform code and on date and place alone.
-overlap <- read_table("conversion_overlap")
-if (!is.null(overlap)) {
-  match_colours <- c("Same platform code" = "#2a78d6",
-                     "Only on date and place" = "#9ec5f0")
-  product_of <- setNames(datasets$product, datasets$id)
-  overlap <- overlap |>
+# Coverage: an NRT product carries real time QC and CORA delayed mode QC of
+# the same casts, so CORA should hold every NRT profile it covers in time.
+# Where each NRT profile was found, as a share of those in CORA's period.
+coverage_colours <- c(
+  "Same platform code" = "#2a78d6",
+  "Another platform code" = "#9ec5f0",
+  "Nearby, not paired" = "#6250d6",
+  "Platform in CORA, cast not" = "#eb6834",
+  "Platform not in CORA" = "#cc3355",
+  "Outside CORA's period" = "#c8c8c8"
+)
+coverage_names <- setNames(names(coverage_colours), c(
+  "same_platform", "other_platform", "nearby", "platform_only", "no_platform",
+  "outside_period"
+))
+
+coverage <- read_table("conversion_coverage")
+if (!is.null(coverage)) {
+  inside <- names(coverage_names)[names(coverage_names) != "outside_period"]
+  coverage <- coverage |>
     with_datasets() |>
-    mutate(
-      # The panel names the region, so a row needs only the two products.
-      pair = paste0(product, " in ", product_of[compared_id]),
-      pair = paste(region, pair, sep = "|"),
-      pair = factor(pair, levels = rev(unique(pair)))
-    ) |>
-    transmute(region, pair, n_profiles, n_matched_any_platform,
-              `Same platform code` = n_matched_same_platform / n_profiles,
-              `Only on date and place` =
-                (n_matched_any_platform - n_matched_same_platform) / n_profiles) |>
-    tidyr::pivot_longer(c(`Same platform code`, `Only on date and place`),
-                        names_to = "match", values_to = "share") |>
-    mutate(match = factor(match, levels = names(match_colours)))
-  totals <- overlap |>
-    group_by(region, pair) |>
+    mutate(n_inside = n_profiles - n_outside_period,
+           row = paste0(short, " (", comma(n_inside), ")"),
+           row = factor(row, levels = rev(unique(row)))) |>
+    tidyr::pivot_longer(all_of(paste0("n_", inside)), names_to = "class",
+                        values_to = "n") |>
+    mutate(class = factor(unname(coverage_names[sub("^n_", "", class)]),
+                          levels = names(coverage_colours)),
+           share = n / n_inside)
+  found <- coverage |>
+    filter(class %in% names(coverage_colours)[1:2]) |>
+    group_by(row) |>
     summarise(share = sum(share), .groups = "drop")
 
-  plot <- ggplot(overlap, aes(share, pair, fill = match)) +
+  plot <- ggplot(coverage, aes(share, row, fill = class)) +
     geom_col(width = 0.7, colour = "white", linewidth = 0.3,
              position = position_stack(reverse = TRUE)) +
-    geom_text(data = totals, inherit.aes = FALSE,
-              aes(share, pair, label = percent(share, accuracy = 1)),
-              hjust = -0.15, size = 2.4) +
-    facet_grid(region ~ ., scales = "free_y", space = "free_y") +
-    scale_y_discrete(labels = function(x) sub("^[^|]*\\|", "", x)) +
-    scale_fill_manual(values = match_colours) +
-    scale_x_continuous(labels = label_percent(), limits = c(0, 1.1),
-                       breaks = c(0, 0.25, 0.5, 0.75, 1), expand = expansion(0)) +
-    labs(x = "Share of the first product's profiles the second also has", y = NULL,
-         fill = NULL) +
-    theme(strip.text.y = element_text(angle = 0, hjust = 0))
-  save_figure(plot, "conversion_overlap", height = 95)
+    geom_text(data = found, inherit.aes = FALSE,
+              aes(share / 2, row, label = percent(share, accuracy = 0.1)),
+              colour = "white", size = 2.4) +
+    scale_fill_manual(values = coverage_colours[1:5], drop = FALSE) +
+    scale_x_continuous(labels = label_percent(), breaks = seq(0, 1, 0.25),
+                       expand = expansion(0)) +
+    guides(fill = guide_legend(nrow = 2)) +
+    labs(x = "NRT profiles in CORA's period, by where they were found in CORA",
+         y = NULL, fill = NULL)
+  save_figure(plot, "conversion_coverage", height = 62)
 }
 
-# The same cast in an NRT product and in CORA: matched on the platform, the
-# date and the position, the two should hold the same observations. How far
-# their numbers of observations differ, and on which side.
-difference <- read_table("conversion_match_difference")
-if (!is.null(difference)) {
-  short_of <- setNames(datasets$short, datasets$id)
-  side_colours <- c("NRT has more" = "#2a78d6", "CORA has more" = "#1baf7a")
-  difference <- difference |>
+coverage_years <- read_table("conversion_coverage_years")
+if (!is.null(coverage_years)) {
+  coverage_years <- coverage_years |>
     with_datasets() |>
-    mutate(
-      pair = factor(paste0(short, " in ", short_of[compared_id]),
-                    levels = unique(paste0(short, " in ", short_of[compared_id]))),
-      difference = factor(difference, levels = unique(difference[order(difference_order)])),
-      side = factor(if_else(grepl("^-", difference), "CORA has more", "NRT has more"),
-                    levels = names(side_colours))
-    )
-  plot <- ggplot(difference, aes(difference, n_profiles, fill = side)) +
-    geom_col(width = 0.75) +
-    geom_text(aes(label = comma(n_profiles)), vjust = -0.4, size = 2.1) +
-    facet_wrap(~pair, ncol = 2, scales = "free_y") +
-    scale_fill_manual(values = side_colours, drop = FALSE) +
-    scale_x_discrete(drop = FALSE) +
-    scale_y_continuous(labels = comma0, expand = expansion(mult = c(0, 0.2))) +
-    labs(x = "Observations in the NRT profile minus observations in the CORA profile",
-         y = "Matched profiles", fill = NULL) +
-    theme(axis.text.x = element_text(angle = 40, hjust = 1))
-  save_figure(plot, "conversion_match_difference", height = 120)
+    mutate(panel = factor(short, levels = unique(short)),
+           class = factor(unname(coverage_names[coverage]),
+                          levels = rev(names(coverage_colours))))
+  plot <- ggplot(coverage_years, aes(year, n_profiles, fill = class)) +
+    geom_col(width = 1) +
+    facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+    scale_fill_manual(values = coverage_colours, breaks = names(coverage_colours),
+                      drop = FALSE) +
+    scale_x_continuous(breaks = seq(1950, 2030, 10), expand = expansion(0.01)) +
+    scale_y_continuous(labels = comma0, expand = expansion(mult = c(0, 0.05))) +
+    guides(fill = guide_legend(nrow = 2)) +
+    labs(x = NULL, y = "NRT profiles per year", fill = NULL) +
+    theme(strip.text = element_text(hjust = 0))
+  save_figure(plot, "conversion_coverage_years", height = 170)
+}
+
+# The pairs: one cast in two versions should hold the same observations.
+# Split by whether the two products give the platform the same code.
+matches <- read_table("conversion_match")
+if (!is.null(matches)) {
+  obs_colours <- c("Same number" = "#2a78d6", "NRT has more" = "#eb6834",
+                   "CORA has more" = "#1baf7a")
+  matches <- matches |>
+    with_datasets() |>
+    mutate(row = paste0(short, ", ", if_else(coverage == "same_platform",
+                                             "same code", "another code"),
+                        " (", comma(n_matched), ")"),
+           row = factor(row, levels = rev(unique(row)))) |>
+    transmute(row, n_matched,
+              `Same number` = n_same_obs, `NRT has more` = n_more_in_dataset,
+              `CORA has more` = n_more_in_compared) |>
+    tidyr::pivot_longer(-c(row, n_matched), names_to = "obs", values_to = "n") |>
+    mutate(obs = factor(obs, levels = names(obs_colours)), share = n / n_matched)
+  same <- matches |> filter(obs == "Same number")
+
+  plot <- ggplot(matches, aes(share, row, fill = obs)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+             position = position_stack(reverse = TRUE)) +
+    geom_text(data = same |> filter(share >= 0.12), inherit.aes = FALSE,
+              aes(share / 2, row, label = percent(share, accuracy = 0.1)),
+              colour = "white", size = 2.3) +
+    scale_fill_manual(values = obs_colours) +
+    scale_x_continuous(labels = label_percent(), breaks = seq(0, 1, 0.25),
+                       expand = expansion(0)) +
+    labs(x = "Pairs of the same cast, by their numbers of observations", y = NULL,
+         fill = NULL)
+  save_figure(plot, "conversion_match", height = 72)
 }
 
 # The mismatched pairs compared level by level: how the two versions of a
@@ -195,24 +225,31 @@ if (!is.null(kinds)) {
   kind_names <- setNames(names(kind_colours), c("compared_removed", "dataset_removed",
                                                 "compared_doubled", "dataset_doubled",
                                                 "both_differ"))
+  code_names <- c(same_platform = "Same platform code",
+                  other_platform = "Another platform code")
   kinds <- kinds |>
     filter(kind %in% names(kind_names)) |>
     with_datasets() |>
-    mutate(pair = paste0(short, " in ", short_of[compared_id]),
-           pair = factor(pair, levels = rev(unique(pair))),
+    mutate(pair = factor(short, levels = rev(unique(short))),
+           code = factor(unname(code_names[coverage]), levels = code_names),
            kind = factor(unname(kind_names[kind]), levels = names(kind_colours)))
-  totals <- kinds |> group_by(pair) |> summarise(n = sum(n_pairs), .groups = "drop")
+  totals <- kinds |>
+    group_by(code, pair) |>
+    summarise(n = sum(n_pairs), .groups = "drop")
   plot <- ggplot(kinds, aes(n_pairs, pair, fill = kind)) +
     geom_col(width = 0.7, colour = "white", linewidth = 0.3,
              position = position_fill(reverse = TRUE)) +
     geom_text(data = totals, inherit.aes = FALSE, aes(1, pair, label = comma(n)),
               hjust = -0.15, size = 2.3) +
+    facet_grid(. ~ code) +
     scale_fill_manual(values = kind_colours, drop = FALSE) +
-    scale_x_continuous(labels = label_percent(), expand = expansion(mult = c(0, 0.1))) +
+    scale_x_continuous(labels = label_percent(), breaks = c(0, 0.5, 1),
+                       expand = expansion(mult = c(0, 0.22))) +
     guides(fill = guide_legend(nrow = 2)) +
+    theme(panel.spacing.x = unit(5, "mm")) +
     labs(x = "Mismatched pairs, by how the two versions' levels relate", y = NULL,
          fill = NULL)
-  save_figure(plot, "conversion_match_kinds", height = 62)
+  save_figure(plot, "conversion_match_kinds", height = 66)
 }
 
 levels_only <- read_table("conversion_match_levels")
@@ -224,7 +261,10 @@ if (!is.null(levels_only)) {
                             c("good_value", "flagged_bad", "repeat", "no_value"))
   position_names <- c(top = "Above", inside = "Between", bottom = "Below",
                       no_common = "No level shared")
+  # Only the pairs under one code: under two, the versions are mostly
+  # sampled at different levels throughout, and the panels would say little.
   levels_only <- levels_only |>
+    filter(coverage == "same_platform") |>
     with_datasets() |>
     mutate(
       # The comparison is always with the CORA of the region, so the row

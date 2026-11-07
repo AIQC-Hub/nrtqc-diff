@@ -21,7 +21,7 @@ and seastamp reports beside it (see the `analyses` section of
 `config/test_nrt.yaml`):
 
 ```bash
-uv run nrtqc-diff analyse -c config/test_nrt.yaml   # about 2 minutes, 3 GB
+uv run nrtqc-diff analyse -c config/test_nrt.yaml   # about 2.5 minutes, 4 GB
 Rscript analysis/run_all.R                          # about 15 seconds
 quarto render site
 ```
@@ -52,7 +52,8 @@ The Python step is careful about memory in two ways, both measured:
   them one at a time instead, which took its peak on the Arctic NRT file
   from 5.9 GB to 2.7 GB.
 
-The full batch peaks at about 3 GB. To check a change against that, run it
+The full batch peaks at about 4 GB, most of it the level comparison of
+the NRT and CORA pairs. To check a change against that, run it
 under a memory limit, for example `systemd-run --user --scope -p MemoryMax=8G`.
 
 ### R packages
@@ -133,12 +134,13 @@ name or columns.
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
 | `conversion_extra_parameters` | dataset, parameter | source files carrying a parameter ctddump does not read |
 | `conversion_compare` | reference, compared dataset | ctddump's profile matching between products of one region, with the platform code in the key |
-| `conversion_overlap` | dataset, compared dataset of its region | its profiles the other also has, matched on the date and positions within 0.001° (see below), with the platform code and without |
-| `conversion_match` | NRT dataset, CORA dataset of its region | pairs of the same cast on the same platform: how many, how many with the same number of observations, on which side there are more, how close their times are |
-| `conversion_match_difference` | NRT dataset, CORA dataset, difference class | mismatched pairs by observations in NRT minus observations in CORA |
-| `conversion_match_kinds` | NRT dataset, CORA dataset, kind | mismatched pairs by how their versions' levels relate: `compared_removed` (CORA is NRT with levels removed), `dataset_removed`, `compared_doubled` (CORA holds every level twice), `dataset_doubled`, `both_differ` |
-| `conversion_match_levels` | NRT dataset, CORA dataset, side, position, content | levels in one version only (`side`), by `position` against the shared levels (`top`, `inside`, `bottom`, `no_common`) and `content` (`no_value`, `flagged_bad`, `repeat`, `good_value`), with the pairs they are in |
-| `conversion_match_platforms` | NRT dataset, CORA dataset, platform | platforms with mismatched pairs, with the median difference |
+| `conversion_overlap` | dataset, compared dataset of its region | its profiles the other also has, matched on the date and positions within 0.001° (see below), with the platform code and without. The page shows the NRT products' rows |
+| `conversion_coverage` | NRT dataset, CORA dataset of its region | CORA's period (first and last date) and the NRT profiles in each coverage class (see below) |
+| `conversion_coverage_years` | NRT dataset, CORA dataset, year, coverage class | NRT profiles |
+| `conversion_match` | NRT dataset, CORA dataset, coverage class | pairs of the same cast (`same_platform` or `other_platform`): how many, how many with the same number of observations, and on which side there are more |
+| `conversion_match_kinds` | NRT dataset, CORA dataset, coverage class, kind | pairs whose numbers of observations differ, by how their versions' levels relate: `compared_removed` (CORA is NRT with levels removed), `dataset_removed`, `compared_doubled` (CORA holds every level twice), `dataset_doubled`, `both_differ` |
+| `conversion_match_levels` | NRT dataset, CORA dataset, coverage class, side, position, content | levels in one version only (`side`), by `position` against the shared levels (`top`, `inside`, `bottom`, `no_common`) and `content` (`no_value`, `flagged_bad`, `repeat`, `good_value`), with the pairs they are in |
+| `conversion_match_platforms` | NRT dataset, CORA dataset, platform | platforms (by their NRT code) with pairs whose observations differ, with the median difference |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
 | `depth_summary` | dataset | profiles, land profiles, and what the input flagged on them |
 | `depth_land_margin` | dataset, margin | land profiles at least that many metres up |
@@ -167,16 +169,37 @@ date and their positions are within 0.001° in longitude and in latitude.
 ctddump's own comparison rounds positions to 3 decimals instead, and since
 the products rarely store a position to the same last digit, a pair either
 side of a rounding boundary is missed: the tolerance finds 4% to 11% more
-pairs than the rounding on this batch. Each
-profile is paired at most once, closest in time first, and when the platform
-code is not part of the match a partner on the same platform is preferred.
-"The same cast in NRT and CORA" pairs each product with the products of its
-region configured as `data_mode: delayed`, on the platform code too.
+pairs than the rounding on this batch. Each profile is paired at most once,
+closest in time first, and when the platform code is not part of the match
+a partner on the same platform is preferred.
+
+### NRT and CORA
+
+An NRT product carries real time QC and CORA delayed mode QC of the same
+casts, so each NRT product is compared with the products of its region
+configured as `data_mode: delayed`. Every NRT profile is filed under the
+first coverage class that fits:
+
+| Class | Rule |
+| --- | --- |
+| `outside_period` | Dated before CORA's first profile or after its last. Left out of the coverage. |
+| `same_platform` | Matched with the platform code. |
+| `other_platform` | Matched on date and place alone, among the profiles still unpaired on both sides. |
+| `nearby` | Same platform and date within 0.01°: probably the same cast, not paired. |
+| `platform_only` | The platform is in CORA, the cast is not. |
+| `no_platform` | The platform is not in CORA. |
+
+The coverage is `same_platform` plus `other_platform` over the profiles in
+CORA's period. Those two classes are the pairs. A pair under another code
+is often one instrument named two ways (an ice-tethered profiler by its own
+number in one product and a WMO number in the other), and its two versions
+are usually sampled at different levels, so the pair tables keep the
+classes apart.
 
 The pairs whose numbers of observations differ are then compared level by
-level, reading only their observations from the two files. Levels are
-matched by pressure within 0.05 dbar: a pressure converted from depth
-differs in its last digits between the versions, so exact or rounded
+level, reading only their observations from the two files, each file once.
+Levels are matched by pressure within 0.05 dbar: a pressure converted from
+depth differs in its last digits between the versions, so exact or rounded
 pressures split one level in two (in the Baltic, most of the apparent
 differences). Both versions' pressures are sorted together and a new level
 starts at a gap of more than the tolerance, which keeps repeats countable.
@@ -189,7 +212,7 @@ the theme, the palettes and `save_figure()`.
 
 | Script | Figures |
 | --- | --- |
-| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_overlap`, `conversion_match_difference`, `conversion_match_kinds`, `conversion_match_levels` |
+| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_coverage`, `conversion_coverage_years`, `conversion_match`, `conversion_match_kinds`, `conversion_match_levels` (same platform code only) |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_coast` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |
