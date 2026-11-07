@@ -96,6 +96,7 @@ own NRT QC output and rebuild. Nothing else changes.
 | [`docs/SITE.md`](docs/SITE.md) | How the site is put together |
 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Dev setup, tests, git workflow |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Versioning and deployment |
+| [`docs/NC2PARQUET.md`](docs/NC2PARQUET.md) | How the NRT QC tests of `nc2parquet` differ from `nrtqclib`'s |
 
 ## License
 

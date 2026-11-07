@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `docs/NC2PARQUET.md` compares the NRT QC tests of the earlier `nc2parquet`
+  scripts with the `nrtqclib` QC items: which items each implements, how the
+  logic differs, and defects found in `nc2parquet`. It is documentation for
+  the repository and is not part of the site.
+
 ## [0.8.0] - 2026-11-07
 
 ### Changed
