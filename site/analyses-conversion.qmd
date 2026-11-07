@@ -16,6 +16,18 @@ page follows the profiles through those steps, from the reports ctddump
 writes as it goes. A full ctddump report for one product is
 [published as an example](https://aiqc-hub.github.io/ctddump-report-example/nrt_ar_ar.html).
 
+::: {.callout-note}
+## CORA is not another NRT product
+
+CORA is a reprocessed collection: its profiles have been through quality
+control again after the fact, with automated tests and checks by
+operators, so its flags are closer to delayed mode than to NRT. It is converted
+here the same way as the NRT products, so its steps, duplicates and overlap
+sit beside theirs. The rest of the site files every CORA profile as delayed
+mode, even though its files declare them real time (R) wherever they
+declare a mode at all.
+:::
+
 ```{ojs}
 //| output: false
 app = import(new URL("assets/js/app.js", document.baseURI).href)
@@ -168,12 +180,14 @@ meta ? table(noModeRows, [
 Step 5 treats two profiles of one product as duplicates when they were
 taken on the same date at the same position, rounded to three decimals of a
 degree (about 100 m or less). The platform code is not part of the match, so
-a duplicate can be one of two kinds:
+a group of duplicates is one of three kinds:
 
 - **Within one platform:** every profile of the group carries the same
   platform code. One platform reported the same cast more than once.
-- **Across platforms:** the group carries two or more platform codes. The
-  same cast reached the product under different names.
+- **Across platforms:** every profile carries a different platform code.
+  The same cast reached the product under different names, once each.
+- **Both:** the group spans two or more platform codes, and at least one of
+  them reports the cast more than once. The cast was repeated and renamed.
 
 Of each group ctddump keeps the profile with the most observations and
 removes the rest, so a group of two loses one profile.
@@ -181,8 +195,8 @@ removes the rest, so a group of two loses one profile.
 ```{ojs}
 meta ? app.analysisFigure(
   "conversion_duplicates",
-  "Profiles removed as duplicates, as a share of the profiles in the region before step 5, by whether their group stays on one platform. The label gives the total and, in brackets, the number removed.",
-  "Stacked bars per product of the share of profiles removed as duplicates, split within one platform and across platforms."
+  "Profiles removed as duplicates, as a share of the profiles in the region before step 5, by the kind of group they were in. The label gives the total and, in brackets, the number removed.",
+  "Stacked bars per product of the share of profiles removed as duplicates, split within one platform, across platforms, and both."
 ) : html``
 ```
 
@@ -193,8 +207,9 @@ kindOf = (id, kind, field) => (dupKinds ?? []).filter((r) => r.dataset_id === id
 dupRows = (dups ?? []).map((r) => ({
   ...r, key: r.dataset_id,
   within_removed: kindOf(r.dataset_id, "within", "n_removed"),
-  across_removed: kindOf(r.dataset_id, "across", "n_removed")
-})).map((r) => ({ ...r, removed: r.within_removed + r.across_removed })).sort(byDataset)
+  across_removed: kindOf(r.dataset_id, "across", "n_removed"),
+  both_removed: kindOf(r.dataset_id, "both", "n_removed")
+})).map((r) => ({ ...r, removed: r.within_removed + r.across_removed + r.both_removed })).sort(byDataset)
 meta ? table(dupRows, [
   { key: "dataset_id", label: "Product", align: "left", format: name },
   { key: "n_profiles", label: "Profiles", title: "Profiles in the region, before step 5" },
@@ -202,7 +217,8 @@ meta ? table(dupRows, [
   { key: "removed", label: "Removed" },
   { key: "share", label: "Share removed", format: (_, r) => app.formatShare(r.removed, r.n_profiles) },
   { key: "within_removed", label: "Within one platform", title: "Removed from groups on one platform" },
-  { key: "across_removed", label: "Across platforms", title: "Removed from groups spanning two or more platforms" },
+  { key: "across_removed", label: "Across platforms", title: "Removed from groups whose profiles each carry a different platform code" },
+  { key: "both_removed", label: "Both", title: "Removed from groups spanning two or more platforms, one of them repeating the cast" },
   { key: "n_platforms_with_duplicates", label: "Platforms with any", format: (v, r) => `${app.formatCount(v)} of ${app.formatCount(r.n_platforms)}` }
 ]) : html``
 ```
@@ -213,21 +229,24 @@ same cast repeated more often.
 
 ```{ojs}
 dupSizes = meta ? app.loadAnalysisTable("conversion_dup_sizes") : null
+kindOrder = ["within", "across", "both"]
+kindName = ({ within: "Within one platform", across: "Across platforms", both: "Both" })
 sizeKeys = dupSizes ? [...new Map(dupSizes.map((r) => [r.size, r.size_label]))].sort((a, b) => a[0] - b[0]) : []
 sizeRows = dupSizes
   ? app.widen(dupSizes, { index: ["dataset_id", "kind"], column: "size", value: "n_groups", name: (v) => `s${v}` })
       .map((r) => ({ ...r, key: `${r.dataset_id}|${r.kind}` }))
-      .sort((a, b) => byDataset(a, b) || b.kind.localeCompare(a.kind))
+      .sort((a, b) => byDataset(a, b) || kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind))
   : []
 meta ? table(sizeRows, [
   { key: "dataset_id", label: "Product", align: "left", format: name },
-  { key: "kind", label: "Kind", align: "left", format: (v) => (v === "within" ? "Within one platform" : "Across platforms") },
+  { key: "kind", label: "Kind", align: "left", format: (v) => kindName[v] ?? v },
   ...sizeKeys.map(([size, label]) => ({ key: `s${size}`, label, title: `Groups of ${label} profiles` }))
 ]) : html``
 ```
 
-The platforms behind the duplicates across platforms: the sets of platform
-codes that share casts most often, per product.
+The platforms behind the groups that span more than one platform (across
+platforms, and both): the sets of platform codes that share casts most
+often, per product.
 
 ```{ojs}
 dupSets = meta ? app.loadAnalysisTable("conversion_dup_platforms") : null
@@ -265,7 +284,10 @@ meta ? app.analysisFigure(
 ) : html``
 ```
 
-A regional and a global NRT product share no platform code, so only the
+A cast an NRT product shares with CORA has been through CORA's
+reprocessing as well, so the share of an NRT product found in CORA is how
+much of it has a delayed mode counterpart. A regional and a global NRT
+product share no platform code, so only the
 match on date and place can find what they have in common. Where it finds
 little, the two products hold different casts rather than the same casts
 under different names.

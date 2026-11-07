@@ -204,7 +204,10 @@ def duplicate_table(config: BuildConfig, reports: str) -> pl.DataFrame:
 #: Duplicate groups larger than this are pooled into one size class.
 DUP_SIZE_CAP: int = 10
 
-#: How many across-platform platform sets to keep per dataset, commonest
+#: The kinds of duplicate group, in the order the tables list them.
+DUP_KINDS: List[str] = ["within", "across", "both"]
+
+#: How many multi-platform platform sets to keep per dataset, commonest
 #: first. The rest are summed into a row of their own.
 DUP_PLATFORM_SETS: int = 15
 
@@ -214,8 +217,10 @@ def _duplicate_groups(path: str) -> pl.DataFrame:
     The duplicate groups of one ctddump ``.dups.tsv``, one row per group.
 
     A group is ``within`` one platform when all its profiles carry the same
-    platform code, and ``across`` platforms otherwise. ``dedup`` keeps one
-    profile of each group, so a group of ``n`` loses ``n - 1``.
+    platform code; ``across`` platforms when each carries a different one;
+    and ``both`` when it spans two or more platforms and at least one of
+    them reports the cast more than once. ``dedup`` keeps one profile of each
+    group, so a group of ``n`` loses ``n - 1``.
 
     :param path: The duplicates list ``markdup`` wrote.
     :return: ``dup_group``, ``n_profiles``, ``n_platforms``, ``platforms``
@@ -232,6 +237,8 @@ def _duplicate_groups(path: str) -> pl.DataFrame:
         .with_columns(
             pl.when(pl.col("n_platforms") == 1)
             .then(pl.lit("within"))
+            .when(pl.col("n_profiles") > pl.col("n_platforms"))
+            .then(pl.lit("both"))
             .otherwise(pl.lit("across"))
             .alias("kind")
         )
@@ -248,7 +255,8 @@ def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFr
              ``conversion_dup_sizes`` (per dataset, kind and group size, the
              sizes above :data:`DUP_SIZE_CAP` pooled) and
              ``conversion_dup_platforms`` (the commonest platform sets behind
-             the across-platform groups).
+             the groups spanning two or more platforms, ``across`` and
+             ``both``).
     """
     kinds, sizes, sets = [], [], []
     for spec in _sourced(config):
@@ -264,7 +272,7 @@ def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFr
                 pl.col("n_profiles").sum().alias("n_profiles"),
                 (pl.col("n_profiles") - 1).sum().alias("n_removed"),
             )
-            .sort("kind", descending=True)
+            .sort(pl.col("kind").replace_strict(DUP_KINDS, range(len(DUP_KINDS))))
             .select(labels + [pl.all()])
         )
         sizes.append(
@@ -282,11 +290,14 @@ def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFr
                 .otherwise(pl.col("size").cast(pl.Utf8))
                 .alias("size_label")
             )
-            .sort("kind", "size", descending=[True, False])
+            .sort(
+                pl.col("kind").replace_strict(DUP_KINDS, range(len(DUP_KINDS))),
+                "size",
+            )
             .select(labels + [pl.all()])
         )
         across = (
-            groups.filter(pl.col("kind") == "across")
+            groups.filter(pl.col("n_platforms") > 1)
             .group_by("platforms")
             .agg(
                 pl.col("n_platforms").first(),

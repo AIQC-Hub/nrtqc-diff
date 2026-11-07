@@ -73,11 +73,13 @@ if (!is.null(modes)) {
 }
 
 # Duplicates: the profiles step 5 removed, as a share of those it was given,
-# split by whether the duplicate group stays on one platform.
-kind_colours <- c("Within one platform" = "#2a78d6", "Across platforms" = "#eb6834")
+# split by the kind of duplicate group: on one platform, spread over several,
+# or both at once.
+kind_colours <- c("Within one platform" = "#2a78d6", "Across platforms" = "#eb6834",
+                  "Both" = "#6250d6")
 kind_label <- function(kind) {
-  factor(ifelse(kind == "within", "Within one platform", "Across platforms"),
-         levels = names(kind_colours))
+  labels <- c(within = "Within one platform", across = "Across platforms", both = "Both")
+  factor(unname(labels[kind]), levels = names(kind_colours))
 }
 
 kinds <- read_table("conversion_dup_kinds")

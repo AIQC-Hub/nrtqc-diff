@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `scripts/data_release.py` publishes and fetches `site/data/analyses/` with
   the rest of the data, when it is there.
 - The Data conversion page splits ctddump's duplicates into those within one
-  platform and those across platforms (from its `.dups.tsv` lists, named by
+  platform, those across platforms, and groups that are both (from its `.dups.tsv` lists, named by
   `analyses.ctddump_dups`), and matches the products of a region on date
   and place with and without the platform code.
 

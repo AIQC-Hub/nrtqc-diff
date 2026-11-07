@@ -100,7 +100,9 @@ def analysed(tmp_path):
     dups.mkdir(parents=True)
     columns = "dup_group\tplatform_code\tprofile_no\tn_obs\n"
     (dups / "src.dups.tsv").write_text(
-        columns + "1\tA\t1\t5\n1\tA\t2\t5\n1\tA\t3\t4\n2\tA\t4\t3\n2\tB\t1\t3\n",
+        columns
+        + "1\tA\t1\t5\n1\tA\t2\t5\n1\tA\t3\t4\n2\tA\t4\t3\n2\tB\t1\t3\n"
+        + "3\tA\t5\t3\n3\tA\t6\t3\n3\tC\t1\t3\n",
         encoding="utf-8",
     )
     stamp = tmp_path / "seastamp"
@@ -241,12 +243,15 @@ def test_duplicates_are_split_within_and_across_platforms(analysed):
     assert by_kind["within"]["n_profiles"] == 3
     assert by_kind["within"]["n_removed"] == 2
     assert by_kind["across"]["n_removed"] == 1
+    assert by_kind["both"]["n_removed"] == 2
+    assert kinds["kind"].to_list() == ["within", "across", "both"]
     sets = table(analysed, "conversion_dup_platforms")
-    assert sets["platforms"].to_list() == ["A + B"]
+    assert sorted(sets["platforms"].to_list()) == ["A + B", "A + C"]
     sizes = table(analysed, "conversion_dup_sizes")
     assert dict(zip(sizes["kind"] + sizes["size_label"], sizes["n_groups"])) == {
         "within3": 1,
         "across2": 1,
+        "both3": 1,
     }
 
 

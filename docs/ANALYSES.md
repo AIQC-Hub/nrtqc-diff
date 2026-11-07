@@ -126,9 +126,9 @@ name or columns.
 | `conversion_steps` | dataset, ctddump step | platforms, profiles and observations left. The last step is what nrtqclib checked: `analyse` warns if an output holds anything else |
 | `conversion_data_mode` | dataset, step, variable, mode | observations per data mode, as converted and as kept; the mode is empty where ctddump found none, missing levels included |
 | `conversion_duplicates` | dataset | profiles ctddump marked as duplicates (every member of a group, the one kept too), and the platforms they are on |
-| `conversion_dup_kinds` | dataset, kind | duplicate groups `within` one platform or `across` platforms: groups, profiles in them, profiles removed |
+| `conversion_dup_kinds` | dataset, kind | duplicate groups `within` one platform, `across` platforms (one profile each), or `both` (several platforms, one repeating the cast): groups, profiles in them, profiles removed |
 | `conversion_dup_sizes` | dataset, kind, group size | groups of that many profiles; above 10 pooled as `11+` |
-| `conversion_dup_platforms` | dataset, platform set | the 15 commonest sets of platform codes sharing casts across platforms, then the rest in one row |
+| `conversion_dup_platforms` | dataset, platform set | the 15 commonest sets of platform codes sharing casts, over groups `across` and `both`, then the rest in one row |
 | `conversion_files` | dataset, variable | source files carrying it |
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
 | `conversion_extra_parameters` | dataset, parameter | source files carrying a parameter ctddump does not read |
