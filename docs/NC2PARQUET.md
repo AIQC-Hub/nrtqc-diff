@@ -5,7 +5,7 @@ converts NetCDF profile data to parquet, and it also has its own
 implementation of the NRT QC tests. This document compares those tests with
 the QC items of `nrtqclib`, the library whose flags this dashboard shows. For
 each `nrtqclib` item it covers two things: whether `nc2parquet` implements the
-item at all, and how the logic differs where it does.
+item at all, and how the logic and the thresholds differ where it does.
 
 This file is documentation for the repository only. The site renders `site/`
 and nothing outside it, so the file is never published as a page.
@@ -15,15 +15,12 @@ and nothing outside it, so the file is never published as a page.
 | Side | What was read |
 | --- | --- |
 | `nrtqclib` | Version 0.1.6: its documentation (one page per QC item) and the item classes it runs, which live in `aiqclib` 0.15.2 (`prepare/features/qc_*.py`) |
-| Our runs | The `nrtqclib` configuration the published data was built with, which sets the parameters per region (Arctic, Baltic, Mediterranean) |
-| `nc2parquet` | A copy of the scripts without git history. The tests are in `source/ctd_nrtqc.py`. Two drivers run them: `source/set_nrtqc.py` and `source/process_profiles.py` |
+| Our runs | The `nrtqclib` configuration the published data was built with, which sets the parameters per region set (Arctic, Baltic, Mediterranean), and the `nrtqclib` output itself |
+| `nc2parquet` | A copy of the scripts without git history. The tests are in `source/ctd_nrtqc.py`; two drivers run them, `source/set_nrtqc.py` and `source/process_profiles.py`. Their threshold tables and region mask are in `data/NRTQC/` of the same repository, copied separately |
 
-The threshold tables the `nc2parquet` tests read (`data/NRTQC/`: a range
-table, a spike and gradient table, a frozen profile table and a gridded region
-mask) are not part of the copy. So this document compares the logic, but the
-`nc2parquet` threshold values are unknown. The defects listed below were
-reproduced by running the `nc2parquet` functions on synthetic profiles with
-made-up tables (see [How this was checked](#how-this-was-checked)).
+Only temperature and salinity are compared. `nc2parquet` also tests oxygen
+and fluorescence, and its tables have rows for chlorophyll; those come up only
+where they explain a defect.
 
 ## At a glance
 
@@ -32,13 +29,13 @@ made-up tables (see [How this was checked](#how-this-was-checked)).
 | `impossible_date` | RTQC2 | No | Rows are filtered on the source file's own time flag instead |
 | `impossible_location` | RTQC3 | No | Rows are filtered on the source file's own position flag instead |
 | `position_on_land` | RTQC4 | No | A GEBCO depth is attached as a feature, never tested. Our runs do not use this item either |
-| `global_range` | RTQC6 | Merged into the range test | One test with a global fallback |
-| `regional_range` | RTQC7 | Yes, a different design | Region looked up from a grid; bounds depend on depth (and possibly month) |
+| `global_range` | RTQC6 | Merged into the range test | Same global bounds, but only as the fallback for regions without their own; two regions go below the global salinity minimum |
+| `regional_range` | RTQC7 | Yes, a different design | Region looked up per position from a grid, not per dataset; the Baltic and half the Mediterranean get the global bounds, and most Baltic data the North West Shelf's |
 | `pressure_increasing` | RTQC8 | No | Profiles are sorted by pressure, so a reversal is reordered, not flagged |
-| `spike` | RTQC9 | Yes, combined with gradient | Same formula; one column for both tests; neighbours in pressure order |
-| `gradient` | RTQC11 | Yes, combined with spike | Same formula; see `spike` |
+| `spike` | RTQC9 | Yes, combined with gradient | Same formula and thresholds; one column for both tests; neighbours in pressure order |
+| `gradient` | RTQC11 | Yes, combined with spike | Same formula and thresholds; see `spike` |
 | `digit_rollover` | RTQC12 | No | |
-| `stuck_value` | RTQC13 | Yes | Same rule; the observation count is taken differently |
+| `stuck_value` | RTQC13 | Yes | Same rule, but a profile needs more than 5 rows, against at least 2 values |
 | `density_inversion` | RTQC14 | Yes, off by default | In-situ density instead of sigma-0, threshold 0.05 instead of 0.03, compares across gaps |
 | `temp_to_psal` | rule | No | |
 | (none) | | Frozen profile test, off by default | Does not compare a profile with the previous one as written |
@@ -89,7 +86,7 @@ apart, for the comparison step.
 `nc2parquet` runs one variable at a time, from `TEMP`, `PSAL`, `DOX2` and
 `FLU2`. Range and stuck value apply to all four, spike and gradient to all but
 `FLU2`, and the frozen profile test to all but `DOX2`. `nrtqclib` checks
-temperature and salinity. Oxygen and fluorescence are out of scope here.
+temperature and salinity.
 
 ## Item by item
 
@@ -123,11 +120,15 @@ position, but only as a feature for later use.
 ### global_range
 
 **nrtqclib.** An observation fails when its value is outside [-2.5, 40.0] for
-temperature or [2.0, 41.0] for salinity, bounds inclusive.
+temperature or [2.0, 41.0] for salinity, bounds inclusive. It runs alongside
+the regional range, so an observation must pass both.
 
-**nc2parquet.** No separate test. The single range test below falls back to a
-global entry (`GLO`) of its table for any region the table does not list.
-There is no global check on top of the regional one.
+**nc2parquet.** No separate test. The range table's global entry, `GLO`, has
+the same bounds as `nrtqclib`'s, but it is used only for positions whose
+region has no entry of its own (see below). There is no global check on top
+of a region's bounds, so where a region is wider than the global range, the
+region wins: the `NWS` and `SWS` entries allow salinity down to 0, where
+`nrtqclib` fails anything below 2.
 
 ### regional_range
 
@@ -135,35 +136,69 @@ There is no global check on top of the regional one.
 detected: each configuration set has one pair of ranges, and each dataset is
 assigned a set. Our runs use:
 
-| Set | Temperature | Salinity |
-| --- | --- | --- |
-| Arctic | [-1.92, 25.0] | [2.0, 40.0] |
-| Baltic | [-2.5, 40.0] | [2.0, 40.0] |
-| Mediterranean | [10.0, 40.0] | [2.0, 40.0] |
+| Set | Datasets | Temperature | Salinity |
+| --- | --- | --- | --- |
+| Arctic | `ar_ar`, `ar_gl`, `cora_ar` | [-1.92, 25.0] | [2.0, 40.0] |
+| Baltic | `bo_bo`, `cora_bo` | [-2.5, 40.0] | [2.0, 40.0] |
+| Mediterranean | `mo_mo`, `mo_gl`, `cora_mo` | [10.0, 40.0] | [2.0, 40.0] |
 
 The bounds do not depend on depth or season.
 
 **nc2parquet.** The region is looked up per position:
 
 1. The position is truncated to 0.1° and matched to the nearest cell of a
-   gridded region mask, which has one layer per variable.
-2. The region's rows in the range table give bounds per **depth band**: each
-   row holds a maximum depth with a minimum and maximum value. The table may
-   also have a **month** column, in which case the bands are per month.
-3. The pressure is rounded to a whole decibar, and the observation takes the
-   band with the smallest maximum depth that is still greater than its
-   pressure.
-4. An observation fails when it is outside that band's bounds. The bounds are
+   **1° region mask**. The mask has one layer per variable; the temperature
+   and salinity layers are identical.
+2. The region's rows in the range table give the bounds. The table can hold
+   several depth bands per region, and a `month` column for seasonal bounds.
+   For temperature and salinity every region has a single band from the
+   surface to 120,000 dbar and no month, so in practice the bounds depend on
+   the region alone. (Oxygen and chlorophyll do use depth bands.)
+3. An observation fails when it is outside the bounds. The bounds are
    inclusive, as in `nrtqclib`.
+4. A region the table does not list gets the global entry.
 
-Differences beyond the design:
+The mask names nine regions and the table has temperature and salinity rows
+for six, so four mask regions fall back to the global bounds:
 
-* A level at or below the deepest band of its region has no bounds and
-  passes.
-* A position in no named region of the mask, or in a region the table does
-  not list, uses the global entry. See the defects for what this does to the
-  rest of the table.
-* The values are unknown, since the table is not in the copy.
+| Region | In the mask | Temperature | Salinity |
+| --- | --- | --- | --- |
+| `GLO` | yes | [-2.5, 40] | [2, 41] |
+| `ARC` | yes | [-1.93, 25] | [2, 40] |
+| `NWS` | yes | [-2, 24] | [0, 37] |
+| `MED-1` | yes | [10, 40] | [2, 40] |
+| `RED` | yes | [21.7, 40] | [2, 41] |
+| `SWS` | no | [-2, 30] | [0, 38] |
+| `BAL`, `MED`, `BLA`, `IBI` | yes, no table rows | global: [-2.5, 40] | global: [2, 41] |
+
+Mapping every input profile of our runs onto the mask shows where the two
+designs part:
+
+| Our datasets | `nc2parquet` region (profiles) | Bounds `nc2parquet` uses |
+| --- | --- | --- |
+| Arctic (`ar_ar`, `ar_gl`, `cora_ar`) | `ARC` (all 881,504) | `ARC`, nearly the same as ours |
+| Baltic (`bo_bo`, `cora_bo`) | `NWS` 190,123; `BAL` 38,437; `ARC` 13,032 | Mostly the North West Shelf's; global for the Baltic proper |
+| Mediterranean (`mo_mo`, `mo_gl`, `cora_mo`) | `MED-1` 72,470; `IBI` 56,595; `MED` 17,106; `BLA` 233 | `MED-1` for half of them, global for the rest |
+
+The range flags that would differ, counted over all 330 million input
+observations. The `nrtqclib` side is its own output (global or regional range
+failed); the `nc2parquet` side applies its table and mask to the same values:
+
+| Our datasets, `nc2parquet` region | Temperature | Salinity | Why |
+| --- | --- | --- | --- |
+| Arctic, `ARC` | 477 | 0 | Temperatures between -1.93 and -1.92 fail only in `nrtqclib` |
+| Baltic, `NWS` | 2,003 | 10,583 | Temperatures above 24 °C fail only in `nc2parquet`. Salinities below 2 fail only in `nrtqclib`, salinities from 37 to 40 only in `nc2parquet` |
+| Baltic, `BAL` and `ARC` | 5 | 0 | |
+| Mediterranean, `MED-1` | 0 | 0 | The same bounds |
+| Mediterranean, `MED` | 35,514 | 181 | Temperatures below 10 °C and salinities from 40 to 41 fail only in `nrtqclib` |
+| Mediterranean, `IBI` | 1,240 | 172 | As for `MED` |
+| Mediterranean, `BLA` | 2,080 | 0 | As for `MED`: Black Sea water below 10 °C |
+| **All** | **41,319** | **10,936** | |
+
+Both sides flag about 1.7 million temperature and 1.8 million salinity
+observations on range, so the designs agree on all but a few percent of them.
+Most of the temperature difference is the Mediterranean set's 10 °C minimum
+applied to positions `nc2parquet` treats as outside `MED-1`.
 
 ### pressure_increasing
 
@@ -182,19 +217,16 @@ is `|V2 - (V3 + V1)/2| - |(V3 - V1)/2|`. V2 fails when it exceeds the
 threshold: 6.0 °C and 0.9 for salinity above 500 dbar, 2.0 °C and 0.3 from
 there down. Its own column.
 
-**nc2parquet.** The same formula, and the same rule for missing values and the
-ends of a profile. The differences:
+**nc2parquet.** The same formula, the same thresholds and the same 500 dbar
+split (the table's bands are 0 to 500 and 500 to 120,000 dbar), and the same
+rule for missing values and the ends of a profile. The differences:
 
 * **One column for spike and gradient.** For temperature and salinity a level
   is flagged when it fails either test. For oxygen it has to fail both.
-* **Thresholds per depth band from a table.** Rows have a minimum depth, a
-  maximum depth and a resolution. A level takes the threshold of the band
-  with the smallest maximum depth greater than its pressure; a level below
-  the deepest band has no threshold and passes.
-* **The resolution column does not select anything.** The profile's vertical
-  spacing is never computed. Where the table has rows that differ only in
-  resolution, the row with the smallest resolution is used for every profile.
 * **Neighbours in pressure order**, not recorded order (see above).
+* The table has a resolution column, which selects nothing (see the defects).
+  Temperature and salinity have one resolution each, so it makes no
+  difference to them.
 
 ### gradient
 
@@ -202,9 +234,9 @@ ends of a profile. The differences:
 threshold: 9.0 °C and 1.5 for salinity above 500 dbar, 3.0 °C and 0.5 below.
 Its own column.
 
-**nc2parquet.** The same formula, computed in the same pass as the spike test
-with the same depth bands, and written to the same column. Everything under
-`spike` applies.
+**nc2parquet.** The same formula and thresholds, computed in the same pass as
+the spike test and written to the same column. Everything under `spike`
+applies.
 
 ### digit_rollover
 
@@ -222,17 +254,17 @@ Every observation of the profile gets the flag, missing ones included.
 **nc2parquet.** The same idea: all non-null values identical, then the whole
 profile is flagged, missing values included. The count is different:
 
-* It is compared with **"greater than"** the threshold, where `nrtqclib` uses
-  "at least".
-* In `set_nrtqc.py` it is the number of **rows** in the profile, missing
-  values included. A profile with three identical values and one missing value
-  counts as four.
+* The threshold is 5 for temperature and salinity, and the count has to be
+  **greater** than it. A profile of 2 to 5 levels is never judged, where
+  `nrtqclib` judges any profile with 2 values.
+* In `set_nrtqc.py` the count is the number of **rows** in the profile,
+  missing values included. A profile with five identical values and one
+  missing value counts as six, and fails.
 * In `process_profiles.py` it is the largest `profile_no` in the profile. In
   `nc2parquet`'s converted files, `profile_no` is the profile's position in
   its source file, not a count of observations, so the threshold is compared
   with something unrelated. (This is from reading the code; it was not run on
   real files.)
-* The threshold value is in the table, so unknown.
 
 ### density_inversion
 
@@ -251,7 +283,8 @@ differences:
   In-situ density rises with pressure by about 0.0045 kg/m³ per dbar, so part
   of any inversion is cancelled by the pressure difference between the two
   levels. The coarser the profile, the larger an inversion has to be.
-* **Threshold 0.05 kg/m³** by default, against 0.03.
+* **Threshold 0.05 kg/m³**, set in the code rather than a table, against
+  0.03.
 * **Comparisons across gaps.** Levels with a missing temperature or salinity
   are removed before the pairs are formed, so the levels on either side of a
   gap are compared with each other. Only the fill value `-99` is excluded
@@ -288,7 +321,8 @@ density test flags both together.
 Meant to catch a platform that keeps sending the same profile. Each profile is
 averaged into 50 dbar bins, and the absolute differences between bins are
 summarised; the profile fails when at least five differences exist and their
-maximum, minimum and mean are all below the table's thresholds.
+maximum, minimum and mean are all below the thresholds. These are 0.3, 0.001
+and 0.02 °C for temperature, and 0.3, 0.001 and 0.004 for salinity.
 
 As written, the differences are taken between **neighbouring bins of the same
 profile**, not between a profile and the previous one, because the shift that
@@ -304,10 +338,12 @@ same platform's.
 
 | Defect | Effect | How it was checked |
 | --- | --- | --- |
-| The range fallback writes the global bounds over the **last row** of the range table, instead of adding a row | When a position falls in an unlisted region, the table's last region loses its bounds for the rest of that batch and its observations pass. A region processed earlier (regions go in alphabetical order) is not affected | Run: an observation of 30 °C in a region bounded at 24 °C failed alone and passed with a profile from an unlisted region in the same batch |
-| The fallback reads the global entry as a single row | A global entry with more than one depth band would not work | From the code; not run |
-| The spike and gradient table's resolution column selects nothing | The smallest resolution's thresholds are used everywhere | Run: a 1.5 °C spike passed at both 1 and 10 dbar spacing, against a table with 1.0 °C for 10 dbar |
+| The range fallback writes the global bounds over the **last row** of the range table, instead of adding a row | A region processed after the fallback (regions go in alphabetical order) loses its bounds for the rest of that batch, and its observations pass. With the real tables the last temperature and salinity row is `ARC`, which sorts before every region that falls back, so these two variables are not affected | Run on synthetic tables: an observation of 30 °C in a region bounded at 24 °C failed alone and passed with a profile from an unlisted region in the same batch |
+| The fallback reads the global entry as a single row | A global entry with more than one depth band would not work. The real `GLO` rows for temperature and salinity are single rows | From the code |
+| The spike and gradient table's resolution column selects nothing | Where rows differ only in resolution, the smallest resolution's thresholds are used everywhere. No effect on temperature and salinity, which have one resolution; oxygen's shallow thresholds are always the stricter of its two | Run: a 1.5 °C spike passed at both 1 and 10 dbar spacing, against a synthetic table with 1.0 °C for 10 dbar |
+| The stuck value table has depth ranges the code ignores | No effect on temperature and salinity, whose range covers the whole water column. Oxygen's stuck value threshold is applied at every depth, not only in its 800 to 1000 dbar range | From the code and the table |
 | The frozen profile test shifts along bins instead of profiles | It tests flatness, not repetition | Run: see above |
+| The frozen profile table's fluorescence row has its maximum (0.001) below its minimum (0.02), which looks like shifted columns | As read, a fluorescence profile fails only when every difference is below 0.001. Temperature and salinity are not affected | From the table |
 | The density test cannot run through `set_nrtqc.py`: the call passes the arguments in the wrong order, and the data passed lacks the other variable's flag column | The run stops with a `KeyError`. Were it to run, its result would replace the column and drop the flags of the tests before it | Run: `KeyError: "['PSAL_NRTQC'] not in index"` |
 | In `process_profiles.py` the stuck value count is the largest `profile_no` | The threshold is compared with the profile's position in its file | From the code; not run |
 | In `set_nrtqc.py` a profile is time and position, without the platform | Two platforms at the same time and place are merged, and their shared pressures deduplicated | From the code |
@@ -315,10 +351,16 @@ same platform's.
 ## How this was checked
 
 The `nc2parquet` QC modules were copied to a scratch directory outside this
-repository, next to synthetic threshold tables and a synthetic region mask (an
-Arctic, a shelf and an unlisted region), and run on small hand-made profiles.
-The `nrtqclib` side was run with the `aiqclib` item classes and our runs'
-parameters. Neither the copies nor the scripts are kept; nothing from
-`nc2parquet` is in this repository except what this page describes. With the
-real tables, the threshold comparisons above could be filled in, and the
-defects would need checking again against them.
+repository and run on small hand-made profiles, first against synthetic
+tables and a synthetic region mask, to exercise the code paths. The range
+comparison over our data reproduces `nc2parquet`'s region lookup and bounds
+with the real mask and table, in a separate script, rather than running
+`nc2parquet`'s own range function over 330 million rows. To check the
+replica, both were run on 1,500 random profiles from each of `ar_ar`,
+`bo_bo`, `mo_gl` and `cora_mo` (about 1.7 million observations, with
+fallback regions and `ARC` in the same batches): they gave the same flag on
+every observation, for both variables. The `nrtqclib` side
+is its output from our runs, and for the density examples, the `aiqclib` item
+class run with our runs' parameters. Neither the copies nor the scripts are
+kept; nothing from `nc2parquet` is in this repository except what this page
+describes.
