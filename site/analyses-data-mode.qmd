@@ -140,47 +140,47 @@ meta ? app.analysisFigure(
 ) : html``
 ```
 
-## What leaving them out changes
+## What the estimate takes out of NRT
 
-The flag agreement of each group, per 1,000 of its observations. The
-estimated group is chosen for its input-only flags, so its "original only"
-rates are high by construction. The row to read is NRT: what its rates
-would have been with the estimated profiles in it is the two rows
-combined. In the salinity of the Arctic products, the estimated profiles
-hold most of the input-only flags of the profiles marked NRT; elsewhere
-they hold a smaller part, and most input-only flags stay in NRT. The delayed mode group is not a yardstick for the
-estimate: most declared delayed mode profiles have no input-only flag at
-all, as the histogram shows.
+The [Flag differences](analyses-flags.qmd) page compares nrtqclib with the
+input over the NRT profiles only, so the estimated profiles are not in it.
+The table shows what that removes, for each product and variable: the share
+of the observations flagged by the input and not by nrtqclib ("original
+only"), with the estimated profiles counted as NRT and without them, and
+how many of those flags were in the estimated profiles.
+
+The estimated profiles are a small part of every product, but they hold a
+large part of its original-only flags: most of them in the salinity of the
+Arctic products, a smaller part elsewhere. The flags nrtqclib sets, alone
+or with the input, hardly change.
 
 ```{ojs}
-// One row per product, variable and group, summed over the declared data
-// modes; the rates are of that variable's observations.
-rateRows = groupsTable
+// Original-only flags of the NRT group, with the estimated profiles added
+// back and without them.
+removedRows = groupsTable
   ? [...groupsTable
-      .filter((r) => r.group !== "land")
+      .filter((r) => r.group === "nrt" || r.group === "estimated_delayed")
       .reduce((m, r) => {
-        const key = `${r.dataset_id}|${r.variable}|${r.group}`;
-        const row = m.get(key) ?? { key, dataset_id: r.dataset_id, variable: r.variable, group: r.group, n_profiles: 0, n_obs: 0, n_original_only: 0, n_nrtqclib_only: 0, n_agree_bad: 0 };
-        for (const f of ["n_profiles", "n_obs", "n_original_only", "n_nrtqclib_only", "n_agree_bad"]) row[f] += r[f];
+        const key = `${r.dataset_id}|${r.variable}`;
+        const row = m.get(key) ?? { key, dataset_id: r.dataset_id, variable: r.variable, n_estimated: 0, n_obs: 0, n_obs_nrt: 0, n_flags: 0, n_flags_nrt: 0 };
+        const nrt = r.group === "nrt";
+        if (!nrt) row.n_estimated += r.n_profiles;
+        row.n_obs += r.n_obs;
+        row.n_flags += r.n_original_only;
+        if (nrt) { row.n_obs_nrt += r.n_obs; row.n_flags_nrt += r.n_original_only; }
         m.set(key, row);
         return m;
       }, new Map()).values()]
-      .map((r) => ({
-        ...r,
-        original_only: app.perThousandOf(r.n_original_only, r.n_obs),
-        nrtqclib_only: app.perThousandOf(r.n_nrtqclib_only, r.n_obs),
-        agree_bad: app.perThousandOf(r.n_agree_bad, r.n_obs)
-      }))
+      .map((r) => ({ ...r, n_flags_estimated: r.n_flags - r.n_flags_nrt }))
+      .sort(byDatasetVariable)
   : []
-groupRates = [...rateRows].sort((a, b) => byDatasetVariable(a, b) || meta.groups.findIndex((g) => g.key === a.group) - meta.groups.findIndex((g) => g.key === b.group))
-meta ? table(groupRates, [
+meta ? table(removedRows, [
   { key: "dataset_id", label: "Product", align: "left", format: name },
   { key: "variable", label: "Variable", align: "left", format: variableLabel },
-  { key: "group", label: "Group", align: "left", format: groupLabel },
-  { key: "n_profiles", label: "Profiles" },
-  { key: "original_only", label: "Original only per 1,000", format: app.formatRate },
-  { key: "nrtqclib_only", label: "nrtqclib only per 1,000", format: app.formatRate },
-  { key: "agree_bad", label: "Both per 1,000", format: app.formatRate }
+  { key: "n_estimated", label: "Estimated profiles" },
+  { key: "n_flags", label: "Original only, with them", title: "Share of the observations flagged by the input and not by nrtqclib, with the estimated profiles counted as NRT", format: (_, r) => app.formatSmallShare(r.n_flags, r.n_obs) },
+  { key: "n_flags_nrt", label: "Original only, without them", title: "The same share over the NRT profiles alone, as compared on Flag differences", format: (_, r) => app.formatSmallShare(r.n_flags_nrt, r.n_obs_nrt) },
+  { key: "n_flags_estimated", label: "Held by the estimated profiles", title: "Share of the original-only flags above that were in the estimated profiles", format: (_, r) => app.formatShare(r.n_flags_estimated, r.n_flags) }
 ]) : html``
 ```
 

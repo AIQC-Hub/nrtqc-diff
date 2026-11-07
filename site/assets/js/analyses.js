@@ -228,6 +228,17 @@ export function formatShare(part, whole) {
   return `${((100 * part) / whole).toFixed(1)}%`;
 }
 
+/**
+ * A share as a percentage that stays readable when it is small: one decimal
+ * from 1% up, two significant digits below (0.35%, 0.0093%).
+ */
+export function formatSmallShare(part, whole) {
+  if (!whole) return "";
+  const value = (100 * part) / whole;
+  if (value === 0) return "0%";
+  return `${value >= 1 ? value.toFixed(1) : value.toPrecision(2)}%`;
+}
+
 /** A rate per 1,000 with one decimal. */
 export function formatRate(value) {
   return value === null || value === undefined ? "" : Number(value).toFixed(1);

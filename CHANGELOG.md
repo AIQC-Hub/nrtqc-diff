@@ -75,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   none of its profiles can be estimated; it only added rows that were all
   delayed mode. The `dm_` tables skip every dataset configured whole under
   one data mode.
+- Its section on what the estimate changes is now one table per product and
+  variable: the share of observations flagged by the input alone, as a
+  percentage, with the estimated profiles counted as NRT and without them,
+  and how many of those flags the estimated profiles held. It replaces the
+  rates per 1,000 of each group, which had to be combined by hand.
 
 ### Fixed
 
