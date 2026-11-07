@@ -165,7 +165,8 @@ Two profiles of different products are the same cast when they share a
 date and their positions are within 0.001° in longitude and in latitude.
 ctddump's own comparison rounds positions to 3 decimals instead, and since
 the products rarely store a position to the same last digit, a pair either
-side of a rounding boundary is missed: about one pair in ten here. Each
+side of a rounding boundary is missed: the tolerance finds 4% to 11% more
+pairs than the rounding on this batch. Each
 profile is paired at most once, closest in time first, and when the platform
 code is not part of the match a partner on the same platform is preferred.
 "The same cast in NRT and CORA" pairs each product with the products of its
