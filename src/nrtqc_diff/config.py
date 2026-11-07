@@ -59,14 +59,17 @@ DATA_MODE_KEYS: List[str] = ["nrt", "delayed", "unknown"]
 DEFAULT_LAND_MARGINS_M: List[float] = [0.0, 5.0, 10.0, 20.0, 50.0, 100.0]
 
 #: The share of a variable's observations that only the input flags, at and
-#: above which an NRT profile is estimated to carry delayed mode flags. The
-#: distribution is bimodal, with a trough between about 50% and 90%, so the
-#: count barely moves anywhere in that range; the sensitivity table shows it.
+#: above which an NRT profile is estimated to carry delayed mode flags: a
+#: clear majority, since an automated test can plausibly reject half a
+#: profile. Most of the profiles it catches are flagged at exactly 100%, so
+#: they do not depend on it; the sensitivity table shows how the rest move.
 DEFAULT_ESTIMATED_MIN_SHARE: float = 0.6
 
 #: Fewer observations with a usable input flag than this, and a profile's
-#: share is not computed: one flagged observation of one is not a pattern.
-DEFAULT_ESTIMATED_MIN_OBSERVATIONS: int = 5
+#: share is not computed. On a short profile a few flagged values make a
+#: large share: with 5, three of them made exactly 60%, and many short
+#: profiles sat on the threshold.
+DEFAULT_ESTIMATED_MIN_OBSERVATIONS: int = 10
 
 #: The thresholds of the estimated delayed mode sensitivity table.
 DEFAULT_ESTIMATED_SENSITIVITY: List[float] = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]

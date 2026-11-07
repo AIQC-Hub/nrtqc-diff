@@ -74,7 +74,7 @@ data_mode:
   # same rule per variable.
   estimated:
     min_share: 0.6
-    min_observations: 5
+    min_observations: 10
     groups: [nrt, unknown]
 
 # What `nrtqc-diff analyse` reads besides the datasets, and where it writes.

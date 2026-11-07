@@ -42,7 +42,7 @@ variables:
 #
 # A profile marked NRT whose temperature or salinity flags look like an
 # operator's is published as delayed mode too, by the rule of
-# `data_mode.estimated` (defaults: min_share 0.6, min_observations 5); see
+# `data_mode.estimated` (defaults: min_share 0.6, min_observations 10); see
 # config/test_nrt.yaml.
 #
 # A dataset entry can set `data_mode` to file all of its profiles under one

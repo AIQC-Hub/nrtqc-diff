@@ -52,7 +52,7 @@ meta === null ? app.analysesMissing() : html``
 ```
 
 ```{ojs}
-meta ? md`**The rule.** A profile marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} is estimated to be delayed mode for a variable when at least ${percent(rule.min_share)} of its observations of that variable with a usable input flag are flagged by the input and not by nrtqclib. The variable counts only with at least ${rule.min_observations} such observations, so a profile of two flagged values out of two is not called. The threshold is a setting of the analysis; the table further down shows how the count moves with it.` : html``
+meta ? md`**The rule.** A profile marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} is estimated to be delayed mode for a variable when at least ${percent(rule.min_share)} of its observations of that variable with a usable input flag are flagged by the input and not by nrtqclib. The variable counts only with at least ${rule.min_observations} such observations, so a short profile, where a few flagged values make a large share, is not called. The threshold is a setting of the analysis; the table further down shows how the count moves with it.` : html``
 ```
 
 ## The groups
@@ -103,10 +103,19 @@ meta ? app.analysisFigure(
 ```
 
 The shares are two humps: profiles where the input flags a few values
-nrtqclib does not, and profiles where it flags nearly all of them. The
-second hump is larger in salinity than in temperature in most products. The
-trough between them is where the threshold belongs, and the count of
-profiles at or above it barely moves across it.
+nrtqclib does not, and profiles where it flags nearly all of them, many at
+exactly 100%. The second hump is larger in salinity than in temperature in
+most products. The threshold sits between them, at a clear majority of the
+profile rather than half of it, since an automated test can plausibly
+reject half a profile.
+
+**How much the threshold matters depends on the product.** In the Arctic
+regional product the count barely moves between 60% and 90%: its estimated
+profiles are almost all flagged in full. In the salinity of the Arctic
+global product and the temperature of the Mediterranean global product the
+shares spread between the humps, and the count falls steadily as the
+threshold rises, so there the threshold decides how many profiles are
+estimated.
 
 ```{ojs}
 thresholds = meta ? app.loadAnalysisTable("dm_threshold") : null
@@ -139,6 +148,11 @@ meta ? app.analysisFigure(
   "Line charts of profile counts against the threshold, per region and variable."
 ) : html``
 ```
+
+The solid lines are nearly flat: the profiles that declare delayed mode and
+reach 50% nearly all reach 90% too. The dashed lines fall more. So the
+profiles marked NRT with a share between 50% and 90% look less like an
+operator's than those above it, which is why the threshold is not set lower.
 
 ## What the estimate takes out of NRT
 

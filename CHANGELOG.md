@@ -80,6 +80,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   percentage, with the estimated profiles counted as NRT and without them,
   and how many of those flags the estimated profiles held. It replaces the
   rates per 1,000 of each group, which had to be combined by hand.
+- The estimated delayed mode rule needs 10 observations with a usable input
+  flag instead of 5. With 5, three flagged values of five made exactly 60%,
+  and many short profiles, most from a few ice-tethered profilers, sat on
+  the threshold. They held few of the flags the estimate takes out of NRT.
+  The page no longer says the count barely moves across the threshold
+  everywhere: in some products it falls steadily.
 
 ### Fixed
 

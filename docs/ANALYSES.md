@@ -121,9 +121,15 @@ tables also leave out every dataset configured whole under one data mode
 that are all delayed mode.
 
 A usable input flag is one that is present and not among the variable's
-`missing_flag_values` (0 and 9). The share is bimodal on this batch, with a
-trough between about 50% and 90%, which is why 0.6 is the default and why
-the threshold table barely moves across that range.
+`missing_flag_values` (0 and 9). The share is bimodal on this batch, and 0.6
+is the default: a clear majority of the profile, since an automated test can
+plausibly reject half of one. How much the threshold matters differs by
+product. The count barely moves between 60% and 90% where the estimated
+profiles are almost all flagged in full (Arctic regional), and falls
+steadily where the shares spread between the humps (Arctic global salinity,
+Mediterranean global temperature). `min_observations` is 10: with 5, three
+flagged values of five made exactly 60%, and many short profiles sat on the
+threshold.
 
 ## The tables
 

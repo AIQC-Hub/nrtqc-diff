@@ -125,7 +125,7 @@ is published as `estimated_delayed` when the flags of temperature or salinity lo
 like an operator's: at least `min_share` (0.6) of the variable's
 observations with a usable input flag (present, and not a missing flag
 value) are flagged by the input and not by nrtqclib, counting only a
-variable with at least `min_observations` (5) such observations. An
+variable with at least `min_observations` (10) such observations. An
 automated test rarely rejects most of a profile; an operator who judges a
 cast bad often rejects all of it. A profile on land is not estimated: it
 is in `land` already. `estimated_from` names the variables, and the rule is
@@ -183,7 +183,7 @@ not on its flags alone, and then filed under its group.
     "columns": ["temp_dm", "psal_dm", "pres_dm"],
     "delayed_values": ["D"],
     "delayed_column": "delayed",
-    "estimated": { "enabled": true, "min_share": 0.6, "min_observations": 5,
+    "estimated": { "enabled": true, "min_share": 0.6, "min_observations": 10,
                    "groups": ["nrt", "unknown"], "column": "estimated_from" },
     "land_column": "bathymetry"
   },

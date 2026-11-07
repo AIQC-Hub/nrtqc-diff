@@ -129,7 +129,11 @@ def analysed(tmp_path):
                 "variables": [
                     {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
                 ],
-                "data_mode": {"columns": ["temp_dm", "pres_dm"]},
+                # The profiles of CASES are short, so the minimum is lowered.
+                "data_mode": {
+                    "columns": ["temp_dm", "pres_dm"],
+                    "estimated": {"min_observations": 5},
+                },
                 "datasets": [
                     {
                         "id": "one",
