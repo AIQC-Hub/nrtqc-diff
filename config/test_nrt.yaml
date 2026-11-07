@@ -2,6 +2,8 @@
 #
 # This is the real thing, as opposed to `datasets.yaml`, which points at the
 # synthetic demo so that a clean checkout and the CI workflow keep working.
+# `source` names the file stem the ctddump and seastamp reports use for each
+# dataset; only `nrtqc-diff analyse` reads it.
 # Paths are resolved relative to this file and go through the `data` symlink,
 # which is not in git; see CLAUDE.md.
 #
@@ -62,6 +64,32 @@ data_mode:
   columns: [temp_dm, psal_dm, pres_dm]
   delayed_values: [D]
 
+# What `nrtqc-diff analyse` reads besides the datasets, and where it writes.
+# The tables go under site/data so that a data release carries them, and the
+# R scripts under analysis/ draw the figures beside them. The report folders
+# sit next to the nrtqclib batch, which is reached through the `data` link:
+# these paths follow the link before applying `..`. See docs/ANALYSES.md.
+analyses:
+  out_dir: ../site/data/analyses
+  ctddump_reports: ../data/../ctddump/report
+  ctddump_headers: ../data/../ctddump/header
+  seastamp_reports: ../data/../seastamp/report/stamp
+  # seastamp's bathymetry is GEBCO elevation, negative under water. A
+  # position at or above sea level is on land, as nrtqclib's RTQC4 has it.
+  land:
+    column: bathymetry
+    positive_depth: false
+    margins_m: [0, 5, 10, 20, 50, 100]
+  # An NRT profile (or one with no data mode) is estimated to carry delayed
+  # mode flags when at least min_share of its observations with a usable
+  # input flag are flagged by the input and not by nrtqclib, in either
+  # variable, counting only a variable with min_observations such values.
+  estimated_delayed:
+    min_share: 0.6
+    min_observations: 5
+    groups: [nrt, unknown]
+    sensitivity: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
 # The eight datasets of the batch are a region by product grid. `ar`, `bo` and
 # `mo` are the Copernicus codes for the Arctic, the Baltic and the
 # Mediterranean; `gl` is the global product covering the same region, and
@@ -74,6 +102,7 @@ datasets:
     label: Arctic NRT
     description: Near real time product for the Arctic region.
     path: ../data/nrt_qc_ar_ar_0001/nrt_qc/nrt_qc_output.parquet
+    source: nrt_ar_ar
 
   - id: ar_gl
     region: Arctic Ocean
@@ -81,6 +110,7 @@ datasets:
     label: Arctic from the global NRT product
     description: The global near real time product, Arctic subset.
     path: ../data/nrt_qc_ar_gl_0001/nrt_qc/nrt_qc_output.parquet
+    source: nrt_ar_gl
 
   - id: cora_ar
     region: Arctic Ocean
@@ -88,6 +118,7 @@ datasets:
     label: Arctic CORA
     description: The reprocessed CORA product for the Arctic region.
     path: ../data/nrt_qc_cora_ar_0001/nrt_qc/nrt_qc_output.parquet
+    source: cora_ar
     # CORA's DATA_MODE describes the original observation, not the
     # reprocessing QC that set CORA's flags, so every CORA profile carries
     # delayed mode flags whatever its data mode columns say.
@@ -99,6 +130,7 @@ datasets:
     label: Baltic NRT
     description: Near real time product for the Baltic region.
     path: ../data/nrt_qc_bo_bo_0001/nrt_qc/nrt_qc_output.parquet
+    source: nrt_bo_bo
 
   - id: cora_bo
     region: Baltic Sea
@@ -106,6 +138,7 @@ datasets:
     label: Baltic CORA
     description: The reprocessed CORA product for the Baltic region.
     path: ../data/nrt_qc_cora_bo_0001/nrt_qc/nrt_qc_output.parquet
+    source: cora_bo
     # CORA's DATA_MODE describes the original observation, not the
     # reprocessing QC that set CORA's flags, so every CORA profile carries
     # delayed mode flags whatever its data mode columns say.
@@ -117,6 +150,7 @@ datasets:
     label: Mediterranean NRT
     description: Near real time product for the Mediterranean region.
     path: ../data/nrt_qc_mo_mo_0001/nrt_qc/nrt_qc_output.parquet
+    source: nrt_mo_mo
 
   - id: mo_gl
     region: Mediterranean Sea
@@ -124,6 +158,7 @@ datasets:
     label: Mediterranean from the global NRT product
     description: The global near real time product, Mediterranean subset.
     path: ../data/nrt_qc_mo_gl_0001/nrt_qc/nrt_qc_output.parquet
+    source: nrt_mo_gl
 
   - id: cora_mo
     region: Mediterranean Sea
@@ -131,6 +166,7 @@ datasets:
     label: Mediterranean CORA
     description: The reprocessed CORA product for the Mediterranean region.
     path: ../data/nrt_qc_cora_mo_0001/nrt_qc/nrt_qc_output.parquet
+    source: cora_mo
     # CORA's DATA_MODE describes the original observation, not the
     # reprocessing QC that set CORA's flags, so every CORA profile carries
     # delayed mode flags whatever its data mode columns say.

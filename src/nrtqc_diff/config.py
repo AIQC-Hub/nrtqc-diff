@@ -51,6 +51,26 @@ DEFAULT_DELAYED_VALUES: List[str] = ["D"]
 #: lists together.
 DATA_MODE_KEYS: List[str] = ["nrt", "delayed", "unknown"]
 
+#: The sea floor depth bands of the land sensitivity table, in metres above
+#: sea level: a profile counts at a margin when its position is at least that
+#: high. 0 is the rule itself, the one nrtqclib's position on land test
+#: applies; the others show how many of those profiles sit just at the
+#: coastline, where a grid cell of the bathymetry straddles it.
+DEFAULT_LAND_MARGINS_M: List[float] = [0.0, 5.0, 10.0, 20.0, 50.0, 100.0]
+
+#: The share of a profile's observations that only the input flags, at and
+#: above which an NRT profile is estimated to carry delayed mode flags. The
+#: distribution is bimodal, with a trough between about 50% and 90%, so the
+#: count barely moves anywhere in that range; the sensitivity table shows it.
+DEFAULT_ESTIMATED_MIN_SHARE: float = 0.6
+
+#: Fewer observations with a usable input flag than this, and a profile's
+#: share is not computed: one flagged observation of one is not a pattern.
+DEFAULT_ESTIMATED_MIN_OBSERVATIONS: int = 5
+
+#: The thresholds of the estimated delayed mode sensitivity table.
+DEFAULT_ESTIMATED_SENSITIVITY: List[float] = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
 #: Columns every dataset must carry, whatever else it holds.
 REQUIRED_COLUMNS: List[str] = [
     "platform_code",
@@ -136,6 +156,9 @@ class DatasetSpec:
                      CORA's ``DATA_MODE`` describes the original observation,
                      not the reprocessing that set CORA's flags, so a CORA
                      profile marked ``R`` still carries delayed mode flags.
+    :ivar source: The file stem the ctddump and seastamp reports use for the
+                  dataset, such as ``nrt_ar_ar``, or None when it has none.
+                  Only the analyses read it.
     """
 
     id: str
@@ -145,6 +168,50 @@ class DatasetSpec:
     path: str
     description: str = ""
     data_mode: Optional[str] = None
+    source: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class AnalysesSpec:
+    """
+    What ``nrtqc-diff analyse`` reads besides the datasets, and its rules.
+
+    :ivar out_dir: Where the analysis tables are written; the figures go
+                   beside them. Normally ``site/data/analyses``, so that a
+                   data release carries them with the rest.
+    :ivar ctddump_reports: The ctddump ``report`` directory, or None.
+    :ivar ctddump_headers: The ctddump ``header`` directory, or None.
+    :ivar seastamp_reports: The seastamp ``report/stamp`` directory, or None.
+    :ivar bathymetry_column: The column holding the sea floor depth at the
+                             position of each observation.
+    :ivar positive_depth: Whether that column is positive under water. The
+                          seastamp default, GEBCO elevation, is negative
+                          under water, so the default is False. The same
+                          parameter as nrtqclib's position on land test.
+    :ivar land_margins_m: See :data:`DEFAULT_LAND_MARGINS_M`.
+    :ivar estimated_min_share: See :data:`DEFAULT_ESTIMATED_MIN_SHARE`.
+    :ivar estimated_min_observations: See
+                                      :data:`DEFAULT_ESTIMATED_MIN_OBSERVATIONS`.
+    :ivar estimated_groups: The data mode groups whose profiles can be
+                            estimated as delayed mode.
+    :ivar estimated_sensitivity: See :data:`DEFAULT_ESTIMATED_SENSITIVITY`.
+    """
+
+    out_dir: str
+    ctddump_reports: Optional[str] = None
+    ctddump_headers: Optional[str] = None
+    seastamp_reports: Optional[str] = None
+    bathymetry_column: str = "bathymetry"
+    positive_depth: bool = False
+    land_margins_m: List[float] = field(
+        default_factory=lambda: list(DEFAULT_LAND_MARGINS_M)
+    )
+    estimated_min_share: float = DEFAULT_ESTIMATED_MIN_SHARE
+    estimated_min_observations: int = DEFAULT_ESTIMATED_MIN_OBSERVATIONS
+    estimated_groups: List[str] = field(default_factory=lambda: ["nrt", "unknown"])
+    estimated_sensitivity: List[float] = field(
+        default_factory=lambda: list(DEFAULT_ESTIMATED_SENSITIVITY)
+    )
 
 
 @dataclass(frozen=True)
@@ -159,6 +226,8 @@ class BuildConfig:
     :ivar datasets: The datasets to publish.
     :ivar row_group_size: Rows per parquet row group in the observation files.
                           See :data:`DEFAULT_ROW_GROUP_SIZE`.
+    :ivar analyses: The ``analyses`` section, or None when the configuration
+                    has none; only ``nrtqc-diff analyse`` needs it.
     """
 
     title: str
@@ -167,6 +236,7 @@ class BuildConfig:
     data_mode: DataModeSpec
     datasets: List[DatasetSpec]
     row_group_size: int = DEFAULT_ROW_GROUP_SIZE
+    analyses: Optional[AnalysesSpec] = None
 
     def variable(self, name: str) -> VariableSpec:
         """
@@ -256,6 +326,7 @@ def read_config(file_name: str) -> BuildConfig:
             ),
             description=entry.get("description", ""),
             data_mode=entry.get("data_mode"),
+            source=entry.get("source"),
         )
         for entry in raw.get("datasets", [])
     ]
@@ -295,6 +366,7 @@ def read_config(file_name: str) -> BuildConfig:
         data_mode=data_mode,
         datasets=datasets,
         row_group_size=row_group_size,
+        analyses=_analyses(raw.get("analyses"), base_dir),
     )
 
 
@@ -327,15 +399,93 @@ def _data_mode(raw: Any) -> DataModeSpec:
     return DataModeSpec(columns=columns, delayed_values=delayed)
 
 
-def _resolve(path: str, base_dir: str) -> str:
+def _analyses(raw: Any, base_dir: str) -> Optional[AnalysesSpec]:
+    """
+    Read the optional ``analyses`` section.
+
+    Its directories are resolved through symbolic links before ``..`` is
+    applied, unlike the dataset paths. The report directories sit beside the
+    nrtqclib batch rather than in it, and the batch is reached through the
+    ``data`` symbolic link, so ``../data/../ctddump`` has to mean the folder
+    next to where the link points, not the repository root that a purely
+    textual ``..`` would make of it.
+
+    :param raw: The section as parsed from YAML, or None.
+    :param base_dir: The directory holding the configuration file.
+    :return: The parsed section, or None when there is none.
+    :raises ValueError: If a value is out of range.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("The 'analyses' section must be a mapping.")
+
+    def directory(key: str) -> Optional[str]:
+        value = raw.get(key)
+        if value is None:
+            return None
+        return os.path.realpath(_resolve(str(value), base_dir, textual=False))
+
+    estimated = raw.get("estimated_delayed") or {}
+    land = raw.get("land") or {}
+    spec = AnalysesSpec(
+        out_dir=_resolve(
+            str(_require(raw, "out_dir", "The 'analyses' section")), base_dir
+        ),
+        ctddump_reports=directory("ctddump_reports"),
+        ctddump_headers=directory("ctddump_headers"),
+        seastamp_reports=directory("seastamp_reports"),
+        bathymetry_column=str(land.get("column", "bathymetry")),
+        positive_depth=bool(land.get("positive_depth", False)),
+        land_margins_m=[
+            float(value) for value in land.get("margins_m", DEFAULT_LAND_MARGINS_M)
+        ],
+        estimated_min_share=float(
+            estimated.get("min_share", DEFAULT_ESTIMATED_MIN_SHARE)
+        ),
+        estimated_min_observations=int(
+            estimated.get("min_observations", DEFAULT_ESTIMATED_MIN_OBSERVATIONS)
+        ),
+        estimated_groups=[
+            str(value) for value in estimated.get("groups", ["nrt", "unknown"])
+        ],
+        estimated_sensitivity=[
+            float(value)
+            for value in estimated.get("sensitivity", DEFAULT_ESTIMATED_SENSITIVITY)
+        ],
+    )
+    shares = [spec.estimated_min_share] + spec.estimated_sensitivity
+    if any(not 0.0 < share <= 1.0 for share in shares):
+        raise ValueError(
+            "analyses.estimated_delayed shares must be above 0 and at most 1."
+        )
+    if spec.estimated_min_observations < 1:
+        raise ValueError(
+            "analyses.estimated_delayed.min_observations must be 1 or more."
+        )
+    bad_groups = [g for g in spec.estimated_groups if g not in DATA_MODE_KEYS]
+    if bad_groups:
+        raise ValueError(
+            f"analyses.estimated_delayed.groups must be among "
+            f"{', '.join(DATA_MODE_KEYS)}; rejected: {', '.join(bad_groups)}."
+        )
+    return spec
+
+
+def _resolve(path: str, base_dir: str, textual: bool = True) -> str:
     """
     Expand ``~`` and make a relative path absolute against the config's folder.
 
     :param path: The path as written in the configuration.
     :param base_dir: The directory holding the configuration file.
-    :return: An absolute path.
+    :param textual: Whether to normalise ``..`` as text. Pass False to leave
+                    it for :func:`os.path.realpath`, which applies it after
+                    following symbolic links.
+    :return: An absolute path, or with ``textual`` False, one that
+             ``realpath`` will make absolute.
     """
     path = os.path.expanduser(path)
     if os.path.isabs(path):
         return path
-    return os.path.abspath(os.path.join(base_dir, path))
+    joined = os.path.join(base_dir, path)
+    return os.path.abspath(joined) if textual else joined
