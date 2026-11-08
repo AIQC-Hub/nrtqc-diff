@@ -75,7 +75,7 @@ The settings this needs, all on this repository:
 
 | Setting | Kind | What it is |
 | --- | --- | --- |
-| `NRTQC_DATA_RELEASE` | Variable | The tag to deploy, e.g. `data-2026-09-23` |
+| `NRTQC_DATA_RELEASE` | Variable | The tag to deploy, e.g. `data-2026-11-09` |
 | `NRTQC_DATA_REPO` | Variable, optional | Overrides `AIQC-Hub/nrtqc-diff-data` |
 | `NRTQC_DATA_TOKEN` | Secret, optional | Read access, needed only if the data repository is private |
 
@@ -103,8 +103,8 @@ From a checkout whose `data/` holds the `nrtqclib` run:
 uv run nrtqc-diff build -c config/test_nrt.yaml
 uv run nrtqc-diff analyse -c config/test_nrt.yaml   # the Analyses tables
 Rscript analysis/run_all.R                          # and their figures
-uv run python scripts/data_release.py publish data-2026-09-23 --dry-run
-uv run python scripts/data_release.py publish data-2026-09-23
+uv run python scripts/data_release.py publish data-2026-11-09 --dry-run
+uv run python scripts/data_release.py publish data-2026-11-09
 ```
 
 That creates the release if it is not there and uploads what the build wrote,
@@ -123,7 +123,7 @@ build it is serving, and no parquet file ever enters a history that has to be
 carried forever. When an old one is no longer worth the storage:
 
 ```bash
-gh release delete data-2026-08-12 \
+gh release delete data-2026-11-08 \
   --repo AIQC-Hub/nrtqc-diff-data --cleanup-tag --yes
 ```
 
