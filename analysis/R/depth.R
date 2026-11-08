@@ -1,0 +1,169 @@
+# Figures of the Depth page: where the bathymetry puts profiles on land, how
+# far above sea level they are and why, and whether the input's QC said
+# anything about them.
+
+source("analysis/R/setup.R")
+message("Depth")
+
+# Severity of what the input flags said about a land profile, worst first.
+land_classes <- c(
+  "Position flagged" = "#cc3355",
+  "Every observation flagged" = "#6250d6",
+  "Some observations flagged" = "#eb6834",
+  "Not flagged" = "#b8c0c8"
+)
+
+land <- read_table("depth_land_profiles")
+if (!is.null(land)) {
+  vars <- meta$variables$name
+  bad <- as.matrix(land[paste0(vars, "_n_original_bad")])
+  usable <- as.matrix(land[paste0(vars, "_n_usable")])
+  every <- rowSums(usable > 0) > 0 & rowSums(usable > 0 & bad < usable) == 0
+  land <- land |>
+    with_datasets() |>
+    mutate(
+      class = case_when(
+        coalesce(position_qc %in% meta$rules$position_bad_values, FALSE) ~
+          "Position flagged",
+        every ~ "Every observation flagged",
+        rowSums(bad) > 0 ~ "Some observations flagged",
+        TRUE ~ "Not flagged"
+      ),
+      class = factor(class, levels = names(land_classes))
+    )
+
+  # What the input flagged on the land profiles, as a share of each
+  # dataset's land profiles. The unflagged rest, most of every bar, is left
+  # out so the flagged part can be read; the label keeps the whole in view.
+  flagged_classes <- land_classes[names(land_classes) != "Not flagged"]
+  totals <- land |>
+    count(short, name = "n_land") |>
+    left_join(land |> filter(class != "Not flagged") |> count(short, name = "n_flagged"),
+              by = "short") |>
+    mutate(n_flagged = coalesce(n_flagged, 0L), share = n_flagged / n_land)
+  counts <- land |>
+    filter(class != "Not flagged") |>
+    count(short, class) |>
+    left_join(select(totals, short, n_land), by = "short") |>
+    mutate(share = n / n_land, class = factor(class, levels = names(flagged_classes)))
+  plot <- ggplot(counts, aes(share, forcats::fct_rev(short), fill = class)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+             position = position_stack(reverse = TRUE), show.legend = TRUE) +
+    geom_text(data = totals, inherit.aes = FALSE,
+              aes(share, forcats::fct_rev(short),
+                  label = paste0(percent(share, accuracy = 0.1), " of ", comma(n_land))),
+              hjust = -0.1, size = 2.4) +
+    scale_fill_manual(values = flagged_classes, drop = FALSE) +
+    scale_y_discrete(limits = rev(levels(droplevels(totals$short)))) +
+    scale_x_continuous(labels = label_percent(), expand = expansion(mult = c(0, 0.3))) +
+    labs(x = "Land profiles the input flagged, share of the product's land profiles",
+         y = NULL)
+  save_figure(plot, "depth_land_qc", height = 62)
+
+  # Where they are: the Arctic around the pole, the two seas framed on their
+  # own profiles. Unflagged profiles are drawn first, so the few the input
+  # did flag sit on top.
+  world <- map_data("world")
+  land <- arrange(land, desc(class))
+  map_panel <- function(name, polar = FALSE) {
+    here <- filter(land, region == name)
+    if (nrow(here) == 0) return(NULL)
+    panel <- ggplot() +
+      geom_point(data = here, aes(longitude, latitude, colour = class),
+                 size = 0.9, alpha = 0.7, stroke = 0, show.legend = TRUE) +
+      scale_colour_manual(values = land_classes, drop = FALSE) +
+      labs(title = name, x = NULL, y = NULL) +
+      theme(plot.title = element_text(face = "bold", size = 8),
+            panel.grid.major = element_line(colour = "#ecebe7", linewidth = 0.2),
+            axis.text = element_text(size = 6))
+    if (polar) {
+      south <- floor(min(here$latitude) / 5) * 5 - 2
+      shore <- filter(world, lat >= south - 10)
+      panel$layers <- c(
+        geom_polygon(data = shore, aes(long, lat, group = group),
+                     fill = "#ecebe7", colour = "#c9c8c2", linewidth = 0.15),
+        panel$layers
+      )
+      panel + coord_map("ortho", orientation = c(90, 0, 0), ylim = c(south, 90)) +
+        scale_x_continuous(breaks = NULL) +
+        scale_y_continuous(breaks = NULL)
+    } else {
+      pad_x <- max(1, diff(range(here$longitude)) * 0.08)
+      pad_y <- max(0.5, diff(range(here$latitude)) * 0.08)
+      panel$layers <- c(
+        geom_polygon(data = world, aes(long, lat, group = group),
+                     fill = "#ecebe7", colour = "#c9c8c2", linewidth = 0.15),
+        panel$layers
+      )
+      panel + coord_quickmap(xlim = range(here$longitude) + c(-pad_x, pad_x),
+                             ylim = range(here$latitude) + c(-pad_y, pad_y),
+                             expand = FALSE)
+    }
+  }
+  arctic <- map_panel(region_levels[1], polar = TRUE)
+  seas <- Filter(Negate(is.null), lapply(region_levels[-1], map_panel))
+  plot <- (arctic | wrap_plots(seas, ncol = 1)) +
+    plot_layout(widths = c(1.15, 1), guides = "collect") &
+    theme(legend.position = "bottom") &
+    guides(colour = guide_legend(override.aes = list(size = 2.2, alpha = 1)))
+  save_figure(plot, "depth_land_map", height = 120)
+}
+
+# The likely cause of each land profile, from its position, its height and
+# its distance to the coast, as a share of the product's land profiles.
+causes <- read_table("depth_land_cause")
+if (!is.null(causes)) {
+  rule <- meta$rules$land
+  cause_colours <- setNames(
+    c("#2a78d6", "#1baf7a", "#cc3355", "#eb6834"),
+    c(sprintf("At the shore: %g m up or less, %g km from the coast or less",
+              rule$shore_height_m, rule$shore_distance_km),
+      "Low but further from the coast",
+      sprintf("Higher than %g m: a wrong position", rule$shore_height_m),
+      "Position in whole degrees")
+  )
+  cause_names <- setNames(names(cause_colours),
+                          c("shore", "low_far", "inland", "whole_degrees"))
+  causes <- causes |>
+    with_datasets() |>
+    arrange(order) |>
+    group_by(short) |>
+    mutate(share = n_profiles / sum(n_profiles),
+           row = paste0(short, " (", comma(sum(n_profiles)), ")")) |>
+    ungroup() |>
+    mutate(row = factor(row, levels = rev(unique(row))),
+           cause = factor(unname(cause_names[cause]), levels = names(cause_colours)))
+  plot <- ggplot(causes, aes(share, row, fill = cause)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+             position = position_stack(reverse = TRUE)) +
+    geom_text(data = filter(causes, share >= 0.08), colour = "white", size = 2.3,
+              aes(label = percent(share, accuracy = 1)),
+              position = position_stack(vjust = 0.5, reverse = TRUE)) +
+    scale_fill_manual(values = cause_colours, drop = FALSE) +
+    scale_x_continuous(labels = label_percent(), breaks = seq(0, 1, 0.25),
+                       expand = expansion(0)) +
+    guides(fill = guide_legend(ncol = 2)) +
+    labs(x = "Land profiles, by likely cause", y = NULL, fill = NULL)
+  save_figure(plot, "depth_land_cause", height = 78)
+}
+
+hist <- read_table("depth_elevation_hist")
+if (!is.null(hist)) {
+  # The lowest bin gathers every profile deeper than the reach, most of
+  # each dataset, and would flatten the rest; the page counts them instead.
+  reach <- min(hist$bin_lo)
+  hist <- hist |>
+    filter(bin_lo > reach) |>
+    with_datasets() |>
+    mutate(side = if_else(bin_lo >= 0, "At or above sea level", "Under water"))
+  plot <- ggplot(hist, aes(bin_lo + (bin_hi - bin_lo) / 2, n_profiles, fill = side)) +
+    geom_col(width = 4.2) +
+    geom_vline(xintercept = 0, linewidth = 0.3, colour = "#52514e") +
+    facet_wrap(~short, ncol = 3, scales = "free_y") +
+    scale_fill_manual(values = c("At or above sea level" = "#008300",
+                                 "Under water" = "#9ab7d9")) +
+    scale_y_sqrt(labels = comma0) +
+    labs(x = "Sea floor height at the position (m); the last bar gathers everything higher",
+         y = "Number of profiles per 5 m (axis spaced by square root)")
+  save_figure(plot, "depth_elevation", height = 110)
+}

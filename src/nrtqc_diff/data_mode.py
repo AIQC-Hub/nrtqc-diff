@@ -12,10 +12,16 @@ decided". The answers are kept apart by publishing every profile under
 exactly one of :data:`DATA_MODES`, which the site filters on.
 
 An empty data mode is its own group rather than a quiet NRT. ctddump writes
-``""`` both for a fill cell and for a parameter whose file gives no usable
-mode, such as one marked ``M`` (mixed) with no per-level variable, and that
-can hide delayed mode data. "NRT only" therefore takes positive evidence:
-every observation ``R`` or ``A`` in every configured column.
+``""`` for a parameter whose file gives no usable mode, such as one marked
+``M`` (mixed) with no per-level variable, or a product file with no data mode
+at all, and that can hide delayed mode data. "NRT only" therefore takes
+positive evidence: every observation ``R`` or ``A`` in every configured
+column.
+
+ctddump also writes ``""`` at a level where the parameter itself has no
+value, because the per-level data mode variable is a fill there too. That
+says nothing about the profile, so an empty data mode counts only where the
+parameter it describes has a value: ``temp_dm`` describes ``temp``.
 
 The split is by profile, like the trimming rule, because a profile is what a
 reader opens. A dataset can also be filed whole under one group by its
@@ -23,17 +29,22 @@ configuration, for a product whose input flags come from its own delayed
 mode QC whatever its data mode columns say.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import polars as pl
 
-from nrtqc_diff.config import DATA_MODE_KEYS, DataModeSpec
+from nrtqc_diff.config import (
+    DATA_MODE_KEYS,
+    DEFAULT_BATHYMETRY_COLUMN,
+    BuildConfig,
+    DataModeSpec,
+)
 from nrtqc_diff.flags import is_one_of
 
 #: Every observation of the profile is real time or adjusted in real time.
 NRT: str = "nrt"
-#: At least one observation of the profile is in delayed mode, or the dataset
-#: is configured as delayed mode throughout.
+#: At least one observation of the profile is in delayed mode, or the
+#: dataset is configured as delayed mode throughout.
 DELAYED: str = "delayed"
 #: No observation is in delayed mode, but at least one has no data mode.
 UNKNOWN: str = "unknown"
@@ -52,7 +63,7 @@ DATA_MODES: List[Dict[str, str]] = [
     },
     {
         "key": DELAYED,
-        "label": "Contains delayed mode",
+        "label": "Delayed mode",
         "description": (
             "Profiles with at least one delayed mode observation, or from a "
             "product whose flags come from its own delayed mode QC: the input "
@@ -70,6 +81,50 @@ DATA_MODES: List[Dict[str, str]] = [
 ]
 
 assert [mode["key"] for mode in DATA_MODES] == DATA_MODE_KEYS
+
+#: The bathymetry puts a position of the profile at or above sea level.
+#: Not a data mode, so not one of :data:`DATA_MODES` (a dataset cannot be
+#: configured as it), but a group the site publishes, decided before them.
+LAND: str = "land"
+#: Marked NRT, or with no data mode, but the flags of temperature or salinity
+#: look like an operator's (:func:`is_estimated`). Not a data mode the files
+#: declare, so not one of :data:`DATA_MODES` either.
+ESTIMATED_DELAYED: str = "estimated_delayed"
+
+
+def _data_mode(key: str) -> Dict[str, str]:
+    """:return: The entry of :data:`DATA_MODES` with this key."""
+    return next(mode for mode in DATA_MODES if mode["key"] == key)
+
+
+#: The groups the site publishes and offers, in that order: NRT, the two
+#: delayed mode groups (estimated, then declared), unknown, then land.
+#: ``catalog.json`` carries them as ``data_modes``.
+PUBLISHED_GROUPS: List[Dict[str, str]] = [
+    _data_mode(NRT),
+    {
+        "key": ESTIMATED_DELAYED,
+        "label": "Estimated delayed mode",
+        "description": (
+            "Profiles marked NRT, or with no data mode, whose temperature or "
+            "salinity flags look like an operator's: most of the variable's "
+            "observations are flagged by the input and not by nrtqclib. An "
+            "estimate from the flags, not a data mode the files declare. See "
+            "the Delayed mode in NRT products page."
+        ),
+    },
+    _data_mode(DELAYED),
+    _data_mode(UNKNOWN),
+    {
+        "key": LAND,
+        "label": "On land",
+        "description": (
+            "Profiles with a position the bathymetry puts at or above sea "
+            "level, whatever their data mode: their disagreements are mostly "
+            "about the position rather than the tests. See the Depth page."
+        ),
+    },
+]
 
 #: The published per-observation column saying whether any configured data
 #: mode column holds a delayed value. The plots mark those observations.
@@ -93,7 +148,23 @@ def is_delayed(spec: DataModeSpec) -> pl.Expr:
     return pl.any_horizontal(tests)
 
 
-def is_unknown(spec: DataModeSpec) -> pl.Expr:
+def described_column(column: str) -> Optional[str]:
+    """
+    The parameter a data mode column describes, by ctddump's naming.
+
+    :param column: A data mode column, such as ``temp_dm``.
+    :return: ``temp`` for ``temp_dm``, or None for a name without the suffix.
+    """
+    return column[: -len("_dm")] if column.endswith("_dm") else None
+
+
+def has_value(column: str) -> pl.Expr:
+    """Whether a parameter has a value: neither null nor NaN."""
+    value = pl.col(column).cast(pl.Float64, strict=False)
+    return value.is_not_null() & value.is_not_nan()
+
+
+def is_unknown(spec: DataModeSpec, names: Sequence[str] = ()) -> pl.Expr:
     """
     Whether an observation has no data mode in any configured column.
 
@@ -101,13 +172,21 @@ def is_unknown(spec: DataModeSpec) -> pl.Expr:
     An observation can be both this and :func:`is_delayed`, delayed in one
     column and empty in another; the delayed value decides its profile.
 
+    A data mode column whose parameter is among ``names`` counts as empty
+    only where that parameter has a value: at a level with no value the data
+    mode is a fill as well, and says nothing about the file.
+
     :param spec: The configured data mode columns.
+    :param names: The columns of the input, to find each parameter in.
     :return: A boolean expression, never null.
     """
-    tests = [
-        is_one_of(pl.col(column).cast(pl.Utf8), [""]) | pl.col(column).is_null()
-        for column in spec.columns
-    ]
+    tests = []
+    for column in spec.columns:
+        empty = is_one_of(pl.col(column).cast(pl.Utf8), [""]) | pl.col(column).is_null()
+        described = described_column(column)
+        if described is not None and described in names:
+            empty = empty & has_value(described)
+        tests.append(empty)
     return pl.any_horizontal(tests)
 
 
@@ -135,3 +214,64 @@ def profile_data_mode(
         .then(pl.lit(UNKNOWN))
         .otherwise(pl.lit(NRT))
     )
+
+
+def input_only_share(variable: str, spec: DataModeSpec) -> pl.Expr:
+    """
+    The share of a variable's observations with a usable input flag that
+    the input flags and nrtqclib does not, from a profile's counts
+    ``{variable}_n_usable`` and ``{variable}_n_original_only``. Null below
+    ``estimated_min_observations`` usable flags: a few flagged values are
+    not a pattern.
+    """
+    usable = pl.col(f"{variable}_n_usable")
+    return (
+        pl.when(usable >= spec.estimated_min_observations)
+        .then(pl.col(f"{variable}_n_original_only") / usable)
+        .otherwise(None)
+    )
+
+
+def is_estimated(share: pl.Expr, declared: pl.Expr, spec: DataModeSpec) -> pl.Expr:
+    """
+    Whether a profile's flags of one variable are estimated to be delayed
+    mode ones: its declared group is one the estimate applies to, and its
+    input-only share (:func:`input_only_share`) reaches
+    ``estimated_min_share``. An automated test rarely rejects most of a
+    profile; an operator who judges a cast bad often rejects all of it.
+
+    :param share: The variable's input-only share.
+    :param declared: The profile's group from its data mode columns.
+    :param spec: The data mode section, with the rule.
+    :return: A boolean expression, never null.
+    """
+    if not spec.estimate:
+        return pl.lit(False)
+    return declared.is_in(spec.estimated_groups) & (
+        share >= spec.estimated_min_share
+    ).fill_null(False)
+
+
+def sea_floor_elevation(column: str, positive_depth: bool) -> pl.Expr:
+    """
+    The height of the sea floor above sea level: negative under water.
+
+    :param column: The sea floor column.
+    :param positive_depth: Whether that column is positive under water.
+    :return: A ``Float64`` expression.
+    """
+    value = pl.col(column).cast(pl.Float64, strict=False)
+    return -value if positive_depth else value
+
+
+def land_rule(config: BuildConfig) -> tuple:
+    """
+    The sea floor column and its sign, as ``(column, positive_depth)``: the
+    ``analyses.land`` settings when there are any, else seastamp's defaults.
+    A profile with any position at or above sea level is on land, and its
+    flags are not estimated: an operator's rejection and a position on land
+    look alike in the flags.
+    """
+    if config.analyses is not None:
+        return config.analyses.bathymetry_column, config.analyses.positive_depth
+    return DEFAULT_BATHYMETRY_COLUMN, False

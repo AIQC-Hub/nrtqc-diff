@@ -1,0 +1,225 @@
+---
+title: "Delayed mode in NRT products"
+format:
+  html:
+    page-layout: full
+execute:
+  echo: false
+---
+
+A flag set in delayed mode is likely to be an operator's decision rather
+than an automated test's, so comparing it with nrtqclib asks a different
+question from comparing two sets of NRT flags. The rest of the site already
+keeps profiles with a delayed mode observation apart, by the data mode the
+files declare. This page adds a group the files do not declare: **profiles
+marked NRT whose flags look like delayed mode ones.**
+
+The page covers the NRT products only. CORA is left out: the rest of the
+site files it whole as delayed mode, since its flags come from its own
+delayed mode QC, so it has no profile marked NRT to estimate. The delayed
+mode profiles below are the ones the NRT products declare.
+
+The sign is the share of a profile's observations that the input flags and
+nrtqclib does not. An automated test rarely rejects most of a profile; an
+operator who judges a cast bad often rejects all of it. Delayed mode
+profiles show it, and so do some profiles marked real time.
+
+**Temperature and salinity are judged apart.** An operator often reworks
+one and leaves the other alone, and most of the profiles this finds are
+reworked in salinity only. So a profile can be estimated delayed mode for
+salinity and still be NRT for temperature: it leaves the salinity
+comparison and stays in the temperature one. Every table and figure below
+has the two variables apart.
+
+```{ojs}
+//| output: false
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+meta = app.loadAnalyses()
+name = (id) => app.datasetName(meta, id)
+table = app.analysisTable
+byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
+rule = meta ? meta.rules.estimated_delayed : null
+groupLabel = (key) => meta.groups.find((g) => g.key === key)?.label ?? key
+modeLabel = (key) => meta.data_modes.find((m) => m.key === key)?.label ?? key
+variableLabel = (n) => meta.variables.find((v) => v.name === n)?.label ?? n
+variableOrder = (n) => meta.variables.findIndex((v) => v.name === n)
+byDatasetVariable = (a, b) => byDataset(a, b) || variableOrder(a.variable) - variableOrder(b.variable)
+percent = (value) => `${Math.round(100 * value)}%`
+```
+
+```{ojs}
+meta === null ? app.analysesMissing() : html``
+```
+
+```{ojs}
+meta ? md`**The rule.** A profile marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} is estimated to be delayed mode for a variable when at least ${percent(rule.min_share)} of its observations of that variable with a usable input flag are flagged by the input and not by nrtqclib. The variable counts only with at least ${rule.min_observations} such observations, so a short profile, where a few flagged values make a large share, is not called. The threshold is a setting of the analysis; the table further down shows how the count moves with it.` : html``
+```
+
+## The groups
+
+Profiles the bathymetry puts on land are left out first: they are the
+subject of the [Depth](analyses-depth.qmd) page, and nothing on this page
+or the next counts them. For each variable, every profile at sea is then
+filed under exactly one group, decided in this order: containing delayed
+mode, estimated delayed mode, data mode unknown, and NRT. Only the last is
+compared item by item on [Flag differences](analyses-flags.qmd), each
+variable over its own NRT profiles.
+
+```{ojs}
+groupsTable = meta ? app.loadAnalysisTable("dm_groups") : null
+// The groups at sea that hold any profile: an empty one would be a blank column.
+seaGroups = meta && groupsTable
+  ? meta.groups.filter((g) => g.key !== "land" && groupsTable.some((r) => r.group === g.key && r.n_profiles > 0))
+  : []
+groupRows = groupsTable
+  ? app.widen(groupsTable.filter((r) => r.group !== "land"), { index: ["dataset_id", "variable"], column: "group", value: "n_profiles" })
+      .map((r) => ({ ...r, key: `${r.dataset_id}|${r.variable}`, n_sea: seaGroups.reduce((sum, g) => sum + (r[g.key] ?? 0), 0) }))
+      .sort(byDatasetVariable)
+  : []
+meta ? table(groupRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "n_sea", label: "Profiles at sea" },
+  ...seaGroups.map((g) => ({ key: g.key, label: g.label, title: g.description }))
+]) : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "dm_groups",
+  "Each product's profiles at sea by the group the analyses file them under, one panel per variable; the number of profiles at sea is in brackets. Profiles on land are left out (see Depth): a small share of most products, but more in the Baltic.",
+  "Stacked bars of the share of profiles in each group, per product."
+) : html``
+```
+
+## The share flagged by the input alone
+
+```{ojs}
+meta ? app.analysisFigure(
+  "dm_share",
+  `Profiles by the share of their observations of each variable flagged by the input alone, coloured by the data mode their files declare: one row per product, one column per variable. Profiles with no such observation, most of every product, are left out and counted in the table below. The dashed line is the threshold, ${percent(rule.min_share)}.`,
+  "Histograms of the input-only share per product and variable, split by declared data mode."
+) : html``
+```
+
+The shares are two humps: profiles where the input flags a few values
+nrtqclib does not, and profiles where it flags nearly all of them, many at
+exactly 100%. The second hump is larger in salinity than in temperature in
+most products. The threshold sits between them, at a clear majority of the
+profile rather than half of it, since an automated test can plausibly
+reject half a profile.
+
+**How much the threshold matters depends on the product.** In the Arctic
+regional product the count barely moves between 60% and 90%: its estimated
+profiles are almost all flagged in full. In the salinity of the Arctic
+global product and the temperature of the Mediterranean global product the
+shares spread between the humps, and the count falls steadily as the
+threshold rises, so there the threshold decides how many profiles are
+estimated.
+
+```{ojs}
+thresholds = meta ? app.loadAnalysisTable("dm_threshold") : null
+hist = meta ? app.loadAnalysisTable("dm_share_hist") : null
+thresholdRows = thresholds
+  ? app.widen(thresholds, { index: ["dataset_id", "variable", "data_mode", "n_eligible"], column: "threshold", value: "n_profiles", name: (t) => `t${t}` })
+      .map((row) => ({
+        ...row,
+        key: `${row.dataset_id}|${row.variable}|${row.data_mode}`,
+        zero: (hist ?? []).filter((h) => h.dataset_id === row.dataset_id && h.variable === row.variable && h.data_mode === row.data_mode && h.bin_hi === 0)
+          .reduce((s, h) => s + h.n_profiles, 0)
+      }))
+      .sort((a, b) => byDatasetVariable(a, b) || a.data_mode.localeCompare(b.data_mode))
+  : []
+thresholdKeys = thresholds ? [...new Set(thresholds.map((t) => t.threshold))].sort((a, b) => a - b) : []
+meta ? table(thresholdRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "data_mode", label: "Declared", align: "left", format: modeLabel },
+  { key: "n_eligible", label: "With a share", title: `Profiles with at least ${rule.min_observations} observations of the variable with a usable input flag` },
+  { key: "zero", label: "Share 0" },
+  ...thresholdKeys.map((t) => ({ key: `t${t}`, label: `At or above ${percent(t)}` }))
+]) : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "dm_threshold",
+  "Profiles at or above each threshold, one row of panels per variable. Dashed: profiles marked NRT or with no data mode, the ones the rule files as estimated delayed mode. Solid: profiles already in delayed mode that the same rule would catch, which says how much of delayed mode the rule can see at all.",
+  "Line charts of profile counts against the threshold, per region and variable."
+) : html``
+```
+
+The solid lines are nearly flat: the profiles that declare delayed mode and
+reach 50% nearly all reach 90% too. The dashed lines fall more. So the
+profiles marked NRT with a share between 50% and 90% look less like an
+operator's than those above it, which is why the threshold is not set lower.
+
+## What the estimate takes out of NRT
+
+The [Flag differences](analyses-flags.qmd) page compares nrtqclib with the
+input over the NRT profiles only, so the estimated profiles are not in it.
+The table shows what that removes, for each product and variable: the share
+of the observations flagged by the input and not by nrtqclib ("original
+only"), with the estimated profiles counted as NRT and without them, and
+how many of those flags were in the estimated profiles.
+
+The estimated profiles are a small part of every product, but they hold a
+large part of its original-only flags: most of them in the salinity of the
+Arctic products, a smaller part elsewhere. The flags nrtqclib sets, alone
+or with the input, hardly change.
+
+```{ojs}
+// Original-only flags of the NRT group, with the estimated profiles added
+// back and without them.
+removedRows = groupsTable
+  ? [...groupsTable
+      .filter((r) => r.group === "nrt" || r.group === "estimated_delayed")
+      .reduce((m, r) => {
+        const key = `${r.dataset_id}|${r.variable}`;
+        const row = m.get(key) ?? { key, dataset_id: r.dataset_id, variable: r.variable, n_estimated: 0, n_obs: 0, n_obs_nrt: 0, n_flags: 0, n_flags_nrt: 0 };
+        const nrt = r.group === "nrt";
+        if (!nrt) row.n_estimated += r.n_profiles;
+        row.n_obs += r.n_obs;
+        row.n_flags += r.n_original_only;
+        if (nrt) { row.n_obs_nrt += r.n_obs; row.n_flags_nrt += r.n_original_only; }
+        m.set(key, row);
+        return m;
+      }, new Map()).values()]
+      .map((r) => ({ ...r, n_flags_estimated: r.n_flags - r.n_flags_nrt }))
+      .sort(byDatasetVariable)
+  : []
+meta ? table(removedRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "n_estimated", label: "Estimated profiles" },
+  { key: "n_flags", label: "Original only, with them", title: "Share of the observations flagged by the input and not by nrtqclib, with the estimated profiles counted as NRT", format: (_, r) => app.formatSmallShare(r.n_flags, r.n_obs) },
+  { key: "n_flags_nrt", label: "Original only, without them", title: "The same share over the NRT profiles alone, as compared on Flag differences", format: (_, r) => app.formatSmallShare(r.n_flags_nrt, r.n_obs_nrt) },
+  { key: "n_flags_estimated", label: "Held by the estimated profiles", title: "Share of the original-only flags above that were in the estimated profiles", format: (_, r) => app.formatShare(r.n_flags_estimated, r.n_flags) }
+]) : html``
+```
+
+## Where they come from
+
+If the estimate picks up reprocessing rather than chance, its profiles
+should gather on a few platforms instead of spreading thinly. For each
+platform and variable with any: how many of its profiles could be
+estimated (marked NRT or with no data mode), how many were, and how many it
+has in declared delayed mode.
+
+```{ojs}
+platforms = meta ? app.loadAnalysisTable("dm_estimated_platforms") : null
+meta ? table((platforms ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.variable}|${r.platform_code}` })).sort((a, b) => b.n_estimated - a.n_estimated), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
+  { key: "n_profiles", label: "Profiles at sea" },
+  { key: "n_candidates", label: "NRT or unknown" },
+  { key: "n_estimated", label: "Estimated" },
+  { key: "share", label: "Share", format: (_, r) => app.formatShare(r.n_estimated, r.n_candidates) },
+  { key: "n_delayed", label: "Declared delayed" }
+]) : html``
+```
+
+Every profile estimated for either variable is listed, with its share and
+estimate per variable, in
+[the table this page reads](data/analyses/tables/dm_estimated_profiles.csv).

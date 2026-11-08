@@ -12,6 +12,10 @@ matters is with our Arctic datasets (`ar_ar`, `ar_gl`, `cora_ar`) and the
 Arctic parameters of our runs. Where `nc2parquet`'s design would behave
 differently elsewhere, that is noted briefly.
 
+The tests the regional centres themselves say they run, which made the
+input flags of the regional products, are listed in
+[`REGIONAL_QC.md`](REGIONAL_QC.md).
+
 This file is documentation for the repository only. The site renders `site/`
 and nothing outside it, so the file is never published as a page.
 
@@ -415,6 +419,10 @@ unlike its predecessor failed. It is off by default, and is also commented
 out of `process_profiles.py`. Even with the shift corrected, "the previous
 profile" would be the previous one in time across the whole file, not the
 same platform's.
+
+The Arctic, Baltic and Mediterranean centres all list a frozen profile test
+among their own (see [`REGIONAL_QC.md`](REGIONAL_QC.md)), so the input flags
+may carry its failures even though `nrtqclib` has no such item.
 
 ## Defects found in nc2parquet
 

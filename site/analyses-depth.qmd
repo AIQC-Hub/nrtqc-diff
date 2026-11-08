@@ -1,0 +1,228 @@
+---
+title: "Depth"
+format:
+  html:
+    page-layout: full
+execute:
+  echo: false
+---
+
+[seastamp](https://aiqc-hub.github.io/seastamp/) gives every observation the
+sea floor depth at its position, read from the GEBCO grid, and its distance
+to the coast. A position whose sea floor is at or above sea level is on
+land. That is the rule of nrtqclib's position on land test (RTQC4), which
+the batch behind this site did not run, so this page applies it to the
+bathymetry directly. A profile counts as on land when any of its positions
+does. seastamp's own summary of one product is
+[published as an example](https://aiqc-hub.github.io/seastamp-report-example/index.html).
+
+**Profiles on land are left out of the analyses that follow.** A position on
+land is wrong, so nothing measured there says anything about how the two
+sets of QC tests compare.
+
+```{ojs}
+//| output: false
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+meta = app.loadAnalyses()
+name = (id) => app.datasetName(meta, id)
+table = app.analysisTable
+byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
+summary = meta ? app.loadAnalysisTable("depth_summary") : null
+```
+
+```{ojs}
+meta === null ? app.analysesMissing() : html``
+```
+
+## How many, and what the input's QC said
+
+A profile on land should have failed the position check of whoever
+produced the data. The columns say how many land profiles the input flagged
+at all: by their `position_qc`, or by flagging some or every observation of
+a variable. "Not flagged" is the land profiles the input called good
+throughout.
+
+```{ojs}
+meta ? table((summary ?? []).sort(byDataset), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "n_profiles", label: "Profiles" },
+  { key: "n_land", label: "On land" },
+  { key: "share", label: "Share", format: (_, r) => app.formatShare(r.n_land, r.n_profiles) },
+  { key: "n_land_obs", label: "Their observations" },
+  { key: "n_land_position_bad", label: "Position flagged" },
+  ...meta.variables.map((v) => ({ key: `n_land_${v.name}_any_bad`, label: `${v.label} flagged` })),
+  { key: "n_land_unflagged", label: "Not flagged" },
+  { key: "unflagged_share", label: "Not flagged %", format: (_, r) => app.formatShare(r.n_land_unflagged, r.n_land) }
+]) : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "depth_land_qc",
+  "The share of each product's land profiles that the input flagged in any way: the position flagged bad, every observation of a variable flagged, or some flagged. The rest of the land profiles, not drawn, were not flagged at all. The label gives the share flagged and the number of land profiles it is a share of.",
+  "Stacked bars per product of the share of land profiles the input flagged, by kind of flag."
+) : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "depth_land_map",
+  "Where the profiles on land are, coloured as above. The few the input flagged are drawn on top.",
+  "Maps of the Arctic, the Baltic and the Mediterranean with the land profiles marked."
+) : html``
+```
+
+The `position_qc` values themselves, of profiles on land and at sea. An
+empty value means the source file carries no position flag.
+
+```{ojs}
+positionQc = meta ? app.loadAnalysisTable("depth_land_position_qc") : null
+positionRows = positionQc
+  ? app.widen(positionQc, {
+      index: ["dataset_id", "scope"], column: "position_qc", value: "n_profiles",
+      name: (v) => (v === null ? "none" : `flag ${v}`)
+    }).sort((a, b) => byDataset(a, b) || a.scope.localeCompare(b.scope))
+  : []
+positionColumns = [...new Set(positionRows.flatMap((r) => Object.keys(r)))]
+  .filter((k) => k.startsWith("flag ") || k === "none").sort()
+meta ? table(positionRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "scope", label: "Position", align: "left", format: (v) => (v === "land" ? "On land" : "At sea") },
+  ...positionColumns.map((k) => ({ key: k, label: k === "none" ? "No flag" : app.flagWithMeaning(Number(k.slice(5))) }))
+]) : html``
+```
+
+## Coastline or wrong position
+
+Two sources meet here, and they are independent of each other. The height
+of the sea floor comes from GEBCO, a grid of 15 arc seconds (about 460 m
+north to south) in whole metres; it alone decides that a profile is on land.
+The distance to the coast comes from GSHHG, a separate and finer shoreline,
+and says how far a position is from the nearest shore, not on which side of
+it.
+
+A grid cell that straddles the shore can put a profile taken just off it
+on land, a few metres up. A profile far inland, or well above sea level,
+has a position that is simply wrong. The histogram shows how the profiles
+spread around sea level; the bars below it sort the land profiles by
+which of these is the likely cause.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "depth_elevation",
+  "Profiles by the height of the sea floor at their position, within 100 m of sea level. Green is the profiles counted as on land; the last bar gathers everything higher than 100 m. Each bar is the number of profiles in a 5 m band of height. The axis labels are those numbers, but the axis is spaced by their square root (10,000 is drawn twice as high as 2,500, not four times), so that the few profiles on land stay visible beside the many just under water. Each panel has its own axis.",
+  "Histograms of sea floor height per product."
+) : html``
+```
+
+Each land profile is filed under the first of these that fits:
+
+- **Position in whole degrees**: both its longitude and latitude are whole
+  degrees (10.0 E, 57.0 N). A station placed to the nearest degree, which
+  puts it where the degree lines cross, often well inland.
+- **At the shore**: at most ${shoreRule}. The cast was most likely at sea,
+  in a grid cell that is mostly land.
+- **Low but further from the coast**: as low, but further out. Water that
+  is not open sea, such as a lagoon or a fjord behind a narrow mouth, is a
+  likely reason: GEBCO puts it at sea level, while the nearest sea shore in
+  GSHHG is some way off.
+- **Higher than that: a wrong position.** Tens or hundreds of metres up,
+  on land proper.
+
+```{ojs}
+//| output: false
+shoreRule = meta
+  ? `${meta.rules.land.shore_height_m} m above sea level and ${meta.rules.land.shore_distance_km} km from the coast`
+  : "a few metres above sea level and close to the coast"
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "depth_land_cause",
+  "The land profiles of each product by their likely cause, as a share of the product's land profiles; the number of land profiles is in brackets. A profile goes under the first cause that fits, in the order of the list above.",
+  "Stacked bars per product of its land profiles by likely cause."
+) : html``
+```
+
+```{ojs}
+causes = meta ? app.loadAnalysisTable("depth_land_cause") : null
+causeKeys = [
+  ["whole_degrees", "Whole degrees"],
+  ["shore", "At the shore"],
+  ["low_far", "Low, further out"],
+  ["inland", "Wrong position"]
+]
+causeRows = causes
+  ? [...new Set(causes.map((r) => r.dataset_id))].map((id) => {
+      const rows = causes.filter((r) => r.dataset_id === id);
+      const row = { key: id, dataset_id: id, n_land: rows.reduce((s, r) => s + r.n_profiles, 0) };
+      for (const [key] of causeKeys) {
+        const r = rows.find((x) => x.cause === key);
+        row[key] = r ? r.n_profiles : 0;
+        row[`${key}_positions`] = r ? r.n_positions : 0;
+      }
+      return row;
+    }).sort(byDataset)
+  : []
+meta ? table(causeRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "n_land", label: "Land profiles" },
+  ...causeKeys.map(([key, label]) => ({
+    key, label,
+    title: "Profiles, with their share of the land profiles, and the distinct positions they are at",
+    format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_land)}) at ${app.formatCount(r[`${key}_positions`])}`
+  }))
+]) : html``
+```
+
+Each cause is given as profiles and the positions they are at: a fixed
+station repeats one position for years, so many profiles at few positions
+are a few stations. What the bars show:
+
+- **The Arctic regional product's land profiles are mostly at the shore**:
+  a matter of the grid, not of the positions.
+- **Almost half of the Baltic ones are in whole degrees**, at a handful of
+  positions. Both Baltic products carry the same ones.
+- **In the global and CORA products of the Mediterranean, most are wrong
+  positions**, well above sea level. The regional product has hardly any.
+- **The Arctic global and CORA products have all three of the other
+  causes**, with the low but distant profiles a sizeable part.
+
+How many land profiles remain if a position must be at least so high to
+count: those within a few metres of sea level are the ones a coarser rule
+would let through.
+
+```{ojs}
+margin = meta ? app.loadAnalysisTable("depth_land_margin") : null
+meta ? table(
+  margin ? app.widen(margin, { index: ["dataset_id"], column: "margin_m", value: "n_profiles", name: (m) => `${m} m` }).sort(byDataset) : [],
+  [
+    { key: "dataset_id", label: "Product", align: "left", format: name },
+    ...meta.rules.land.margins_m.map((m) => ({ key: `${m} m`, label: m === 0 ? "At or above 0 m" : `${m} m or more` }))
+  ]
+) : html``
+```
+
+## The land profiles
+
+The 500 highest above sea level. Every land profile is in
+[the table this page reads](data/analyses/tables/depth_land_profiles.csv),
+which is also the list the later analyses leave out.
+
+```{ojs}
+landProfiles = meta ? app.loadAnalysisTable("depth_land_profiles") : null
+highest = (landProfiles ?? []).sort((a, b) => (b.elevation ?? -1e9) - (a.elevation ?? -1e9)).slice(0, 500)
+meta ? table(highest, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
+  { key: "profile_no", label: "Profile" },
+  { key: "profile_timestamp", label: "Time", align: "left", format: (v) => (v ?? "").slice(0, 16).replace("T", " ") },
+  { key: "latitude", label: "Latitude", format: (v) => (v === null ? "" : v.toFixed(3)) },
+  { key: "longitude", label: "Longitude", format: (v) => (v === null ? "" : v.toFixed(3)) },
+  { key: "elevation", label: "Height (m)", format: (v) => (v === null ? "" : String(v)) },
+  { key: "dist_to_coast", label: "To coast (km)", format: (v) => (v === null ? "" : v.toFixed(2)) },
+  { key: "position_qc", label: "position_qc", format: (v) => (v === null ? "" : String(v)) },
+  { key: "n_obs", label: "Observations" },
+  ...meta.variables.map((v) => ({ key: `${v.name}_n_original_bad`, label: `${v.label} flagged` }))
+], {}) : html``
+```

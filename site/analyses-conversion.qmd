@@ -1,0 +1,431 @@
+---
+title: "Data conversion"
+format:
+  html:
+    page-layout: full
+execute:
+  echo: false
+---
+
+Every input here starts as NetCDF files of a Copernicus Marine in situ
+product. [ctddump](https://aiqc-hub.github.io/ctddump/) converts them to one
+flat table per product, then cleans and de-duplicates it in four steps.
+[seastamp](https://aiqc-hub.github.io/seastamp/) adds the distance to the
+coast and the sea floor depth, and nrtqclib runs its tests on the result. This
+page follows the profiles through those steps, from the reports ctddump
+writes as it goes. A full ctddump report for one product is
+[published as an example](https://aiqc-hub.github.io/ctddump-report-example/nrt_ar_ar.html).
+
+::: {.callout-note}
+## CORA is not another NRT product
+
+CORA is a reprocessed collection: its profiles have been through quality
+control again after the fact, with automated tests and checks by
+operators, so its flags are closer to delayed mode than to NRT. It is converted
+here the same way as the NRT products, so its steps and duplicates sit
+beside theirs, and the section on NRT and CORA asks how much of each NRT
+product it holds. The rest of the site files every CORA profile as delayed
+mode, even though its files declare them real time (R) wherever they
+declare a mode at all.
+:::
+
+```{ojs}
+//| output: false
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+meta = app.loadAnalyses()
+name = (id) => app.datasetName(meta, id)
+byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
+table = app.analysisTable
+```
+
+```{ojs}
+meta === null ? app.analysesMissing() : html``
+```
+
+## The steps
+
+ctddump drops, in this order: profiles whose time or position its source
+flags as bad, profiles with no value in any variable, profiles outside the
+product's region (the global product covers the world, and only its part
+of the region is kept), and duplicate profiles, which have
+[a section of their own](#duplicates-within-a-product). What is left after
+the last step is what nrtqclib checked: seastamp adds columns, not rows, and
+the analyses check that each nrtqclib output holds exactly the profiles and
+observations ctddump kept.
+
+```{ojs}
+steps = meta ? app.loadAnalysisTable("conversion_steps") : null
+stepNames = steps ? [...new Map(steps.map((r) => [r.step, r.step_label]))] : []
+stepRows = steps
+  ? app.widen(steps, { index: ["dataset_id"], column: "step", value: "n_profiles" })
+      .sort(byDataset)
+      .map((row) => ({ ...row, key: row.dataset_id, name: name(row.dataset_id) }))
+  : []
+meta ? app.analysisFigure(
+  "conversion_steps",
+  "Profiles left after each ctddump step, as a share of the profiles converted. The last point is what nrtqclib checked.",
+  "Line chart of the share of profiles kept after each step, one panel per region."
+) : html``
+```
+
+```{ojs}
+stepHeadings = ({
+  convert: "Converted", dropqc: "After QC", dropna: "After all missing",
+  filter: "In region", dedup: "Without duplicates"
+})
+meta ? table(stepRows, [
+  { key: "name", label: "Product", align: "left", format: (v) => v },
+  ...stepNames.map(([key, label]) => ({ key, label: stepHeadings[key] ?? label, title: label })),
+  { key: "kept", label: "Kept", format: (_, row) => app.formatShare(row[stepNames.at(-1)?.[0]], row.convert) }
+]) : html``
+```
+
+## The source files
+
+How many files each product has, how many carry each variable ctddump reads,
+and the data mode their global attributes declare. `M` (mixed) means the
+levels of a file are in different modes: ctddump then needs a data mode per
+level to know which, and writes an empty mode when the file has none.
+
+```{ojs}
+files = meta ? app.loadAnalysisTable("conversion_files") : null
+fileModes = meta ? app.loadAnalysisTable("conversion_file_data_mode") : null
+fileRows = files
+  ? app.widen(files, { index: ["dataset_id", "n_files"], column: "item", value: "n_with" })
+      .map((row) => {
+        const modes = (fileModes ?? []).filter((m) => m.dataset_id === row.dataset_id);
+        const count = (mode) => modes.filter((m) => (m.data_mode ?? "") === mode).reduce((s, m) => s + m.n_files, 0);
+        return { ...row, key: row.dataset_id, name: name(row.dataset_id),
+                 R: count("R"), D: count("D"), M: count("M"), none: count("") };
+      })
+      .sort(byDataset)
+  : []
+meta ? table(fileRows, [
+  { key: "name", label: "Product", align: "left", format: (v) => v },
+  { key: "n_files", label: "Files" },
+  ...["temp", "psal", "pres", "deph", "time_qc", "position_qc"].map((item) => ({
+    key: item, label: `With ${item.toUpperCase()}`,
+    format: (v, row) => app.formatShare(v, row.n_files)
+  })),
+  { key: "R", label: "Mode R" },
+  { key: "D", label: "Mode D" },
+  { key: "M", label: "Mode M" },
+  { key: "none", label: "No mode" }
+]) : html``
+```
+
+## Data modes
+
+The data mode of every temperature observation, at the two ends of the
+pipeline: as converted (step 1) and as kept (after step 5, the profiles
+nrtqclib checked). A profile with a delayed mode observation is compared
+separately on the rest of the site, because its input flags are likely to be
+an operator's: see [Delayed mode in NRT products](analyses-data-mode.qmd).
+CORA is filed there whole whatever its data mode says, because CORA's flags
+come from its own reprocessing, and that page leaves it out.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_data_mode",
+  "Temperature observations by data mode, as converted (step 1) and as kept (after step 5). No data mode: the file gives none for the observation.",
+  "Stacked bars of the data mode share per product, before and after cleaning."
+) : html``
+```
+
+**No data mode.** ctddump gives every observation of every variable a data
+mode: R (real time), A (adjusted in real time) or D (delayed mode). It takes
+it from the file's data mode per level (such as `TEMP_DM`), failing that from
+the variable's `data_mode` attribute, and for CORA from the data mode of the
+profile. When none of those says R, A or D, the observation has no data
+mode. Here that happens in two ways:
+
+- **At a level with no value.** The per level data mode is empty wherever the
+  variable itself is, so a missing value comes with a missing data mode. This
+  is nearly all of what the NRT products show, and the cleaning steps remove
+  most of it with the empty levels.
+- **In files that give none.** Some Baltic CORA files have no data mode at
+  all, and every observation in them has none.
+
+The first kind says nothing about the profile, so the groups on the rest of
+the site count a missing data mode only where the variable has a value. The
+table gives the counts the shares above hide.
+
+```{ojs}
+modeCounts = meta ? app.loadAnalysisTable("conversion_data_mode") : null
+noModeRows = modeCounts
+  ? app.widen(
+      modeCounts.filter((r) => r.variable === "temp"),
+      { index: ["dataset_id"], column: "step", value: "n_obs", name: (s) => s }
+    ).map((row) => {
+      const of = (step, empty) => modeCounts
+        .filter((r) => r.dataset_id === row.dataset_id && r.variable === "temp" && r.step === step && (((r.data_mode ?? "") === "") === empty))
+        .reduce((sum, r) => sum + r.n_obs, 0);
+      return {
+        key: row.dataset_id, dataset_id: row.dataset_id,
+        convert_none: of("convert", true), convert_all: row.convert,
+        dedup_none: of("dedup", true), dedup_all: row.dedup
+      };
+    }).sort(byDataset)
+  : []
+meta ? table(noModeRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "convert_none", label: "No data mode, converted" },
+  { key: "convert_share", label: "Share", format: (_, r) => app.formatShare(r.convert_none, r.convert_all) },
+  { key: "dedup_none", label: "No data mode, kept" },
+  { key: "dedup_share", label: "Share", format: (_, r) => app.formatShare(r.dedup_none, r.dedup_all) }
+]) : html``
+```
+
+## Duplicates within a product
+
+Step 5 treats two profiles of one product as duplicates when they were
+taken on the same date at the same position, rounded to three decimals of a
+degree (about 100 m or less). The platform code is not part of the match, so
+a group of duplicates is one of three kinds:
+
+- **Within one platform:** every profile of the group carries the same
+  platform code. One platform reported the same cast more than once.
+- **Across platforms:** every profile carries a different platform code.
+  The same cast reached the product under different names, once each.
+- **Both:** the group spans two or more platform codes, and at least one of
+  them reports the cast more than once. The cast was repeated and renamed.
+
+Of each group ctddump keeps the profile with the most observations and
+removes the rest, so a group of two loses one profile.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_duplicates",
+  "Profiles removed as duplicates, as a share of the profiles in the region before step 5, by the kind of group they were in. The label gives the total and, in brackets, the number removed.",
+  "Stacked bars per product of the share of profiles removed as duplicates, split within one platform, across platforms, and both."
+) : html``
+```
+
+```{ojs}
+dups = meta ? app.loadAnalysisTable("conversion_duplicates") : null
+dupKinds = meta ? app.loadAnalysisTable("conversion_dup_kinds") : null
+kindOf = (id, kind, field) => (dupKinds ?? []).filter((r) => r.dataset_id === id && r.kind === kind).reduce((s, r) => s + r[field], 0)
+dupRows = (dups ?? []).map((r) => ({
+  ...r, key: r.dataset_id,
+  within_removed: kindOf(r.dataset_id, "within", "n_removed"),
+  across_removed: kindOf(r.dataset_id, "across", "n_removed"),
+  both_removed: kindOf(r.dataset_id, "both", "n_removed")
+})).map((r) => ({ ...r, removed: r.within_removed + r.across_removed + r.both_removed })).sort(byDataset)
+meta ? table(dupRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "n_profiles", label: "Profiles", title: "Profiles in the region, before step 5" },
+  { key: "n_duplicate_profiles", label: "In a group", title: "Profiles sharing their date and position with another, the one kept included" },
+  { key: "removed", label: "Removed" },
+  { key: "share", label: "Share removed", format: (_, r) => app.formatShare(r.removed, r.n_profiles) },
+  { key: "within_removed", label: "Within one platform", title: "Removed from groups on one platform" },
+  { key: "across_removed", label: "Across platforms", title: "Removed from groups whose profiles each carry a different platform code" },
+  { key: "both_removed", label: "Both", title: "Removed from groups spanning two or more platforms, one of them repeating the cast" },
+  { key: "n_platforms_with_duplicates", label: "Platforms with any", format: (v, r) => `${app.formatCount(v)} of ${app.formatCount(r.n_platforms)}` }
+]) : html``
+```
+
+How large the groups are: the number of groups of each size, from two
+profiles up. A group of two is a cast recorded twice; larger ones are the
+same cast repeated more often.
+
+```{ojs}
+dupSizes = meta ? app.loadAnalysisTable("conversion_dup_sizes") : null
+kindOrder = ["within", "across", "both"]
+kindName = ({ within: "Within one platform", across: "Across platforms", both: "Both" })
+sizeKeys = dupSizes ? [...new Map(dupSizes.map((r) => [r.size, r.size_label]))].sort((a, b) => a[0] - b[0]) : []
+sizeRows = dupSizes
+  ? app.widen(dupSizes, { index: ["dataset_id", "kind"], column: "size", value: "n_groups", name: (v) => `s${v}` })
+      .map((r) => ({ ...r, key: `${r.dataset_id}|${r.kind}` }))
+      .sort((a, b) => byDataset(a, b) || kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind))
+  : []
+meta ? table(sizeRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "kind", label: "Kind", align: "left", format: (v) => kindName[v] ?? v },
+  ...sizeKeys.map(([size, label]) => ({ key: `s${size}`, label, title: `Groups of ${label} profiles` }))
+]) : html``
+```
+
+The platforms behind the groups that span more than one platform (across
+platforms, and both): the sets of platform codes that share casts most
+often, per product.
+
+```{ojs}
+dupSets = meta ? app.loadAnalysisTable("conversion_dup_platforms") : null
+viewof setDataset = meta && dupSets
+  ? Inputs.select([...new Set(dupSets.map((r) => r.dataset_id))], { label: "Product", format: name })
+  : html``
+```
+
+```{ojs}
+meta && dupSets ? table(
+  dupSets.filter((r) => r.dataset_id === setDataset).map((r) => ({ ...r, key: r.platforms })),
+  [
+    { key: "platforms", label: "Platforms", align: "left", format: (v) => v, wrap: true },
+    { key: "n_groups", label: "Groups" },
+    { key: "n_profiles", label: "Profiles" },
+    { key: "n_removed", label: "Removed" }
+  ]
+) : html``
+```
+
+## NRT and CORA
+
+An NRT product and CORA hold the same casts with different quality
+control: the NRT product carries the real time QC done as the data arrived,
+CORA the delayed mode QC done since. So CORA should hold every profile of
+the NRT products of its region, at least up to its own last profile, and
+each cast should have the same observations in both. This section checks
+both.
+
+### Coverage: the NRT profiles CORA holds
+
+Each NRT profile is looked for in the CORA of its region. Two profiles are
+taken to be the same cast when they share a date and their positions are
+within 0.001° of each other in longitude and in latitude (about 100 m or
+less). The products rarely store a position to the same last digit, so this
+is a tolerance rather than ctddump's rounding to three decimals, which
+misses a pair whose two positions fall either side of a rounding boundary.
+Each profile is paired at most once. Each NRT profile is then filed under
+the first of these that fits:
+
+- **Outside CORA's period**: dated after CORA's last profile (or before its
+  first), so CORA cannot hold it yet. It is left out of the coverage.
+- **Same platform code**: CORA has the cast under the same platform code.
+- **Another platform code**: CORA has a profile of the same date and place
+  under a different code, among the profiles not yet paired.
+- **Nearby, not paired**: CORA has a profile of the same platform and date
+  within 0.01° (about 1 km). Probably the same cast with its position
+  stored differently, but not counted as found.
+- **Platform in CORA, cast not**: CORA has the platform, not this cast.
+- **Platform not in CORA**: CORA has nothing under this platform code.
+
+The coverage is the share found, under the same code or another, of the
+profiles in CORA's period.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_coverage",
+  "Where the NRT profiles dated within CORA's period were found in the CORA of their region. The figure on each bar is the coverage: the share found under the same platform code or another. The number of profiles in CORA's period is in brackets.",
+  "Stacked bars per NRT product of its profiles by whether and how CORA holds them."
+) : html``
+```
+
+```{ojs}
+coverage = meta ? app.loadAnalysisTable("conversion_coverage") : null
+share = (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_inside)})`
+meta ? table((coverage ?? []).map((r) => ({
+  ...r,
+  key: `${r.dataset_id}|${r.compared_id}`,
+  n_inside: r.n_profiles - r.n_outside_period,
+  n_found: r.n_same_platform + r.n_other_platform
+})).sort(byDataset), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "period_end", label: "CORA's period", align: "left", title: "The dates of CORA's first and last profiles in the region", format: (v, r) => `${r.period_start} to ${v}` },
+  { key: "n_profiles", label: "Profiles" },
+  { key: "n_outside_period", label: "Outside the period" },
+  { key: "n_inside", label: "In the period" },
+  { key: "n_found", label: "Coverage", title: "Found in CORA under the same platform code or another, as a share of the profiles in CORA's period", format: share },
+  { key: "n_same_platform", label: "Same code", format: share },
+  { key: "n_other_platform", label: "Another code", format: share },
+  { key: "n_nearby", label: "Nearby", format: share },
+  { key: "n_platform_only", label: "Platform in CORA, cast not", format: share },
+  { key: "n_no_platform", label: "Platform not in CORA", format: share }
+]) : html``
+```
+
+Year by year, the same classes show when the gaps are:
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_coverage_years",
+  "The NRT profiles of each year by whether and how the CORA of their region holds them, the years after CORA's last profile in grey. Each panel has its own scale.",
+  "Stacked bars per NRT product and year of its profiles by whether and how CORA holds them."
+) : html``
+```
+
+What the coverage shows:
+
+- **The Mediterranean regional product is in CORA in full**, under the same
+  platform codes.
+- **The Arctic regional product is almost entirely in CORA.** Most of it is
+  under the same codes. Ice-tethered profilers go by their own number in
+  the NRT product and by a WMO number in CORA, so they are found under
+  another code. The little that is missing is split between nearby
+  profiles, casts CORA lacks on platforms it has (some platforms' records
+  in CORA end earlier than in NRT), and platforms CORA does not have.
+- **The Arctic part of the global product is in CORA too, a large part of
+  it under other codes**, especially in recent years. The naming goes the
+  other way here: the profilers have a WMO number in the NRT product and
+  their own number in CORA, and a fixed station has a name in one and a
+  number in the other.
+- **The Baltic product holds many profiles from platforms CORA does not
+  have at all**, most of them from the 1990s and 2000s. These are casts
+  CORA has not taken in, rather than casts it holds under another name:
+  the match on date and place alone finds little more.
+- **The Mediterranean part of the global product is mostly in CORA.** The
+  largest gap is one platform in one recent year, a platform CORA has
+  otherwise.
+
+### The pairs hold the same observations
+
+A pair is one cast in two versions. CORA's reprocessing reviews its flags,
+but the cast should keep its observations, so the two versions should hold
+the same number of them. Under the same platform code, nearly every pair
+does. Under another code, many do not, the Arctic profilers above all:
+the two products carry these instruments' records sampled at different
+levels, so they are the same casts in different versions rather than
+copies.
+
+```{ojs}
+matches = meta ? app.loadAnalysisTable("conversion_match") : null
+pairShare = (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_matched)})`
+meta ? table((matches ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}|${r.coverage}` })).sort(byDataset), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "coverage", label: "Platform code", align: "left", format: (v) => (v === "same_platform" ? "Same" : "Another") },
+  { key: "n_matched", label: "Pairs" },
+  { key: "n_same_obs", label: "Same observations", format: pairShare },
+  { key: "n_more_in_dataset", label: "NRT has more", format: pairShare },
+  { key: "n_more_in_compared", label: "CORA has more", format: pairShare }
+]) : html``
+```
+
+## Overlap between NRT products
+
+The Arctic and the Mediterranean each have a regional and a global NRT
+product, built from different streams. The same match as above, on date
+and place, says how much of one the other holds too. The two share no
+platform code, so only the match without it can find what they have in
+common; where it finds little, the two products hold different casts
+rather than the same casts under different names.
+
+```{ojs}
+overlap = meta ? app.loadAnalysisTable("conversion_overlap") : null
+isCora = (id) => (meta?.datasets ?? []).find((d) => d.id === id)?.product === "CORA"
+meta ? table((overlap ?? []).filter((r) => !isCora(r.dataset_id) && !isCora(r.compared_id))
+  .map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}` })), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "compared_id", label: "Also in", align: "left", format: name },
+  { key: "n_profiles", label: "Profiles" },
+  { key: "n_matched_same_platform", label: "Same platform code", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` },
+  { key: "n_matched_any_platform", label: "On date and place", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` }
+]) : html``
+```
+
+## Other parameters
+
+What else the source files carry. ctddump reads temperature, salinity and
+pressure (and depth, where pressure is missing) and leaves the rest.
+
+```{ojs}
+extra = meta ? app.loadAnalysisTable("conversion_extra_parameters") : null
+extraRows = extra
+  ? [...new Set(extra.map((r) => r.dataset_id))].map((id) => ({
+      key: id, dataset_id: id, name: name(id),
+      parameters: extra.filter((r) => r.dataset_id === id).map((r) => `${r.parameter} (${r.n_files})`).join(", ")
+    })).sort(byDataset)
+  : []
+meta ? table(extraRows, [
+  { key: "name", label: "Product", align: "left", format: (v) => v },
+  { key: "parameters", label: "Parameters (files)", align: "left", format: (v) => v, wrap: true }
+]) : html``
+```

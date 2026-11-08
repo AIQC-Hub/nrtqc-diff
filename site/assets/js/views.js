@@ -848,6 +848,9 @@ export function formatPosition(latitude, longitude) {
  * @param {string|null} [options.datasetMode] the `data_mode` of the
  *                 profile's catalog entry: set when the configuration filed
  *                 the whole dataset under one group.
+ * @param {Array<object>} [options.variables] the `variables` array of
+ *                 catalog.json, to name the variables a delayed mode
+ *                 estimate came from.
  * @returns {HTMLElement}
  */
 export function profileFacts(profile, options = {}) {
@@ -857,6 +860,7 @@ export function profileFacts(profile, options = {}) {
     pressure,
     dataModes = [],
     datasetMode = null,
+    variables = [],
   } = options;
   const root = el("dl", "nq-facts");
 
@@ -900,21 +904,40 @@ export function profileFacts(profile, options = {}) {
   // how much of it is delayed, since a profile with one revised pressure
   // reads very differently from one revised throughout; for an unknown one
   // how much has no mode; and for a dataset filed whole by its
-  // configuration, that, since its own columns may say otherwise.
+  // configuration, that, since its own columns may say otherwise. A profile
+  // in estimated delayed mode says which variables' flags put it there,
+  // and one on land what its data mode is, since land outranks it.
   if (profile.data_mode) {
     const group = dataModes.find((mode) => mode.key === profile.data_mode);
     const total = formatCount(profile.n_obs);
     const delayed = Number(profile.n_obs_delayed ?? 0);
     const unknown = Number(profile.n_obs_unknown ?? 0);
+    const estimated = String(profile.estimated_from ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map((name) => (variables.find((v) => v.name === name)?.label ?? name).toLowerCase());
     let note = "";
-    if (datasetMode) {
+    if (profile.data_mode === "land") {
+      const declared = datasetMode
+        ? `${dataModes.find((mode) => mode.key === datasetMode)?.label ?? datasetMode} for the whole product`
+        : delayed > 0
+          ? `${formatCount(delayed)} of ${total} observations delayed`
+          : unknown > 0
+            ? `${formatCount(unknown)} of ${total} observations with no data mode`
+            : "real time throughout";
+      note = `(data mode: ${declared})`;
+    } else if (datasetMode) {
       note = "(set for the whole product)";
+    } else if (profile.data_mode === "estimated_delayed" && estimated.length > 0) {
+      // Only a profile its data mode columns did not call delayed is
+      // estimated, so there are no delayed observations to count here.
+      note = `(from its ${estimated.join(" and ")} flags)`;
     } else if (profile.data_mode === "delayed" && delayed > 0) {
       note = `(${formatCount(delayed)} of ${total} observations delayed)`;
     } else if (profile.data_mode === "unknown" && unknown > 0) {
       note = `(${formatCount(unknown)} of ${total} observations with no data mode)`;
     }
-    fact("Data mode", group?.label ?? profile.data_mode, note, group?.description);
+    fact("Group", group?.label ?? profile.data_mode, note, group?.description);
   }
   fact("File", profile.filename, "", "The input file the profile was read from");
   return root;

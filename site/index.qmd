@@ -36,12 +36,13 @@ datasets_by_id = new Map(
 ```
 
 ```{ojs}
-//| title: Data mode
+//| title: Group
 
 // Which profiles to compare. A delayed mode input flag is likely to be an
 // operator's decision, so comparing it with nrtqclib asks a different
-// question from comparing two sets of automated flags; the two are kept
-// apart unless the reader asks for both. "NRT only" comes first, so it is
+// question from comparing two sets of automated flags, and a profile on
+// land disagrees mostly about its position; the groups are kept apart
+// unless the reader asks for all of them. "NRT only" comes first, so it is
 // what a reader who chooses nothing sees.
 viewof data_mode = {
   const options = app.dataModeOptions(catalog);
@@ -178,7 +179,8 @@ platform_profiles = profile_row
       platformProfiles: platform_profiles,
       pressure,
       dataModes: catalog.data_modes,
-      datasetMode: entry.data_mode
+      datasetMode: entry.data_mode,
+      variables: catalog.variables
     })
   );
   // The colour key rides at the top of this panel, above the markers it
@@ -342,7 +344,8 @@ platform_profiles = profile_row
       platformProfiles: platform_profiles,
       pressure: await app.profilePressureRange(entry, profile_row.profile_id),
       dataModes: catalog.data_modes,
-      datasetMode: entry.data_mode
+      datasetMode: entry.data_mode,
+      variables: catalog.variables
     })
   );
   const row = document.createElement("div");

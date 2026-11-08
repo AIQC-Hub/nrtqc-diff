@@ -102,13 +102,22 @@ export const ALL_MODES = "all";
  * The first is the default, and the build lists "NRT only" first: a reader
  * who chooses nothing compares two sets of automated flags, which is what
  * the site is named for, rather than an automated set against an operator's.
+ * A group no dataset published a profile in is left out, since choosing it
+ * would only empty the page; a build that has some brings it back.
  *
  * @param {object} catalog the parsed catalog.json.
  * @returns {Array<object>} `{key, label, description}` entries.
  */
 export function dataModeOptions(catalog) {
+  const datasets = (catalog.regions ?? []).flatMap((region) =>
+    region.products.flatMap((product) => product.datasets)
+  );
+  // A catalog without per-group counts offers every group, as before.
+  const published = (key) =>
+    datasets.length === 0 ||
+    datasets.some((d) => !d.modes || (d.modes[key]?.n_profiles ?? 0) > 0);
   return [
-    ...(catalog.data_modes ?? []),
+    ...(catalog.data_modes ?? []).filter((mode) => published(mode.key)),
     {
       key: ALL_MODES,
       label: "All profiles",
