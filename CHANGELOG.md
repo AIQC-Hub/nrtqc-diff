@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-08
+
+### Changed
+
+- The Pages workflow uses `actions/checkout` v7 and `astral-sh/setup-uv`
+  v10.3.3, which run on Node 24. GitHub had been forcing the old versions,
+  written for the deprecated Node 20, onto Node 24 with a warning. setup-uv
+  no longer publishes major version tags, so it is pinned to the release.
+
 ## [0.9.0] - 2026-11-08
 
 ### Added
