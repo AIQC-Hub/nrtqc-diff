@@ -184,7 +184,8 @@ degree (about 100 m or less). The platform code is not part of the match, so
 a group of duplicates is one of three kinds:
 
 - **Within one platform:** every profile of the group carries the same
-  platform code. One platform reported the same cast more than once.
+  platform code. One platform reported the same cast more than once, or
+  took several casts at one place that day.
 - **Across platforms:** every profile carries a different platform code.
   The same cast reached the product under different names, once each.
 - **Both:** the group spans two or more platform codes, and at least one of
@@ -192,6 +193,17 @@ a group of duplicates is one of three kinds:
 
 Of each group ctddump keeps the profile with the most observations and
 removes the rest, so a group of two loses one profile.
+
+The match is on the day, not the time. A platform that stays in one place,
+such as a fixed station or a profiler drifting slowly with the ice, can
+take several casts there in a day, and only the longest of them is kept.
+In the Arctic and Baltic regional products most groups within one platform
+are profiles hours apart, and in the Arctic most of those differ in their
+values, so they are separate casts rather than copies. Copies identical in
+value can also carry different input flags: in the Arctic global product
+the input sometimes flags one copy throughout and not the other. The
+copies have the same number of observations, so which of them reaches the
+comparison does not depend on its flags.
 
 ```{ojs}
 meta ? app.analysisFigure(

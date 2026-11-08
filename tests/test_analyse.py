@@ -18,6 +18,7 @@ from nrtqc_diff.analyse import (
     overlap_table,
     probable_flag_table,
     run_analyses,
+    shape_table,
 )
 from nrtqc_diff.config import read_config
 
@@ -668,3 +669,47 @@ def test_a_dataset_filed_whole_is_left_out_of_the_data_mode_tables(analysed):
         assert set(table(out, name)["dataset_id"]) == {"one"}, name
     # The other pages still count it.
     assert set(table(out, "depth_summary")["dataset_id"]) == {"one", "whole"}
+
+
+def test_one_sided_flags_are_placed_in_their_profiles(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    # A: the input flags the top level (at negative pressure), one level
+    # inside and the bottom one; nrtqclib flags two levels inside.
+    # B: the input flags all of it. C is not kept.
+    scan = pl.LazyFrame(
+        {
+            "platform_code": ["A"] * 6 + ["B"] * 2 + ["C"],
+            "profile_no": [1] * 9,
+            "pres": [-1.0, 5.0, 10.0, 15.0, 20.0, 25.0, 1.0, 2.0, 1.0],
+            "temp_qc": ["4", "1", "3", "1", "1", "4", "4", "4", "4"],
+            "temp_nrt_flag": [1, 1, 1, 4, 4, 1, 1, 1, 1],
+        }
+    )
+    keep = {"temp": pl.DataFrame({"platform_code": ["A", "B"], "profile_no": [1, 1]})}
+    rows = {
+        (r["status"], r["shape"], r["negative_pressure"]): (r["n_obs"], r["n_profiles"])
+        for r in shape_table(scan, keep, spec.datasets[0], spec).iter_rows(named=True)
+    }
+    assert rows == {
+        ("original_only", "top", True): (1, 1),
+        ("original_only", "inside_alone", False): (1, 1),
+        ("original_only", "bottom", False): (1, 1),
+        ("original_only", "whole", False): (2, 1),
+        ("nrtqclib_only", "inside_several", False): (2, 1),
+    }

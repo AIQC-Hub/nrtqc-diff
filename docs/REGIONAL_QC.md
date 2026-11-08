@@ -26,10 +26,32 @@ Each answer covers temperature and salinity alike. nrtqclib has no frozen
 profile test; `nc2parquet` has one, described in
 [`NC2PARQUET.md`](NC2PARQUET.md#only-in-nc2parquet-the-frozen-profile-test).
 
+The data shows no sign of the centres' frozen profile test (checked on the
+batch of 2026-11-08, with throwaway scripts, not in `nrtqc-diff analyse`):
+
+- ctddump's own parquet keeps every copy ctddump's duplicate step later
+  removes, so repeats within a platform can be checked. Among copies of one
+  platform with identical values taken an hour or more apart (19 groups in
+  the Arctic, 1,571 in the Baltic, most of them exactly 12 hours apart,
+  none in the Mediterranean), the input flags every copy or none, never
+  only one.
+- After the duplicate step, an exact repeat of the same platform's previous
+  profile an hour or more later is rare (22 in the Arctic regional product,
+  9 in the Baltic, none in the Mediterranean) and the input flags almost
+  none of them (4 in the Arctic).
+
+So the test cannot explain the whole profiles only the input flags. The
+site says so on the Flagged only by the input page, without the counts.
+
 The sources are beside this note: the table the centres filled in,
 [`nrtqc_items.xlsx`](nrtqc_items.xlsx), and the replies that came with it
 from the Baltic ([`nrtqc_item_bal.txt`](nrtqc_item_bal.txt)) and the
 Mediterranean ([`nrtqc_item_med.txt`](nrtqc_item_med.txt)).
+
+The site copies this table twice: as a Markdown table on the Flag
+differences in NRT page (`site/analyses-flags.qmd`) and as `REGIONAL_RUNS`
+on the Flagged only by nrtqclib page (`site/analyses-flags-nrtqclib.qmd`).
+Change all three together.
 
 ## Notes from the replies
 

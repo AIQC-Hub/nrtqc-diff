@@ -78,7 +78,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 10
+ANALYSES_FORMAT: int = 11
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -228,6 +228,9 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
                 )
             for name, table in item_tables_for(scan, nrt, dataset, config).items():
                 item_tables.setdefault(name, []).append(table)
+            shapes = shape_table(scan, nrt, dataset, config)
+            if shapes.height:
+                item_tables.setdefault("items_shape", []).append(shapes)
 
     if land_flags:
         tables["depth_land_flags"] = pl.concat(land_flags, how="diagonal_relaxed")
@@ -1198,6 +1201,190 @@ def item_tables_for(
     return tables
 
 
+#: Where an observation one source alone flags sits in its profile, judged
+#: against the observations that source calls good, in the order the pages
+#: list them. ``whole``: the source calls none of the profile's observations
+#: good. ``top`` and ``bottom``: shallower than the shallowest, or deeper than
+#: the deepest, observation it calls good. ``inside_alone``: between them, the
+#: only one of its profile; ``inside_several``: between them, with others.
+#: ``no_pressure``: the observation has no pressure to place it by.
+SHAPES: List[str] = [
+    "whole",
+    "top",
+    "bottom",
+    "inside_alone",
+    "inside_several",
+    "no_pressure",
+]
+
+#: The :data:`SHAPES` in words, for meta.json, so the figures and the pages
+#: name them the same way.
+SHAPE_LABELS: Dict[str, str] = {
+    "whole": "The whole profile",
+    "top": "A stretch at the top",
+    "bottom": "A stretch at the bottom",
+    "inside_alone": "A single level inside",
+    "inside_several": "Several levels inside",
+    "no_pressure": "No pressure",
+}
+
+
+def shape_table(
+    scan: pl.LazyFrame,
+    keep: Dict[str, pl.DataFrame],
+    dataset: DatasetSpec,
+    config: BuildConfig,
+) -> pl.DataFrame:
+    """
+    Where the observations one source alone flags sit in their profiles.
+
+    An automated test that judges a whole profile flags all of it; one that
+    judges a level flags a point; a soaking depth left in, or a cast that
+    touched the bottom, flags a stretch at one end. Each observation only
+    one source flags is placed against the observations that same source
+    calls good in its profile, by pressure, as :data:`SHAPES` describes.
+
+    Two streaming passes per variable: the pressure range of the good
+    observations per profile, then the one-sided observations placed in it.
+    Neither holds more than one row per profile and kind in memory.
+
+    :param scan: The dataset.
+    :param keep: Per variable name, the keys of the profiles to count it
+                 over, as for :func:`item_tables_for`.
+    :param dataset: The dataset's configuration.
+    :param config: The build configuration.
+    :return: One row per variable, ``status`` (original only or nrtqclib
+             only), ``shape``, input flag and whether the pressure is
+             negative, with the observations and the profiles they are in.
+    """
+    pres = pl.col("pres").cast(pl.Float64, strict=False)
+    sides = [ORIGINAL_ONLY, NRTQCLIB_ONLY]
+    label = [
+        pl.lit(dataset.id).alias("dataset_id"),
+        pl.lit(dataset.region).alias("region"),
+        pl.lit(dataset.product).alias("product"),
+        pl.lit(dataset.label).alias("label"),
+    ]
+    frames = []
+    for variable in config.variables:
+        if not keep[variable.name].height:
+            continue
+        predicates = status_predicates(variable)
+        bad_existing = is_one_of(original_flag(variable), variable.bad_flag_values)
+        computed = computed_flag(variable)
+        good = {
+            ORIGINAL_ONLY: usable_flag(variable) & ~bad_existing,
+            NRTQCLIB_ONLY: computed.is_not_null() & (computed <= FLAG_GOOD),
+        }
+        rows = scan.join(keep[variable.name].lazy(), on=PROFILE_KEYS, how="semi")
+
+        # The good pressures of each side per profile. when/then rather
+        # than a filter inside the aggregation, which keeps it streaming.
+        bounds = (
+            rows.group_by(PROFILE_KEYS)
+            .agg(
+                *[
+                    agg
+                    for side in sides
+                    for agg in (
+                        pl.when(good[side]).then(pres).min().alias(f"{side}_min"),
+                        pl.when(good[side]).then(pres).max().alias(f"{side}_max"),
+                        predicates[side].sum().cast(pl.Int64).alias(f"{side}_n"),
+                    )
+                ]
+            )
+            .filter(pl.any_horizontal([pl.col(f"{side}_n") > 0 for side in sides]))
+            .collect(engine="streaming")
+        )
+        if not bounds.height:
+            continue
+
+        status = (
+            pl.when(predicates[ORIGINAL_ONLY])
+            .then(pl.lit(ORIGINAL_ONLY))
+            .otherwise(pl.lit(NRTQCLIB_ONLY))
+        )
+        low = (
+            pl.when(pl.col("status") == ORIGINAL_ONLY)
+            .then(pl.col(f"{ORIGINAL_ONLY}_min"))
+            .otherwise(pl.col(f"{NRTQCLIB_ONLY}_min"))
+        )
+        high = (
+            pl.when(pl.col("status") == ORIGINAL_ONLY)
+            .then(pl.col(f"{ORIGINAL_ONLY}_max"))
+            .otherwise(pl.col(f"{NRTQCLIB_ONLY}_max"))
+        )
+        shape = (
+            pl.when(pl.col("pres").is_null())
+            .then(pl.lit("no_pressure"))
+            .when(low.is_null())
+            .then(pl.lit("whole"))
+            .when(pl.col("pres") < low)
+            .then(pl.lit("top"))
+            .when(pl.col("pres") > high)
+            .then(pl.lit("bottom"))
+            .otherwise(pl.lit("inside"))
+        )
+        per_profile = (
+            rows.filter(predicates[ORIGINAL_ONLY] | predicates[NRTQCLIB_ONLY])
+            .select(
+                pl.col("platform_code").cast(pl.Utf8),
+                pl.col("profile_no"),
+                pres.alias("pres"),
+                status.alias("status"),
+                original_flag(variable).alias("original_flag"),
+            )
+            .join(
+                bounds.lazy().with_columns(pl.col("platform_code").cast(pl.Utf8)),
+                on=PROFILE_KEYS,
+                how="inner",
+            )
+            .with_columns(shape.alias("shape"))
+            .group_by(
+                *PROFILE_KEYS,
+                "status",
+                "shape",
+                "original_flag",
+                (pl.col("pres") < 0).fill_null(False).alias("negative_pressure"),
+            )
+            .agg(pl.len().cast(pl.Int64).alias("n_obs"))
+            .collect(engine="streaming")
+        )
+        # An observation inside the good range is alone when it is the only
+        # one of its side in the profile that sits there.
+        inside = (
+            per_profile.filter(pl.col("shape") == "inside")
+            .group_by(*PROFILE_KEYS, "status")
+            .agg(pl.col("n_obs").sum().alias("n_inside"))
+        )
+        per_profile = per_profile.join(
+            inside, on=[*PROFILE_KEYS, "status"], how="left"
+        ).with_columns(
+            pl.when(pl.col("shape") != "inside")
+            .then(pl.col("shape"))
+            .when(pl.col("n_inside") == 1)
+            .then(pl.lit("inside_alone"))
+            .otherwise(pl.lit("inside_several"))
+            .alias("shape")
+        )
+        frames.append(
+            per_profile.group_by(
+                "status", "shape", "original_flag", "negative_pressure"
+            )
+            .agg(
+                pl.col("n_obs").sum(),
+                pl.struct(PROFILE_KEYS).n_unique().cast(pl.Int64).alias("n_profiles"),
+            )
+            .select(label + [pl.lit(variable.name).alias("variable"), pl.all()])
+        )
+    if not frames:
+        return pl.DataFrame()
+    return pl.concat(frames).sort(
+        ["variable", "status", "shape", "original_flag", "negative_pressure"],
+        nulls_last=True,
+    )
+
+
 #: Two profiles of different products are the same cast when they share a
 #: date and their positions are within this many degrees of each other, in
 #: longitude and in latitude. ctddump rounds to 3 decimals instead, which
@@ -1660,6 +1847,7 @@ def _write(
         "groups": ANALYSIS_GROUPS,
         "data_modes": DATA_MODES,
         "pres_bands": pres_band_labels(),
+        "shapes": [{"key": k, "label": SHAPE_LABELS[k]} for k in SHAPES],
         "rules": {
             "land": {
                 "column": spec.bathymetry_column,

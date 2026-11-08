@@ -34,6 +34,10 @@ website:
             text: Probably good and probably bad
           - href: analyses-flags.qmd
             text: Flag differences in NRT
+          - href: analyses-flags-original.qmd
+            text: Flagged only by the input
+          - href: analyses-flags-nrtqclib.qmd
+            text: Flagged only by nrtqclib
       - href: about.qmd
         text: About
 

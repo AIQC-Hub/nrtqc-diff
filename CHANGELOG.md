@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Flagged only by the input** and **Flagged only by nrtqclib** pages, split
+  from Flag differences in NRT, which keeps the comparison of the two sides.
+  The summary page opens with which tests each regional centre says it runs
+  beside nrtqclib's checks. The input page places each observation only the
+  input flags in its profile (the whole profile, a stretch at the top or the
+  bottom, a single level or several inside) and sets it against the tests
+  the producers run that nrtqclib does not have (frozen profile, the
+  Baltic's checks on the whole profile). The nrtqclib page adds, per check,
+  whether the regional producer runs the same test, the share of what only
+  nrtqclib flags it accounts for, and how two implementations of one test
+  can differ. New table `items_shape` and figures `items_shape_original` and
+  `items_shape_nrtqclib`; `analyses_format` is 11.
+- The frozen profile test, listed by every regional centre, leaves no sign
+  in the input flags: identical profiles of one platform hours apart are
+  flagged all or none, and exact repeats of a platform's previous profile
+  are hardly flagged. The Flagged only by the input page says so instead of
+  suggesting the test lies behind whole flagged profiles, and the Data
+  conversion page notes that the duplicate step matches on the day, so a
+  platform's separate casts at one place that day are reduced to one.
+
 - An **Input QC flags** page in the Analyses menu, after Depth: every
   observation of each product counted by its input flag value, for
   temperature and salinity, with a link to the matching page of the
@@ -36,7 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   every profile instead.
 - The Summary and Platforms pages give the disagreements as percentages of
   the published observations instead of rates per 1,000, as the Delayed mode
-  in NRT products page does. A share under 1% keeps two significant digits
+  in NRT products page does. So do the Flag differences pages and their
+  figures. A share under 1% keeps two significant digits
   (0.35%), so a small one does not round to 0.0%.
 - The threshold figure on the Delayed mode in NRT products page has one
   panel per product and variable, each with a single line: the profiles
