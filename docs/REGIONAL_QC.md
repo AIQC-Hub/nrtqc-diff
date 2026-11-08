@@ -20,6 +20,11 @@ the same test in nrtqclib.
 
 Each answer covers temperature and salinity alike.
 
+The sources are beside this note: the table the centres filled in,
+[`nrtqc_items.xlsx`](nrtqc_items.xlsx), and the replies that came with it
+from the Baltic ([`nrtqc_item_bal.txt`](nrtqc_item_bal.txt)) and the
+Mediterranean ([`nrtqc_item_med.txt`](nrtqc_item_med.txt)).
+
 ## Notes from the replies
 
 - **Baltic.** The gradient test is not run because the stratification
