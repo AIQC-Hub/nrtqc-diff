@@ -21,8 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   products page: for input flags 2 and 3, the data mode of the observation
   itself, the group of its profile, how much of the profile carries the
   flag, how often nrtqclib flags the same observation bad, and which of its
-  checks do. New tables `dm_probable_obs` and `dm_probable_profiles`;
-  `analyses_format` is 10.
+  checks do, with a figure summing it up: where each flag's observations
+  end up, in declared or estimated delayed mode profiles or in NRT ones
+  with or without nrtqclib. New tables `dm_probable_obs` and
+  `dm_probable_profiles`; `analyses_format` is 10.
 
 ### Changed
 

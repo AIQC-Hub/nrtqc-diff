@@ -249,11 +249,21 @@ observations.
 
 The data cannot say who set a flag, the producer's automated QC or an
 operator, and the regional centres' replies do not say which of their
-tests write 3 rather than 4. The tables give the signs instead: the data
+tests write 3 rather than 4. The figure and tables give the signs instead: the data
 mode of the observation itself, the group its profile is filed under, how
 much of the profile carries the flag, and what nrtqclib made of it. They
 cover the profiles at sea of the NRT products, like the rest of this page;
 the counts of every product are on [Input QC flags](analyses-input-flags.qmd).
+
+```{ojs}
+meta ? app.analysisFigure(
+  "dm_probable",
+  "Every observation the input flags 2 (probably good) or 3 (probably bad), by where it ends up: in a profile that declares delayed mode, in one the estimate files as delayed mode, or in an NRT profile (or one with no data mode), split by whether nrtqclib flags the observation bad too. One panel per variable and flag; the number at the end of a bar is the observations it is made of, so a bar of a few dozen says little. Purple and orange are the flags that look like delayed mode; blue and grey are left in the NRT comparison.",
+  "Stacked bars per product, for each variable and flag 2 or 3, of the share of the flagged observations in declared or estimated delayed mode profiles or in NRT profiles."
+) : html``
+```
+
+The tables below give the same observations with more detail.
 
 ```{ojs}
 //| output: false

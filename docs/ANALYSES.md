@@ -226,7 +226,7 @@ the theme, the palettes and `save_figure()`.
 | `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_coverage`, `conversion_coverage_years` |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_cause` |
 | `input_flags.R` | `input_flags_shares` |
-| `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
+| `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold`, `dm_probable` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |
 
 Agreement categories take the site's own colours, read from `meta.json`, so
