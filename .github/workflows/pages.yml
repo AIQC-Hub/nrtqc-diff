@@ -77,7 +77,7 @@ jobs:
       # The data is served from this site rather than from the release it was
       # built from: release assets carry no CORS header, so a browser cannot
       # read them. See docs/RELEASING.md.
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site/_site
 
@@ -89,4 +89,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

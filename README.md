@@ -13,6 +13,11 @@ Two halves:
    There is no server and no backend: the rendered site is a folder of static
    files that can be served from GitHub Pages or any file host.
 
+The site's **Analyses** pages are made separately, where the data is:
+`uv run nrtqc-diff analyse` writes small tables and `Rscript
+analysis/run_all.R` draws figures from them with ggplot2, as SVG for the
+site and PDF for a manuscript. See [`docs/ANALYSES.md`](docs/ANALYSES.md).
+
 ## What the site shows
 
 **Regions and products** is the overview: one row per region and product, how
@@ -45,16 +50,23 @@ region to product to profile, and two tabs show what is selected:
 The sidebar is shared, so switching tabs keeps the profile you were looking
 at, and either tab can be read against the other.
 
-**Data mode** splits the profiles into groups on every page. "NRT only"
+**Group** splits the profiles on every page, mostly by data mode. "NRT only"
 profiles have every observation in real time or adjusted in real time, so
-both sets of flags come from automated tests. "Contains delayed mode"
-profiles have at least one delayed mode observation, whose input flag is
-likely to be an operator's decision, and CORA is filed there whole, since its
-flags come from its own delayed mode QC: comparing those with `nrtqclib` asks
+both sets of flags come from automated tests. "Delayed mode" profiles have
+at least one delayed mode observation. Their input flags are likely to be
+an operator's decisions, and CORA is filed there whole, since its flags
+come from its own delayed mode QC: comparing those with `nrtqclib` asks
 whether the automated tests anticipate what an expert decided, which is a
-different question. "Data mode unknown" holds the profiles whose files do not
-say. NRT only is the default, and the summary page puts the groups side by
-side.
+different question. "Estimated delayed mode" profiles are marked NRT, but
+their temperature or salinity flags look like an operator's: most of the
+variable's observations flagged by the input and not by `nrtqclib`, which
+an automated test rarely does. They are kept apart from declared delayed
+mode because they are an estimate. "Data mode unknown" holds the profiles
+whose files do not say. "On land" holds the profiles
+the bathymetry puts at or above sea level, whatever their data mode, since
+their disagreements are mostly about the position. A page offers a group
+only when a product has profiles in it. NRT only is the default, and the
+summary page puts the groups side by side.
 
 The profile plots put the measurement on the x axis and pressure on the y
 axis, increasing downwards, with every point coloured by which source flagged
@@ -86,6 +98,8 @@ own NRT QC output and rebuild. Nothing else changes.
 - Python 3.12+ with [`uv`](https://docs.astral.sh/uv/)
 - [Quarto](https://quarto.org) 1.9 or newer
 - A browser with WebAssembly, which is every current browser
+- For the Analyses figures only: R 4.3+ with the packages in
+  `analysis/DESCRIPTION`
 
 ## Documentation
 
@@ -93,9 +107,12 @@ own NRT QC output and rebuild. Nothing else changes.
 | --- | --- |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | The published files and their schemas |
 | [`docs/ETL.md`](docs/ETL.md) | Running and extending the build step |
+| [`docs/ANALYSES.md`](docs/ANALYSES.md) | The Analyses pages: tables in Python, figures in R |
+| [`docs/REGIONAL_QC.md`](docs/REGIONAL_QC.md) | The NRT QC tests each regional product runs |
 | [`docs/SITE.md`](docs/SITE.md) | How the site is put together |
 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Dev setup, tests, git workflow |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Versioning and deployment |
+| [`docs/NC2PARQUET.md`](docs/NC2PARQUET.md) | How the NRT QC tests of `nc2parquet` differ from `nrtqclib`'s |
 
 ## License
 

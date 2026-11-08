@@ -217,3 +217,58 @@ def test_another_data_format_is_refused(release):
         run(module, data_dir, "publish", "data-test")
 
     assert "data format" in str(refused.value)
+
+
+def write_analyses(data_dir):
+    """
+    Write what `nrtqc-diff analyse` and the R scripts write.
+
+    :param data_dir: A built data directory.
+    :return: The files written, by path relative to `data_dir`.
+    """
+    files = {
+        "analyses/meta.json": b"{}",
+        "analyses/tables/dm_groups.csv": b"a,b\n1,2\n",
+        "analyses/figures/dm_share.svg": b"<svg/>",
+        "analyses/figures/dm_share.pdf": b"%PDF",
+    }
+    for name, content in files.items():
+        path = data_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    # Not an analysis file: an editor's leftover stays local.
+    (data_dir / "analyses" / "tables" / "notes.txt~").write_bytes(b"x")
+    return files
+
+
+def test_analyses_round_trip_to_their_folders(release):
+    """The analysis files come back at their paths, and nothing else does."""
+    module, data_dir = release
+    written = write_data(data_dir)
+    written.update(write_analyses(data_dir))
+
+    run(module, data_dir, "publish", "data-test")
+    store = os.path.join(os.environ["GH_STORE"], "data-test")
+    assert "analyses--tables--dm_groups.csv" in os.listdir(store)
+    run(module, data_dir, "fetch", "data-test")
+
+    assert set(contents(data_dir)) == set(written)
+    assert (data_dir / "analyses" / "figures" / "dm_share.svg").read_bytes() == (
+        b"<svg/>"
+    )
+
+
+def test_a_missing_analysis_asset_stops_the_fetch(release):
+    """An analysis file the manifest lists but the release lost is noticed."""
+    module, data_dir = release
+    write_data(data_dir)
+    write_analyses(data_dir)
+    run(module, data_dir, "publish", "data-test")
+    before = contents(data_dir)
+    os.remove(os.path.join(os.environ["GH_STORE"], "data-test", "analyses--meta.json"))
+
+    with pytest.raises(SystemExit) as stopped:
+        run(module, data_dir, "fetch", "data-test")
+
+    assert "analyses--meta.json" in str(stopped.value)
+    assert contents(data_dir) == before

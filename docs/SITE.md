@@ -11,6 +11,7 @@ site/
 ├── summary.qmd           every region and product at once
 ├── platforms.qmd         one product's platforms, each opening to its profiles
 ├── about.qmd             what the comparison means
+├── analyses-*.qmd        the Analyses menu: figures and tables made locally
 ├── assets/
 │   ├── dashboard.css     styling for the nq- widgets
 │   └── js/
@@ -19,7 +20,8 @@ site/
 │       ├── queries.js    every SQL statement
 │       ├── views.js      tree, tables, profile list, contingency, legend, bars
 │       ├── labels.js     the column names and flag values, said in words
-│       └── plots.js      the profile plots
+│       ├── plots.js      the profile plots
+│       └── analyses.js   the Analyses pages' tables and figures
 ├── data/                 written by the build step  (gitignored)
 ├── libs/                 vendored by scripts/fetch_assets.sh  (gitignored)
 └── _site/                rendered output  (gitignored)
@@ -53,10 +55,13 @@ is the largest column on the page, and why the last column is a rate per 1,000
 published observations: it is the only figure on the row that compares fairly
 between a product of 800 observations and one of 25 million.
 
-**Every data page has a data mode choice**: "NRT only", "Contains delayed
-mode", "Data mode unknown" or "All profiles", the first three read from
+**Every data page has a group choice**: "NRT only", "Estimated delayed
+mode", "Delayed mode", "Data mode unknown", "On land" or "All profiles", the
+first five read from
 `data_modes` in `catalog.json` and the last added by `dataModeOptions` in
-`labels.js`. "NRT
+`labels.js`. A group no dataset published a profile in is left out of the
+choice (the per-group counts are `modes` in each catalog entry), so the
+current batch offers every group but Data mode unknown. "NRT
 only" is the default, because it is the comparison the site is named for: two
 sets of automated flags. A delayed mode input flag is likely to be an
 operator's decision, and a disagreement with one means something else, so the
@@ -269,6 +274,13 @@ same column names and links to this table, which is how a reader turns
 `temp_qc_spike` into a sentence. It is a summary of the `nrtqclib` NRT QC guide
 it links to; if that library adds or renames a check, this table is the place
 in this repository that goes stale, together with `QC_CHECKS` in `labels.js`.
+
+**The Analyses pages** (`analyses-conversion`, `analyses-depth`,
+`analyses-data-mode`, `analyses-flags`) are a different kind of page. They
+query nothing: their figures were drawn in R and their tables computed in
+Python where the data is, and the pages fetch both from `data/analyses/`
+with `analyses.js`. Without them, as in the demo build, each page says the
+analyses were not published. `docs/ANALYSES.md` describes how they are made.
 
 ## Conventions
 

@@ -1,9 +1,9 @@
 """
 The ``nrtqc-diff`` command line entry point.
 
-One subcommand so far, ``build``, which is the whole Python side of the
-project: everything else in the repository is the static site that reads what
-this writes.
+Two subcommands. ``build`` writes the files the site's data pages query.
+``analyse`` writes the tables behind the Analyses pages, which the R scripts
+under ``analysis/`` turn into figures.
 """
 
 import argparse
@@ -11,6 +11,7 @@ import sys
 from dataclasses import replace
 from typing import List, Optional
 
+from nrtqc_diff.analyse import run_analyses
 from nrtqc_diff.build import build_site_data
 from nrtqc_diff.config import read_config
 
@@ -48,6 +49,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print nothing but errors.",
     )
+
+    analyse = subparsers.add_parser(
+        "analyse", help="Write the tables of the Analyses pages."
+    )
+    analyse.add_argument(
+        "-c",
+        "--config",
+        default="config/test_nrt.yaml",
+        help="The build configuration (default: config/test_nrt.yaml).",
+    )
+    analyse.add_argument(
+        "-o",
+        "--out-dir",
+        default=None,
+        help="Override analyses.out_dir from the configuration.",
+    )
+    analyse.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Print nothing but errors.",
+    )
     return parser
 
 
@@ -62,6 +85,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         config = read_config(args.config)
+        if args.command == "analyse":
+            if args.out_dir and config.analyses is not None:
+                config = replace(
+                    config, analyses=replace(config.analyses, out_dir=args.out_dir)
+                )
+            run_analyses(config, verbose=not args.quiet)
+            return 0
         if args.data_dir:
             # Every other setting is kept, row_group_size included, which a
             # field by field copy here once dropped.

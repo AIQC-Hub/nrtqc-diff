@@ -101,12 +101,17 @@ From a checkout whose `data/` holds the `nrtqclib` run:
 
 ```bash
 uv run nrtqc-diff build -c config/test_nrt.yaml
+uv run nrtqc-diff analyse -c config/test_nrt.yaml   # the Analyses tables
+Rscript analysis/run_all.R                          # and their figures
 uv run python scripts/data_release.py publish data-2026-09-23 --dry-run
 uv run python scripts/data_release.py publish data-2026-09-23
 ```
 
 That creates the release if it is not there and uploads what the build wrote,
-with a `manifest.json` recording the sizes. Then set `NRTQC_DATA_RELEASE` to
+with a `manifest.json` recording the sizes. The analysis tables and figures
+under `site/data/analyses/` go too, named by their path with `--` for `/`;
+they are optional, and a release without them deploys Analyses pages that
+say so (see `docs/ANALYSES.md`). Then set `NRTQC_DATA_RELEASE` to
 the new tag and run the workflow. The old release is left alone, so rolling
 back is a variable change and a re-run.
 

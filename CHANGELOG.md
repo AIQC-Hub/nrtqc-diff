@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-08
+
+### Added
+
+- **Analyses pages**, under a new Analyses menu between Platforms and About:
+  Data conversion (what ctddump kept at each step), Depth (profiles the
+  bathymetry puts on land, and what the input's QC said about them), Delayed
+  mode in NRT products (with a new estimated delayed mode group for NRT
+  profiles whose flags look like an operator's), and Flag differences in NRT (which
+  nrtqclib checks account for the disagreements, over NRT profiles at sea).
+- `nrtqc-diff analyse` writes the tables behind them from the NRT QC output
+  and the ctddump and seastamp reports, and `analysis/run_all.R` draws the
+  figures in R with ggplot2, as SVG for the site and PDF for a manuscript.
+  See `docs/ANALYSES.md`.
+- An optional `analyses` section in the build configuration, and a `source`
+  key per dataset naming its ctddump and seastamp file stem.
+- `scripts/data_release.py` publishes and fetches `site/data/analyses/` with
+  the rest of the data, when it is there.
+- The Data conversion page splits ctddump's duplicates into those within one
+  platform, those across platforms, and groups that are both (from its `.dups.tsv` lists, named by
+  `analyses.ctddump_dups`), and matches the products of a region on date
+  and place with and without the platform code.
+- The Data conversion page asks how much of each NRT product the CORA of
+  its region holds: every NRT profile in CORA's period is filed as found
+  under the same platform code, found under another, nearby, on a platform
+  CORA has, or on a platform it lacks, overall and year by year. The pairs
+  found are then checked for the same number of observations. Profiles are
+  matched within 0.001°
+  rather than on rounded positions, which ctddump's rounding splits at a
+  boundary.
+
+- The Depth page sorts the land profiles by likely cause: a position in
+  whole degrees, at the shore (at most 5 m up and 1 km from the coast),
+  low but further from the coast, or higher, a wrong position. It replaces
+  the scatter of height against distance to the coast.
+- The Delayed mode in NRT products page leaves profiles on land out of its
+  groups table and figure, which now cover the profiles at sea only.
+- Estimated delayed mode is decided per variable: a profile whose salinity
+  looks reworked by an operator leaves the salinity comparison and stays in
+  the temperature one. The Delayed mode in NRT products page and the Flag
+  differences page show the two variables apart.
+- The dashboard and the other main pages file a profile as delayed mode
+  when the flags of its temperature or salinity are estimated to be an
+  operator's, by the rule the analyses use. The group is now called
+  "Delayed mode", `profiles.parquet` has an `estimated_from` column naming
+  the variables, the profile panel says so, and the catalog counts the
+  estimated profiles. As in the analyses, a profile on land is not
+  estimated. A data mode group no product has a profile in, such as "Data
+  mode unknown" on the current batch, is no longer offered. The rule moves
+  from `analyses.estimated_delayed` to `data_mode.estimated`, and
+  `data_format` is 3.
+- A new "On land" group on the dashboard, Summary and Platforms: profiles
+  the bathymetry puts at or above sea level, decided before the data mode
+  as in the analyses, so the other groups hold profiles at sea only. The
+  choice is now called "Group", the profile panel gives a land profile's
+  data mode, and `data_format` is 4.
+- The profiles estimated to be delayed mode are a group of their own,
+  "Estimated delayed mode", rather than part of "Delayed mode", which now
+  holds only the profiles whose files declare it, and CORA. The estimate is
+  a guess from the flags, so a reader can now look at it alone. The catalog
+  counts it as `estimated_delayed` in `modes` instead of
+  `n_profiles_estimated`, and `data_format` is 5.
+- The preview server, `scripts/serve_static.py`, asks the browser to
+  revalidate every file, so a reload after a new render no longer runs the
+  old scripts.
+- The NRT and delayed mode page is now called "Delayed mode in NRT
+  products" and leaves CORA out. CORA is filed whole as delayed mode, so
+  none of its profiles can be estimated; it only added rows that were all
+  delayed mode. The `dm_` tables skip every dataset configured whole under
+  one data mode.
+- Its section on what the estimate changes is now one table per product and
+  variable: the share of observations flagged by the input alone, as a
+  percentage, with the estimated profiles counted as NRT and without them,
+  and how many of those flags the estimated profiles held. It replaces the
+  rates per 1,000 of each group, which had to be combined by hand.
+- The estimated delayed mode rule needs 10 observations with a usable input
+  flag instead of 5. With 5, three flagged values of five made exactly 60%,
+  and many short profiles, most from a few ice-tethered profilers, sat on
+  the threshold. They held few of the flags the estimate takes out of NRT.
+  The page no longer says the count barely moves across the threshold
+  everywhere: in some products it falls steadily.
+- `docs/REGIONAL_QC.md`: the NRT QC tests the Arctic, Baltic and
+  Mediterranean regional centres run, how the data bear them out, and why
+  they do not describe the global product.
+- `docs/NC2PARQUET.md` compares the NRT QC tests of the earlier `nc2parquet`
+  scripts with the `nrtqclib` QC items: which items each implements, how the
+  logic differs, and defects found in `nc2parquet`. It is documentation for
+  the repository and is not part of the site.
+
+### Changed
+
+- The Pages workflow uses `actions/upload-pages-artifact` v5 and
+  `actions/deploy-pages` v5. With v4, both deploys of 0.8.0 timed out: the
+  deployment status came back empty for ten minutes.
+
+### Fixed
+
+- An empty data mode at a level where the parameter has no value no longer
+  files a profile as "data mode unknown". ctddump leaves the data mode empty
+  wherever the value is, so such a profile is NRT if the rest of it is.
+
 ## [0.8.0] - 2026-11-07
 
 ### Changed

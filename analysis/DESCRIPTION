@@ -1,0 +1,19 @@
+Type: Project
+Title: Figures of the nrtqc-diff Analyses pages
+Description: Draws the figures of the Analyses pages, and of the manuscript,
+    from the CSV tables `nrtqc-diff analyse` writes. Not a package: the file
+    lists the R packages the scripts use, for renv.
+Depends: R (>= 4.3)
+Imports:
+    dplyr,
+    forcats,
+    ggplot2,
+    ggrepel,
+    jsonlite,
+    mapproj,
+    maps,
+    patchwork,
+    readr,
+    scales,
+    svglite,
+    tidyr

@@ -31,12 +31,19 @@ variables:
 # Where the observation-level data mode lives: `R` (real time), `A` (adjusted
 # in real time) or `D` (delayed mode), as ctddump writes it and nrtqclib
 # passes it through. A profile with a delayed value in any of these columns
-# is published as "contains delayed mode" rather than "NRT only", because its
+# is published as "delayed mode" rather than "NRT only", because its
 # input flags are likely to be an operator's decisions. One with no delayed
 # value but an empty one, which ctddump writes when the file gives no usable
 # mode, is published as "data mode unknown": NRT only takes positive
-# evidence. Pressure is listed too: a profile whose pressure was revised in
-# delayed mode was touched by one. `delayed_values` defaults to [D].
+# evidence. An empty mode counts only where its parameter (`temp` for
+# `temp_dm`) has a value, since ctddump leaves it empty at a missing level.
+# Pressure is listed too: a profile whose pressure was revised in delayed
+# mode was touched by one. `delayed_values` defaults to [D].
+#
+# A profile marked NRT whose temperature or salinity flags look like an
+# operator's is published as delayed mode too, by the rule of
+# `data_mode.estimated` (defaults: min_share 0.6, min_observations 10); see
+# config/test_nrt.yaml.
 #
 # A dataset entry can set `data_mode` to file all of its profiles under one
 # group regardless, for a product whose flags come from its own delayed mode

@@ -13,6 +13,13 @@ A release therefore holds the contents of `site/data`, one asset per file:
 catalog is what maps an asset back to the path it belongs at, so fetching
 needs no build configuration and cannot disagree with what was published.
 
+The tables and figures of the Analyses pages, which `nrtqc-diff analyse` and
+the R scripts under `analysis/` write to `site/data/analyses/`, travel the
+same way when they are there. A release has no folders, so each is published
+under its path with `--` for `/`, `analyses--tables--dm_groups.csv`, and the
+prefix is what puts it back. They are optional: a release without them
+deploys a site whose Analyses pages say the analyses were not published.
+
 What a release cannot carry is the code that made it, so `catalog.json`
 records `data_format` and both halves of this script check it. Data published
 before a change to the published columns or file names is refused rather than
@@ -56,6 +63,48 @@ PROFILES_NAME = "profiles.parquet"
 #: what lets `fetch` tell a truncated download from a complete one, and what
 #: the data was built from and when.
 MANIFEST_NAME = "manifest.json"
+
+#: The folder of `site/data` holding the analyses, and how its files are
+#: named as assets: the path below `site/data` with this in place of `/`.
+ANALYSES_DIR = "analyses"
+ASSET_SEPARATOR = "--"
+
+#: The analysis files that are published: tables, figures and their index.
+#: Anything else in the folder, such as an editor's backup, stays local.
+ANALYSES_EXTENSIONS = (".csv", ".json", ".svg", ".png", ".pdf")
+
+
+def analyses_files(data_dir: str) -> List[Tuple[str, str]]:
+    """
+    List the analysis files under a data directory, as assets.
+
+    :param data_dir: A directory a build wrote to.
+    :return: ``(asset name, path relative to data_dir)`` pairs, sorted, or
+             none when the analyses were not run.
+    """
+    root = os.path.join(data_dir, ANALYSES_DIR)
+    found: List[Tuple[str, str]] = []
+    for folder, _, names in os.walk(root):
+        for name in names:
+            if not name.endswith(ANALYSES_EXTENSIONS):
+                continue
+            relative = os.path.relpath(os.path.join(folder, name), data_dir)
+            parts = relative.split(os.sep)
+            found.append((ASSET_SEPARATOR.join(parts), "/".join(parts)))
+    return sorted(found)
+
+
+def analyses_path(asset: str) -> str:
+    """
+    Where an analysis asset belongs below `site/data`, or "" for another asset.
+
+    :param asset: A release asset name.
+    :return: The relative path, with `/` separators.
+    """
+    prefix = ANALYSES_DIR + ASSET_SEPARATOR
+    if not asset.startswith(prefix):
+        return ""
+    return "/".join(asset.split(ASSET_SEPARATOR))
 
 
 def human(size: int) -> str:
@@ -153,6 +202,8 @@ def data_files(data_dir: str) -> Tuple[Dict[str, Any], List[Tuple[str, str]]]:
         if not os.path.isfile(path):
             raise SystemExit(f"{CATALOG_NAME} names {name}, which is not there.")
         files.append((asset, path))
+    for asset, relative in analyses_files(data_dir):
+        files.append((asset, os.path.join(data_dir, relative)))
     return catalog, files
 
 
@@ -200,9 +251,12 @@ def publish(args: argparse.Namespace) -> None:
             == 0
         )
         if not exists:
+            n_analyses = len(analyses_files(args.data_dir))
             notes = (
-                f"Published data for the nrtqc-diff site: {len(files) - 2} "
-                f"datasets, {human(total)}, data format {DATA_FORMAT}, built "
+                f"Published data for the nrtqc-diff site: "
+                f"{len(files) - 2 - n_analyses} datasets"
+                + (f" and {n_analyses} analysis files" if n_analyses else "")
+                + f", {human(total)}, data format {DATA_FORMAT}, built "
                 f"{catalog.get('generated', 'at an unrecorded time')}.\n\n"
                 "Downloaded and rendered by the deploy workflow of "
                 "https://github.com/AIQC-Hub/nrtqc-diff; see its "
@@ -291,6 +345,14 @@ def fetch(args: argparse.Namespace) -> None:
             for name in wanted
             if not os.path.isfile(os.path.join(download, os.path.basename(name)))
         ]
+        # Each file as (asset, where it goes): the catalog's under their own
+        # names, the analyses under the path their name spells.
+        placed = [(os.path.basename(name), name) for name in wanted]
+        placed += [
+            (asset, analyses_path(asset))
+            for asset in sorted(os.listdir(download))
+            if analyses_path(asset)
+        ]
         if absent:
             held = ", ".join(sorted(os.listdir(download))) or "nothing"
             raise SystemExit(
@@ -303,22 +365,29 @@ def fetch(args: argparse.Namespace) -> None:
         short = [
             f"  {asset}: {size} bytes, the manifest says {expected[asset]}"
             for asset, size in (
-                (
-                    os.path.basename(name),
-                    os.path.getsize(os.path.join(download, os.path.basename(name))),
-                )
-                for name in wanted
+                (asset, os.path.getsize(os.path.join(download, asset)))
+                for asset, _ in placed
             )
             if asset in expected and expected[asset] != size
         ]
+        missing = sorted(
+            asset
+            for asset in expected
+            if analyses_path(asset) and asset not in dict(placed)
+        )
+        if missing:
+            raise SystemExit(
+                "The download is incomplete; nothing was written.\n"
+                + "\n".join(f"  {asset}: not downloaded" for asset in missing)
+            )
         if short:
             raise SystemExit(
                 "The download is incomplete; nothing was written.\n" + "\n".join(short)
             )
 
         total = 0
-        for name in wanted:
-            source = os.path.join(download, os.path.basename(name))
+        for asset, name in placed:
+            source = os.path.join(download, asset)
             target = os.path.join(staging, name)
             os.makedirs(os.path.dirname(target) or staging, exist_ok=True)
             shutil.move(source, target)
@@ -333,7 +402,7 @@ def fetch(args: argparse.Namespace) -> None:
         staging = ""
         if replaced:
             shutil.rmtree(previous, ignore_errors=True)
-        print(f"Wrote {len(wanted)} files into {args.data_dir}, {human(total)}.")
+        print(f"Wrote {len(placed)} files into {args.data_dir}, {human(total)}.")
     finally:
         shutil.rmtree(download, ignore_errors=True)
         if staging:

@@ -18,6 +18,18 @@ website:
         text: Regions and products
       - href: platforms.qmd
         text: Platforms
+      # Figures and tables made where the data is, by `nrtqc-diff analyse`
+      # and the R scripts under analysis/; see docs/ANALYSES.md.
+      - text: Analyses
+        menu:
+          - href: analyses-conversion.qmd
+            text: Data conversion
+          - href: analyses-depth.qmd
+            text: Depth
+          - href: analyses-data-mode.qmd
+            text: Delayed mode in NRT products
+          - href: analyses-flags.qmd
+            text: Flag differences in NRT
       - href: about.qmd
         text: About
 

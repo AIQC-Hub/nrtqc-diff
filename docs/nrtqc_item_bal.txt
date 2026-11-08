@@ -1,0 +1,17 @@
+I have filled in the table about NRT QC done for CTD-profiles:
+https://docs.google.com/spreadsheets/d/1kUSfxSiYrUnHeCbw5RJpL54cljcyj5gdZTfU51EuYdw/edit?usp=sharing
+
+At the moment we are not doing the gradient test, it has been hard to handle the different stratification at different depth, but we will have another look at it. Nor are we doing the stuck profile test.
+
+For the Density Inversion Test  we are using eps = 0.05 kg/m3 per decibar to detect instabilities.
+
+In addition we are doing some test on the entire profile before looking into specific parameters like:
+
+    Negative pressure (to assure that the measurement is done in water and not air)
+    Increasing pressure from surface to bottom
+    Spikes in pressure
+    Identify eventual missed soaking depth included
+
+If it is ok I would like to add a question to you, we are a bit concerned about how to start working with the data-set from the Baltic. After the meeting with AWI, we have been talking to our colleagues about different ways to collect a data set for machine learning, and I think we must decide together with you if we should concentrate on a more limited but also more in detailed visually inspected data set or if we should go for quantity but not being able to inspect the data set all in detail?  Maybe we could have a shorter meeting about this to discuss the possibilities and to understand what are the most important aspects.
+
+ 
