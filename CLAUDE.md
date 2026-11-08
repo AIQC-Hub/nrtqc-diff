@@ -17,6 +17,7 @@ See `README.md` for the workflow and `docs/` for the details:
 | `docs/SITE.md` | Quarto/OJS conventions, page contracts, the data access seam |
 | `docs/CONTRIBUTING.md` | Dev setup, tests, lint, git workflow |
 | `docs/RELEASING.md` | Version bumps, data releases, deploying the site |
+| `docs/NC2PARQUET.md` | The NRT QC tests of `nc2parquet` against `nrtqclib`'s (repository only, never a site page) |
 
 ## Environment & dependencies
 

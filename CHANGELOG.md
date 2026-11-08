@@ -89,6 +89,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `docs/REGIONAL_QC.md`: the NRT QC tests the Arctic, Baltic and
   Mediterranean regional centres run, how the data bear them out, and why
   they do not describe the global product.
+- `docs/NC2PARQUET.md` compares the NRT QC tests of the earlier `nc2parquet`
+  scripts with the `nrtqclib` QC items: which items each implements, how the
+  logic differs, and defects found in `nc2parquet`. It is documentation for
+  the repository and is not part of the site.
 
 ### Fixed
 
