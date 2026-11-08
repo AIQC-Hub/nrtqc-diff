@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-08
+
 ### Changed
 
 - The Pages workflow uses `actions/checkout` v7 and `astral-sh/setup-uv`
