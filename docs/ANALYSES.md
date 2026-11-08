@@ -1,6 +1,6 @@
 # The analyses
 
-The Analyses menu of the site holds five pages of figures and tables. Their
+The Analyses menu of the site holds six pages of figures and tables. Their
 figures are meant to be reused in a manuscript, so they are drawn locally,
 in R with ggplot2, rather than in the browser like the rest of the site.
 
@@ -115,8 +115,9 @@ estimated profiles are estimated for salinity only).
 
 The land group is the Depth page's subject. The Delayed mode in NRT
 products page shows the other groups only, over the profiles at sea, and
-the analyses after it never count land profiles. That page and its `dm_`
-tables also leave out every dataset configured whole under one data mode
+the analyses after it never count land profiles. The Probably good and
+probably bad page reads its groups for input flags 2 and 3 (the
+`dm_probable_` tables). Both pages and their `dm_` tables also leave out every dataset configured whole under one data mode
 (CORA): none of its profiles can be estimated, and it would only add rows
 that are all delayed mode.
 
