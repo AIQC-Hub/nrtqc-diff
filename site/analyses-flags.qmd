@@ -59,19 +59,51 @@ beside nrtqclib's checks. The answers describe the regional products only:
 the global products' flags come from the global product's own QC, which
 they do not describe.
 
-| Test | nrtqclib | Arctic regional | Baltic regional | Mediterranean regional |
-| --- | --- | --- | --- | --- |
-| Global range | yes | yes | yes | yes |
-| Regional range | yes | yes | yes | yes |
-| Spike | yes | yes | yes | yes |
-| Gradient | yes | yes | no | yes |
-| Stuck value | yes | yes | no | yes |
-| Density inversion | yes, 0.03 kg/m³ | yes, 0.05 kg/m³ per dbar | yes, 0.05 kg/m³ per dbar | listed, but the reply says not run yet |
-| Pressure increasing | yes | not asked | yes, on the whole profile first | not asked |
-| Digit rollover | yes | not asked | not asked | not asked |
-| Temperature flag carried over to salinity | yes | not asked | not asked | not asked |
-| Frozen profile | no | yes | yes | yes |
-| Negative pressure, pressure spikes, soaking depth left in | no | not asked | yes, on the whole profile first | not asked |
+Under an answer, in grey, is what the input flags show of it: the share of
+the clear failures of nrtqclib's version of the test that the input flags,
+per variable, per flag, or for density per level and per dbar,
+explained in [What the input flags show](#what-the-input-flags-show). Near
+100% means the producer runs the test; near 0 means it does not, or only
+with a far larger threshold. "Too few" is a test with too few clear
+failures in the product to tell.
+
+```{ojs}
+response = meta ? app.loadAnalysisTable("items_response") : null
+seenText = (datasetId, test) => {
+  if (!response) return "";
+  const parts = test.response.flatMap((key) => {
+    const rows = app.clearFailures(response, meta, datasetId, key);
+    const what = (r) => key === "density_inversion" ? "per level"
+      : key === "density_inversion_per_dbar" ? "per dbar"
+      : app.responseFlagLabel(meta, r.variable);
+    return rows.map((r) => `${what(r)} ${r.share === null ? "too few" : app.formatPercent(100 * r.share)}`);
+  });
+  return parts.length ? `flags: ${parts.join(", ")}` : "";
+}
+claimCell = (datasetId) => (_, row) => {
+  const cell = document.createElement("span");
+  cell.append(row.claims[datasetId]);
+  const seen = seenText(datasetId, row);
+  if (seen) {
+    const note = document.createElement("span");
+    note.className = "nq-seen";
+    note.textContent = seen;
+    cell.append(note);
+  }
+  return cell;
+}
+claimsTable = {
+  const box = table(app.REGIONAL_TESTS, [
+    { key: "label", label: "Test", align: "left", wrap: true, format: (v) => v },
+    { key: "nrtqclib", label: "nrtqclib", align: "left", format: (v) => v },
+    ...app.REGIONAL_PRODUCTS.map((p) => ({
+      key: p.id, label: p.label, align: "left", wrap: true, render: claimCell(p.id)
+    }))
+  ]);
+  box.classList.add("nq-claims");
+  return box;
+}
+```
 
 "Not asked" is a test the centres were not asked about and did not
 mention. The frozen profile test is listed by all three, but leaves no
@@ -80,6 +112,98 @@ sign in their flags: see
 A test both sides run can still disagree: the
 [nrtqclib page](analyses-flags-nrtqclib.qmd#how-one-test-can-differ)
 describes how.
+
+## What the input flags show
+
+A producer may run a test it does not list, or list one that has no effect
+on its flags. To see which, every failure of a test is measured again from
+the values, the way nrtqclib's check does it, and put in a band by how far
+past nrtqclib's threshold it is; then the share of each band the input
+flags is counted. A producer that runs the test flags nearly all of the
+failures far past the threshold, and starts flagging where its own
+threshold lies. One that does not run it flags them about as often as any
+other observation, well under 1%.
+
+The tests are measured over the same profiles as the rest of this page.
+Spike and gradient are measured on values inside the global range, and
+gradient only on levels that pass the spike test, so that one test is not
+taken for another; stuck value and density inversion likewise only on
+values inside the range. Density is the density at the surface from the
+in situ temperature, close to but not the same as nrtqclib's potential
+density, and the centres' threshold is per dbar, so both are shown. A
+stuck profile is counted as flagged when the input flags nearly all of its
+values.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "items_response",
+  "The share of each test's failures the input flags, by how far past nrtqclib's threshold they are. One panel per test and the flag it is set against; a band with fewer than 20 failures is left out. Colour is the product and line type the region.",
+  "Line charts per test of the share flagged by the input against the size of the failure, one line per product."
+) : html``
+```
+
+The bands of one product, with how many failures each holds.
+
+```{ojs}
+viewof responseDataset = meta && response
+  ? Inputs.select([...new Set(response.map((r) => r.dataset_id))], { label: "Product", format: name })
+  : html``
+```
+
+```{ojs}
+meta && response ? table(
+  response
+    .filter((r) => r.dataset_id === responseDataset)
+    .map((r) => {
+      const test = meta.response_tests.find((t) => t.key === r.test);
+      return {
+        ...r,
+        key: `${r.test}|${r.variable}|${r.band}`,
+        test_label: test.label,
+        flag: app.responseFlagLabel(meta, r.variable),
+        band_label: test.bands[r.band].label,
+        clear: test.clear.includes(r.band) ? "clear" : "",
+        unit: test.unit
+      };
+    }),
+  [
+    { key: "test_label", label: "Test", align: "left", format: (v) => v },
+    { key: "flag", label: "Set against", align: "left", format: (v) => v },
+    { key: "band_label", label: "How far past", align: "left", format: (v) => v },
+    { key: "clear", label: "Clear failure", align: "left", format: (v) => v },
+    { key: "n", label: "Failures", title: "Observations, pairs of levels or profiles, as the test counts them" },
+    { key: "n_flagged", label: "The input flags", format: (v, r) => app.formatSmallShare(v, r.n) }
+  ]
+) : html``
+```
+
+Read together, for the regional products whose centres answered:
+
+- **Arctic NRT regional**: global range and spike behave as claimed: the
+  input flags nearly all of their clear failures, from about nrtqclib's
+  thresholds. Gradient mostly, about four in five. Density inversion only
+  partly: the input flags about a quarter of the clear inversions, and
+  hardly any measured per dbar, so its density test is not the one
+  described, or runs on part of the data. There are too few stuck profiles
+  to tell.
+- **Baltic NRT regional**: gradient and stuck value leave no sign, as the
+  centre says it runs neither. Spike and density inversion, which it says
+  it runs, leave none either: the input flags almost none of the clear
+  salinity spikes or the clear inversions (there are too few clear
+  temperature spikes to tell). Salinity just under nrtqclib's lower bound
+  of 2 is mostly flagged, which fits a range test with a bound near it.
+- **Mediterranean NRT regional**: too few clear failures to tell for most
+  tests. The input flags a sixth of the few clear density inversions,
+  although the centre says the test is not run yet; another test may
+  account for them.
+
+No profile in these data goes shallower in recorded order, so the only
+failures of pressure increasing are repeated pressures. The Baltic input
+leaves those unflagged, which fits a test that fails only a pressure going
+shallower, and there is none to show whether it runs. Of the global
+products, the Mediterranean one flags more than half of the repeated
+pressures, but in its pressure flag rather than in temperature or salinity,
+which this site compares.
 
 ## How often they disagree
 

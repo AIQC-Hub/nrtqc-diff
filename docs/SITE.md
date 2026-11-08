@@ -21,7 +21,8 @@ site/
 │       ├── views.js      tree, tables, profile list, contingency, legend, bars
 │       ├── labels.js     the column names and flag values, said in words
 │       ├── plots.js      the profile plots
-│       └── analyses.js   the Analyses pages' tables and figures
+│       ├── analyses.js   the Analyses pages' tables and figures
+│       └── regional.js   the regional centres' answers on their NRT QC tests
 ├── data/                 written by the build step  (gitignored)
 ├── libs/                 vendored by scripts/fetch_assets.sh  (gitignored)
 └── _site/                rendered output  (gitignored)

@@ -30,26 +30,9 @@ nrtqclibOnly = new Map((status ?? [])
   .filter((r) => r.status === "nrtqclib_only")
   .map((r) => [`${r.dataset_id}|${r.variable}`, r.n_obs]))
 
-// What each regional centre said about the test behind a check, from their
-// answers (docs/REGIONAL_QC.md). The ids are those of config/test_nrt.yaml;
-// a product not listed, such as a global one, gets "not described".
-REGIONAL_RUNS = ({
-  ar_ar: {
-    global_range: "yes", regional_range: "yes", spike: "yes", gradient: "yes",
-    stuck_value: "yes", density_inversion: "yes, at 0.05"
-  },
-  bo_bo: {
-    global_range: "yes", regional_range: "yes", spike: "yes", gradient: "no",
-    stuck_value: "no", density_inversion: "yes, at 0.05",
-    pressure_increasing: "yes, on the whole profile"
-  },
-  mo_mo: {
-    global_range: "yes", regional_range: "yes", spike: "yes", gradient: "yes",
-    stuck_value: "yes", density_inversion: "not run yet"
-  }
-})
-producerRuns = (datasetId, item) =>
-  REGIONAL_RUNS[datasetId] ? (REGIONAL_RUNS[datasetId][item] ?? "not asked") : "not described"
+// What the producer said about the test behind a check, from the shared
+// table of the regional centres' answers (assets/js/regional.js).
+producerRuns = app.producerRuns
 ```
 
 ```{ojs}
@@ -75,7 +58,8 @@ the input flags too, and the share of the observations only nrtqclib flags
 that the check accounts for. The last column is what the regional centre
 said about the same test: "not asked" is a test it was not asked about and
 did not mention, and the global products are "not described", since their
-QC is not the regional centres'.
+QC is not the regional centres'. Whether the input flags bear an answer out
+is on [Flag differences in NRT](analyses-flags.qmd#what-each-side-runs).
 
 ```{ojs}
 byItem = meta ? app.loadAnalysisTable("items_by_item") : null
@@ -95,7 +79,7 @@ meta && byItem ? table(
     { key: "n_fail_nrtqclib_only", label: "Only nrtqclib" },
     { key: "share_of_only", label: "Of all nrtqclib only", title: "Share of the variable's observations only nrtqclib flags that this check failed", format: (_, r) => app.formatSmallShare(r.n_fail_nrtqclib_only, nrtqclibOnly.get(`${r.dataset_id}|${r.variable}`)) },
     { key: "n_alone_nrtqclib_only", label: "This check alone" },
-    { key: "producer", label: "The producer runs it", align: "left", render: (_, r) => document.createTextNode(producerRuns(r.dataset_id, r.item)) }
+    { key: "producer", label: "The producer says it runs it", align: "left", render: (_, r) => document.createTextNode(producerRuns(r.dataset_id, r.item)) }
   ]
 ) : html``
 ```
@@ -137,7 +121,7 @@ much each design choice moves the flags.
 
 | Check | nrtqclib, as run here | How another implementation can differ |
 | --- | --- | --- |
-| Pressure increasing | Keeps the order the levels were recorded in, and fails a level whose pressure repeats the previous one or is shallower than any reached before it. | Sorting each profile by pressure before the tests hides a reversal, and dropping repeated pressures removes those levels instead of flagging them. The earlier implementation did both: on the Arctic products the levels it dropped matched the ones this check fails, so nothing of this kind was ever flagged. |
+| Pressure increasing | Keeps the order the levels were recorded in, and fails a level whose pressure repeats the previous one or is shallower than any reached before it. No profile in these data goes shallower, so every failure here is a repeated pressure. | Dropping repeated pressures removes those levels instead of flagging them, and sorting each profile by pressure hides a reversal. The earlier implementation did both: on the Arctic products the levels it dropped matched the ones this check fails, so nothing of this kind was ever flagged. A producer can also flag a repeat in its pressure flag alone, which this site does not compare. |
 | Density inversion | Potential density (sigma-0) at each level; both levels of a consecutive pair fail when the lower one is lighter by more than 0.03 kg/m³. A level with no density breaks the comparison. | The Arctic and Baltic centres give 0.05 kg/m³ per dbar. In-situ density instead of potential density cancels part of an inversion by the pressure difference between the levels, the more so the further apart they are; comparing across missing levels adds pairs. The earlier implementation, with in-situ density and 0.05 kg/m³, agreed with this check on about a third of the levels either one flagged. |
 | Temperature flag carried over | Raises the salinity flag wherever the temperature flag is 3 or 4, whatever test set it. | Flagging each variable on its own leaves salinity good beside a bad temperature. None of the regional centres mention carrying a flag over. |
 | Stuck value | Fails a whole profile whose non-missing values are all the same, from 2 values up. | A larger minimum leaves short profiles unjudged: the earlier implementation needed more than 5 levels. |
@@ -154,9 +138,12 @@ much each design choice moves the flags.
   the Arctic regional product most of it covers whole profiles, the
   salinity of profiles whose temperature is flagged bad throughout.
 - **Pressure increasing** accounts for most of what only nrtqclib flags in
-  the Arctic and Mediterranean global products, and the input flags little
-  of what it fails, as a producer that sorts each profile by pressure
-  would: it never sees a reversal.
+  the Arctic and Mediterranean global products. Every one of its failures
+  here is a repeated pressure, and the input rarely flags the temperature
+  or salinity there. The Arctic global producer leaves repeats alone, as
+  one that drops or ignores them would; the Mediterranean one flags more
+  than half of them, but in its pressure flag
+  ([What the input flags show](analyses-flags.qmd#what-the-input-flags-show)).
 - **Density inversion** accounts for most of the temperature only nrtqclib
   flags in the regional products. The Arctic and Baltic centres run it, with a larger threshold,
   and their input flags only a small share of nrtqclib's failures; the

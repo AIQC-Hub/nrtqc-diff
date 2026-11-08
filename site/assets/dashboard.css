@@ -759,3 +759,20 @@
   min-width: 24rem;
   white-space: normal;
 }
+
+/* What the data shows of a producer's claim, under it in the same cell. */
+.nq-seen {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--nq-muted);
+  font-size: 0.85em;
+}
+
+/* The claims table: four wrapped columns side by side, shown in full. */
+.nq-claims .nq-table-wrap {
+  max-height: none;
+}
+
+.nq-claims .nq-table td.nq-wrap {
+  min-width: 11rem;
+}

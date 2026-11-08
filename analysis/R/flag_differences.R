@@ -1,7 +1,8 @@
 # Figures of the three Flag differences pages: over NRT profiles at sea, how
 # the two sources agree, which nrtqclib checks account for what only
-# nrtqclib flags, where in the water column each side flags alone, and
-# where in its profile each one-sided flag sits.
+# nrtqclib flags, where in the water column each side flags alone, where
+# in its profile each one-sided flag sits, and how often the input flags the
+# failures of each nrtqclib test by how far past the threshold they are.
 
 source("analysis/R/setup.R")
 message("Flag differences")
@@ -178,4 +179,52 @@ if (!is.null(shapes)) {
   }
   shape_figure("original_only", "items_shape_original")
   shape_figure("nrtqclib_only", "items_shape_nrtqclib")
+}
+
+response <- read_table("items_response")
+if (!is.null(response)) {
+  # How often the input flags the failures of each nrtqclib test, by how far
+  # past the threshold they are: a producer running the test climbs to
+  # nearly all of them, one that does not stays flat. One panel per test and
+  # variable; a band with fewer than min_n failures is left out as noise.
+  min_n <- 20
+  tests <- meta$response_tests
+  flag_names <- c(setNames(paste(meta$variables$label, "flag"), meta$variables$name),
+                  pres = "Pressure flag",
+                  density = "Either flag")
+  band_label <- function(test, band) {
+    mapply(function(t, b) tests$bands[[match(t, tests$key)]]$label[b + 1], test, band)
+  }
+  panels <- response |>
+    filter(n >= min_n) |>
+    with_datasets() |>
+    mutate(
+      share = n_flagged / n,
+      test_label = tests$label[match(test, tests$key)],
+      panel = paste0(test_label, ": ", flag_names[variable]),
+      band_text = band_label(test, band),
+      panel_order = match(test, tests$key) * 10 +
+        match(variable, c(meta$variables$name, "density", "pres"))
+    ) |>
+    mutate(panel = forcats::fct_reorder(panel, panel_order))
+  # Each test has bands of its own: the x axis is the test and band, so a
+  # free scale keeps only a panel's own, labelled with their words.
+  panels <- panels |>
+    mutate(x = paste(test, band)) |>
+    arrange(panel_order, band) |>
+    mutate(x = factor(x, levels = unique(x)))
+  x_labels <- setNames(panels$band_text, panels$x)
+  plot <- ggplot(panels, aes(x, share, colour = product,
+                             linetype = region_short, group = short)) +
+    geom_line(linewidth = 0.5) +
+    geom_point(size = 1.1) +
+    facet_wrap(~panel, ncol = 3, scales = "free_x") +
+    scale_x_discrete(labels = x_labels) +
+    scale_y_continuous(labels = label_percent(), limits = c(0, 1),
+                       breaks = c(0, 0.5, 1)) +
+    scale_colour_manual(values = product_colours) +
+    labs(x = NULL, y = "Share the input flags") +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 6)) +
+    guides(linetype = guide_legend(nrow = 1))
+  save_figure(plot, "items_response", height = 230)
 }
