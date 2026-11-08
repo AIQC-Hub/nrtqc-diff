@@ -10,7 +10,7 @@
  */
 
 import { DATA_ROOT } from "./db.js";
-import { tableView } from "./views.js";
+import { formatPercent, tableView } from "./views.js";
 
 /** Where the analyses are published. */
 export const ANALYSES_ROOT = DATA_ROOT + "analyses/";
@@ -234,9 +234,7 @@ export function formatShare(part, whole) {
  */
 export function formatSmallShare(part, whole) {
   if (!whole) return "";
-  const value = (100 * part) / whole;
-  if (value === 0) return "0%";
-  return `${value >= 1 ? value.toFixed(1) : value.toPrecision(2)}%`;
+  return formatPercent((100 * part) / whole);
 }
 
 /** A rate per 1,000 with one decimal. */

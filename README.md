@@ -22,8 +22,8 @@ site and PDF for a manuscript. See [`docs/ANALYSES.md`](docs/ANALYSES.md).
 
 **Regions and products** is the overview: one row per region and product, how
 much of each source dataset survived the trimming, and how the two flag
-sources line up across what did, with a rate per 1,000 observations so
-products of very different sizes can be compared.
+sources line up across what did, with the share of observations they
+disagree on so products of very different sizes can be compared.
 
 **Platforms** is one product at a time: one row per platform, with the same
 counts and rate, and a click on a platform lists its profiles underneath it.

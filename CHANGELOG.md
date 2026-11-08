@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The Summary and Platforms pages give the disagreements as percentages of
+  the published observations instead of rates per 1,000, as the Delayed mode
+  in NRT products page does. A share under 1% keeps two significant digits
+  (0.35%), so a small one does not round to 0.0%.
+
 ## [0.9.1] - 2026-11-08
 
 ### Changed

@@ -50,15 +50,11 @@ has_time = {
   return columns.includes("profile_timestamp");
 }
 
-// Per 1,000 published observations, so platforms of very different sizes can
-// be compared. Null when there is nothing to divide by, rather than zero,
-// which would read as "no disagreement".
+// A percentage of the published observations, so platforms of very
+// different sizes can be compared. Null when there is nothing to divide by,
+// rather than zero, which would read as "no disagreement".
 function rate(count, observations) {
-  return observations > 0 ? (1000 * count) / observations : null;
-}
-
-function perThousand(value) {
-  return value === null || value === undefined ? "" : value.toFixed(1);
+  return observations > 0 ? (100 * count) / observations : null;
 }
 
 // A platform's first and last profile, to the day: the time of day says
@@ -214,10 +210,10 @@ app.statusLegend(statuses)
       })),
       {
         key: "disagree_rate",
-        label: "Disagree per 1,000",
-        format: perThousand,
+        label: "% disagree",
+        format: app.formatPercent,
         title:
-          "Observations the two sources disagree on, per 1,000 published observations"
+          "Observations the two sources disagree on, as a share of the published observations"
       }
     ],
     rowKey: "platform_code",
