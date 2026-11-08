@@ -26,6 +26,8 @@ website:
             text: Data conversion
           - href: analyses-depth.qmd
             text: Depth
+          - href: analyses-input-flags.qmd
+            text: Input QC flags
           - href: analyses-data-mode.qmd
             text: Delayed mode in NRT products
           - href: analyses-flags.qmd

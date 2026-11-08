@@ -77,7 +77,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 8
+ANALYSES_FORMAT: int = 9
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -194,10 +194,12 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     tables.update(data_mode_tables(profiles, config, spec))
 
     land_flags: List[pl.DataFrame] = []
+    input_flags: List[pl.DataFrame] = []
     item_tables: Dict[str, List[pl.DataFrame]] = {}
     for dataset in config.datasets:
         scan = _scan(dataset, spec)
         mine = profiles.filter(pl.col("dataset_id") == dataset.id)
+        input_flags.append(input_flag_table(scan, dataset, config))
 
         land = mine.filter(pl.col("land")).select(PROFILE_KEYS)
         if land.height:
@@ -219,6 +221,7 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
 
     if land_flags:
         tables["depth_land_flags"] = pl.concat(land_flags, how="diagonal_relaxed")
+    tables["input_flags"] = pl.concat(input_flags, how="diagonal_relaxed")
     for name, frames in item_tables.items():
         tables[name] = pl.concat(frames, how="diagonal_relaxed")
 
@@ -773,6 +776,56 @@ def land_flag_table(
         for v in config.variables
     ]
     return pl.concat(frames)
+
+
+def input_flag_table(
+    scan: pl.LazyFrame, dataset: DatasetSpec, config: BuildConfig
+) -> pl.DataFrame:
+    """
+    Every observation of one dataset counted by the value of its input flag.
+
+    All of the dataset is counted, land and delayed mode profiles too: the
+    table describes the input as it is, like the regional summary reports,
+    rather than the subset an analysis compares.
+
+    The regional reports keep only profiles whose ``position_qc`` is good,
+    which drops a profile with no position flag at all. Whether a profile
+    has one is kept as a column, so a page can count both ways.
+
+    :param scan: The dataset.
+    :param dataset: The dataset's configuration.
+    :param config: The build configuration.
+    :return: One row per variable, input flag value (null where the input
+             has no flag) and ``has_position_qc``, with ``n_obs``.
+    """
+    names = scan.collect_schema().names()
+    has_position = (
+        pl.col("position_qc").cast(pl.Int64, strict=False).is_not_null()
+        if "position_qc" in names
+        else pl.lit(None, dtype=pl.Boolean)
+    )
+    flags = [original_flag(v).alias(v.name) for v in config.variables]
+    counted = (
+        scan.select(flags + [has_position.alias("has_position_qc")])
+        .group_by(pl.all())
+        .agg(pl.len().cast(pl.Int64).alias("n_obs"))
+        .collect(engine="streaming")
+    )
+    label = [
+        pl.lit(dataset.id).alias("dataset_id"),
+        pl.lit(dataset.region).alias("region"),
+        pl.lit(dataset.product).alias("product"),
+        pl.lit(dataset.label).alias("label"),
+    ]
+    per_variable = [
+        counted.group_by(pl.col(v.name).alias("original_flag"), "has_position_qc")
+        .agg(pl.col("n_obs").sum())
+        .select(label + [pl.lit(v.name).alias("variable"), pl.all()])
+        for v in config.variables
+    ]
+    return pl.concat(per_variable).sort(
+        ["variable", "original_flag", "has_position_qc"], nulls_last=True
+    )
 
 
 def item_name(column: str, variable: VariableSpec) -> str:

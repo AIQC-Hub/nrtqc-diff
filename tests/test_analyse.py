@@ -12,6 +12,7 @@ from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
     check_conversion_steps,
     classify,
+    input_flag_table,
     land_causes,
     match_tables,
     overlap_table,
@@ -202,6 +203,47 @@ def test_land_profiles_are_counted_with_their_flags(analysed):
     assert dict(zip(margin["margin_m"], margin["n_profiles"]))[5.0] == 0
     flags = table(analysed, "depth_land_flags")
     assert dict(zip(flags["original_flag"], flags["n_obs"])) == {1: 4, 4: 2}
+
+
+def test_input_flags_count_every_observation(analysed):
+    flags = table(analysed, "input_flags")
+    # Land, delayed and estimated profiles too: the whole input is counted.
+    expected = {1: 0, 4: 0}
+    for _, observations in CASES.values():
+        for flag, *_ in observations:
+            expected[flag] += 1
+    assert dict(zip(flags["original_flag"], flags["n_obs"])) == expected
+    assert flags["has_position_qc"].to_list() == [True, True]
+
+
+def test_input_flags_keep_profiles_without_a_position_flag(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    scan = pl.LazyFrame(
+        {
+            "temp_qc": ["1", "4", "", "1"],
+            "position_qc": ["1", "1", "1", ""],
+        }
+    )
+    rows = input_flag_table(scan, spec.datasets[0], spec).select(
+        "original_flag", "has_position_qc", "n_obs"
+    )
+    assert rows.rows() == [(1, False, 1), (1, True, 1), (4, True, 1), (None, True, 1)]
 
 
 def test_items_are_attributed_over_nrt_profiles_only(analysed):

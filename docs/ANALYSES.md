@@ -1,6 +1,6 @@
 # The analyses
 
-The Analyses menu of the site holds four pages of figures and tables. Their
+The Analyses menu of the site holds five pages of figures and tables. Their
 figures are meant to be reused in a manuscript, so they are drawn locally,
 in R with ggplot2, rather than in the browser like the rest of the site.
 
@@ -165,6 +165,7 @@ name or columns.
 | `depth_land_flags` | dataset, variable, flag | observations of land profiles by input flag |
 | `depth_land_profiles` | land profile | position, height, distance to the coast, flags |
 | `depth_land_cause` | dataset, likely cause | land profiles and their distinct positions: `whole_degrees` (both coordinates whole degrees), `shore` (at most 5 m up and 1 km from the coast), `low_far` (as low, further out), `inland` (higher), tested in that order |
+| `input_flags` | dataset, variable, input flag, whether the profile has a `position_qc` | observations, over every profile: land, delayed mode and the rest |
 | `dm_groups` | dataset, variable, data mode, group | profiles, observations and the variable's agreement counts |
 | `dm_share_hist` | dataset, variable, data mode, share bin | profiles by input-only share; exactly 0 and exactly 1 are bins of their own |
 | `dm_threshold` | dataset, variable, data mode, threshold | profiles at or above it |
@@ -222,6 +223,7 @@ the theme, the palettes and `save_figure()`.
 | --- | --- |
 | `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_coverage`, `conversion_coverage_years` |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_cause` |
+| `input_flags.R` | `input_flags_shares` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |
 

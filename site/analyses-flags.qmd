@@ -7,8 +7,8 @@ execute:
   echo: false
 ---
 
-What is left after the two previous pages: profiles at sea, marked NRT, and
-not estimated to carry delayed mode flags. The estimate is made per
+What is left after the Depth and Delayed mode pages: profiles at sea,
+marked NRT, and not estimated to carry delayed mode flags. The estimate is made per
 variable, so each variable is counted over its own profiles: one whose
 salinity looks reworked by an operator is in the temperature figures and
 not in the salinity ones. Both flags on them should come
