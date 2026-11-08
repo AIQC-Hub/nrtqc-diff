@@ -5,6 +5,10 @@ centres say they run on CTD profiles, from their own replies. It explains
 some of what the site shows: a test the input never ran cannot agree with
 the same test in nrtqclib.
 
+For the tests of `nc2parquet`, the earlier scripts whose NRT QC is used on
+Arctic data, and how they differ from nrtqclib's, see
+[`NC2PARQUET.md`](NC2PARQUET.md).
+
 ## The tests
 
 | Test | nrtqclib item | Arctic | Baltic | Mediterranean |
@@ -18,7 +22,9 @@ the same test in nrtqclib.
 | Density inversion | `density_inversion` | yes, 0.05 kg/m³ per dbar | yes, 0.05 kg/m³ per dbar | unclear (see below) |
 | Metadata hydrological | none | no | no | no |
 
-Each answer covers temperature and salinity alike.
+Each answer covers temperature and salinity alike. nrtqclib has no frozen
+profile test; `nc2parquet` has one, described in
+[`NC2PARQUET.md`](NC2PARQUET.md#only-in-nc2parquet-the-frozen-profile-test).
 
 The sources are beside this note: the table the centres filled in,
 [`nrtqc_items.xlsx`](nrtqc_items.xlsx), and the replies that came with it
