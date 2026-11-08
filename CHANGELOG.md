@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-08
+
 ### Added
 
 - **Analyses pages**, under a new Analyses menu between Platforms and About:
@@ -93,6 +95,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   scripts with the `nrtqclib` QC items: which items each implements, how the
   logic differs, and defects found in `nc2parquet`. It is documentation for
   the repository and is not part of the site.
+
+### Changed
+
+- The Pages workflow uses `actions/upload-pages-artifact` v5 and
+  `actions/deploy-pages` v5. With v4, both deploys of 0.8.0 timed out: the
+  deployment status came back empty for ten minutes.
 
 ### Fixed
 
