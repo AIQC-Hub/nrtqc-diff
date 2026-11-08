@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The About page says plainly that profiles neither source flags are not
+  published, what counts as flagged for each source (an input value the
+  build counts as an anomaly; an `nrtqclib` flag above 1), that a profile
+  whose input flags are only usable or missing values is left out too
+  when `nrtqclib` passes it, and that the Analyses pages are computed from
+  every profile instead.
 - The Summary and Platforms pages give the disagreements as percentages of
   the published observations instead of rates per 1,000, as the Delayed mode
   in NRT products page does. A share under 1% keeps two significant digits
