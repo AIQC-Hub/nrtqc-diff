@@ -43,9 +43,16 @@ meta === null ? app.analysesMissing() : html``
 From the regional centres' answers, set out on
 [Flag differences in NRT](analyses-flags.qmd#what-each-side-runs):
 
-- **Frozen profile**, run by all three regional centres: a platform that
-  keeps sending the same profile. It judges a profile as a whole, so its
-  failures cover a whole profile.
+- **Frozen profile**, listed by all three regional centres: a profile almost
+  identical to the same platform's previous one, as from a stuck sensor or
+  a transmission that repeats itself. It is not the repeated cast removed
+  as a [duplicate](analyses-conversion.qmd#duplicates-within-a-product),
+  which shares the previous profile's day and position. No sign of it
+  shows in the input flags. Where one platform has identical profiles
+  hours apart, the regional centres flag every copy or none, never only the
+  repeat; and the exact repeats of a platform's previous profile left after
+  the duplicate step are hardly ever flagged. The test cannot explain the
+  whole profiles below.
 - **The Baltic's checks on the whole profile**, run before the tests on
   each variable: negative pressure (a measurement in air), pressure
   increasing from the surface to the bottom, spikes in pressure, and a
@@ -71,7 +78,7 @@ meta ? app.analysisFigure(
 ```
 
 ```{ojs}
-meta ? md`**A whole profile here is mostly a short one.** A profile marked NRT whose input flags at least ${Math.round(100 * rule.min_share)}% of its observations, where nrtqclib does not, is estimated to be delayed mode once it has ${rule.min_observations} observations with a usable flag, and leaves this comparison. What stays are profiles too short to be estimated, and profiles nrtqclib flags in part too. A frozen profile test would flag whole profiles of any length, so some of the estimated delayed mode profiles may be its failures rather than an operator's.` : html``
+meta ? md`**A whole profile here is mostly a short one.** A profile marked NRT whose input flags at least ${Math.round(100 * rule.min_share)}% of its observations, where nrtqclib does not, is estimated to be delayed mode once it has ${rule.min_observations} observations with a usable flag, and leaves this comparison. What stays are profiles too short to be estimated, and profiles nrtqclib flags in part too.` : html``
 ```
 
 ```{ojs}

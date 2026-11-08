@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   nrtqclib flags it accounts for, and how two implementations of one test
   can differ. New table `items_shape` and figures `items_shape_original` and
   `items_shape_nrtqclib`; `analyses_format` is 11.
+- The frozen profile test, listed by every regional centre, leaves no sign
+  in the input flags: identical profiles of one platform hours apart are
+  flagged all or none, and exact repeats of a platform's previous profile
+  are hardly flagged. The Flagged only by the input page says so instead of
+  suggesting the test lies behind whole flagged profiles, and the Data
+  conversion page notes that the duplicate step matches on the day, so a
+  platform's separate casts at one place that day are reduced to one.
 
 - An **Input QC flags** page in the Analyses menu, after Depth: every
   observation of each product counted by its input flag value, for

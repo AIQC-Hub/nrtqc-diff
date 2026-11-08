@@ -74,7 +74,10 @@ they do not describe.
 | Negative pressure, pressure spikes, soaking depth left in | no | not asked | yes, on the whole profile first | not asked |
 
 "Not asked" is a test the centres were not asked about and did not
-mention. A test both sides run can still disagree: the
+mention. The frozen profile test is listed by all three, but leaves no
+sign in their flags: see
+[Flagged only by the input](analyses-flags-original.qmd#tests-nrtqclib-does-not-have).
+A test both sides run can still disagree: the
 [nrtqclib page](analyses-flags-nrtqclib.qmd#how-one-test-can-differ)
 describes how.
 
