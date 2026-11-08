@@ -108,6 +108,7 @@ own NRT QC output and rebuild. Nothing else changes.
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | The published files and their schemas |
 | [`docs/ETL.md`](docs/ETL.md) | Running and extending the build step |
 | [`docs/ANALYSES.md`](docs/ANALYSES.md) | The Analyses pages: tables in Python, figures in R |
+| [`docs/REGIONAL_QC.md`](docs/REGIONAL_QC.md) | The NRT QC tests each regional product runs |
 | [`docs/SITE.md`](docs/SITE.md) | How the site is put together |
 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Dev setup, tests, git workflow |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Versioning and deployment |

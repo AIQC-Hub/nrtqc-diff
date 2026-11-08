@@ -13,6 +13,7 @@ See `README.md` for the workflow and `docs/` for the details:
 | `docs/DATA_MODEL.md` | The published files, their schemas, the trimming rule |
 | `docs/ETL.md` | Running and extending the build step |
 | `docs/ANALYSES.md` | The Analyses pages: `nrtqc-diff analyse` tables, R figures |
+| `docs/REGIONAL_QC.md` | The NRT QC tests each regional product runs; not the global ones |
 | `docs/SITE.md` | Quarto/OJS conventions, page contracts, the data access seam |
 | `docs/CONTRIBUTING.md` | Dev setup, tests, lint, git workflow |
 | `docs/RELEASING.md` | Version bumps, data releases, deploying the site |

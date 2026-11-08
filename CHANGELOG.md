@@ -86,6 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the threshold. They held few of the flags the estimate takes out of NRT.
   The page no longer says the count barely moves across the threshold
   everywhere: in some products it falls steadily.
+- `docs/REGIONAL_QC.md`: the NRT QC tests the Arctic, Baltic and
+  Mediterranean regional centres run, how the data bear them out, and why
+  they do not describe the global product.
 
 ### Fixed
 
