@@ -24,6 +24,14 @@ nrtqclib does not. An automated test rarely rejects most of a profile; an
 operator who judges a cast bad often rejects all of it. Delayed mode
 profiles show it, and so do some profiles marked real time.
 
+::: {.callout-note appearance="simple" icon="false"}
+```{ojs}
+meta ? md`**The estimated delayed mode profiles are defined with a threshold of ${percent(rule.min_share)}.** A profile marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} is estimated to be delayed mode for a variable when at least ${percent(rule.min_share)} of its observations of that variable with a usable input flag are flagged by the input and not by nrtqclib. The variable counts only with at least ${rule.min_observations} such observations, so a short profile, where a few flagged values make a large share, is not called.
+
+Every page of the site that shows the estimated delayed mode group uses this threshold, the dashboard included. The threshold is a setting of the analysis: the figure and table under "How much the threshold matters" try others, to show how much the choice changes the count, and nothing else depends on them.` : html``
+```
+:::
+
 **Temperature and salinity are judged apart.** An operator often reworks
 one and leaves the other alone, and most of the profiles this finds are
 reworked in salinity only. So a profile can be estimated delayed mode for
@@ -49,10 +57,6 @@ percent = (value) => `${Math.round(100 * value)}%`
 
 ```{ojs}
 meta === null ? app.analysesMissing() : html``
-```
-
-```{ojs}
-meta ? md`**The rule.** A profile marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} is estimated to be delayed mode for a variable when at least ${percent(rule.min_share)} of its observations of that variable with a usable input flag are flagged by the input and not by nrtqclib. The variable counts only with at least ${rule.min_observations} such observations, so a short profile, where a few flagged values make a large share, is not called. The threshold is a setting of the analysis; the table further down shows how the count moves with it.` : html``
 ```
 
 ## The groups
@@ -109,13 +113,27 @@ most products. The threshold sits between them, at a clear majority of the
 profile rather than half of it, since an automated test can plausibly
 reject half a profile.
 
-**How much the threshold matters depends on the product.** In the Arctic
-regional product the count barely moves between 60% and 90%: its estimated
-profiles are almost all flagged in full. In the salinity of the Arctic
-global product and the temperature of the Mediterranean global product the
-shares spread between the humps, and the count falls steadily as the
-threshold rises, so there the threshold decides how many profiles are
-estimated.
+```{ojs}
+meta ? md`**How much the threshold matters.** The estimated delayed mode profiles on this site are those at or above ${percent(rule.min_share)}. The figure tries other thresholds, for comparison only: for each product and variable, how many profiles the rule would estimate to be delayed mode at each threshold from 50% to 100%. A flat line means the choice hardly matters there, because the input alone flags those profiles almost in full or hardly at all. A falling line means many profiles sit between the two humps, and the threshold decides how many of them are estimated.` : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "dm_threshold",
+  `Profiles marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} that the rule would estimate to be delayed mode, at each threshold from 50% to 100%: one panel per product and variable. Each panel has its own scale, starting at zero, so the fall of a line is its real proportion. The large point and the vertical line mark the threshold in use, ${percent(rule.min_share)}, with the number of profiles it estimates.`,
+  "Line charts per product and variable of the number of profiles estimated delayed mode against the threshold."
+) : html``
+```
+
+The salinity of the Arctic regional product is flat: its estimated
+profiles are flagged almost in full. The salinity of the Arctic global
+product and the temperature of the Mediterranean global product fall
+steadily, so there the threshold matters. The Baltic and the Mediterranean
+regional product have few estimated profiles, and a step of one or two
+profiles looks steep.
+
+The table gives the same counts, with a row for the profiles whose files
+declare delayed mode where a product has any.
 
 ```{ojs}
 thresholds = meta ? app.loadAnalysisTable("dm_threshold") : null
@@ -141,18 +159,13 @@ meta ? table(thresholdRows, [
 ]) : html``
 ```
 
-```{ojs}
-meta ? app.analysisFigure(
-  "dm_threshold",
-  "Profiles at or above each threshold, one row of panels per variable. Dashed: profiles marked NRT or with no data mode, the ones the rule files as estimated delayed mode. Solid: profiles already in delayed mode that the same rule would catch, which says how much of delayed mode the rule can see at all.",
-  "Line charts of profile counts against the threshold, per region and variable."
-) : html``
-```
-
-The solid lines are nearly flat: the profiles that declare delayed mode and
-reach 50% nearly all reach 90% too. The dashed lines fall more. So the
-profiles marked NRT with a share between 50% and 90% look less like an
-operator's than those above it, which is why the threshold is not set lower.
+The rows of profiles that declare delayed mode are a check on the rule,
+and only the Arctic products hold enough of them. In the Arctic global
+product, the declared ones that reach 50% nearly all reach 90% too, while
+the profiles marked NRT thin out much more as the threshold rises: a
+profile marked NRT with a share between 50% and 90% looks less like an
+operator's work than one above it, which is why the threshold is not set
+lower. In the Arctic regional product both stay nearly flat.
 
 ## What the estimate takes out of NRT
 

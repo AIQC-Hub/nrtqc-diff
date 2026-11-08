@@ -24,6 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the published observations instead of rates per 1,000, as the Delayed mode
   in NRT products page does. A share under 1% keeps two significant digits
   (0.35%), so a small one does not round to 0.0%.
+- The threshold figure on the Delayed mode in NRT products page has one
+  panel per product and variable, each with a single line: the profiles
+  the rule would estimate at each threshold, from zero, with the threshold
+  in use marked. It used to draw every product of a region in one panel,
+  with the declared delayed mode profiles as a second set of lines, which
+  took two legends to read; those profiles are now in the table and the
+  text alone.
+- The same page states the threshold that defines the estimated delayed
+  mode profiles, 60%, at the head of its rule, in a box near the top, and
+  says that every page, the dashboard included, uses it while the other
+  thresholds on the page are for comparison only.
 
 ## [0.9.1] - 2026-11-08
 
