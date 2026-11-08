@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-09
+
 ### Added
 
 - **What the input flags show**, a section of Flag differences in NRT that
