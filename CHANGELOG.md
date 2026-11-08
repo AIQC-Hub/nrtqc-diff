@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   with the declared delayed mode profiles as a second set of lines, which
   took two legends to read; those profiles are now in the table and the
   text alone.
+- The same page states the threshold that defines the estimated delayed
+  mode profiles, 60%, at the head of its rule, in a box near the top, and
+  says that every page, the dashboard included, uses it while the other
+  thresholds on the page are for comparison only.
 
 ## [0.9.1] - 2026-11-08
 

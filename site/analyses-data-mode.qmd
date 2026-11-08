@@ -24,6 +24,14 @@ nrtqclib does not. An automated test rarely rejects most of a profile; an
 operator who judges a cast bad often rejects all of it. Delayed mode
 profiles show it, and so do some profiles marked real time.
 
+::: {.callout-note appearance="simple" icon="false"}
+```{ojs}
+meta ? md`**The estimated delayed mode profiles are defined with a threshold of ${percent(rule.min_share)}.** A profile marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} is estimated to be delayed mode for a variable when at least ${percent(rule.min_share)} of its observations of that variable with a usable input flag are flagged by the input and not by nrtqclib. The variable counts only with at least ${rule.min_observations} such observations, so a short profile, where a few flagged values make a large share, is not called.
+
+Every page of the site that shows the estimated delayed mode group uses this threshold, the dashboard included. The threshold is a setting of the analysis: the figure and table under "How much the threshold matters" try others, to show how much the choice changes the count, and nothing else depends on them.` : html``
+```
+:::
+
 **Temperature and salinity are judged apart.** An operator often reworks
 one and leaves the other alone, and most of the profiles this finds are
 reworked in salinity only. So a profile can be estimated delayed mode for
@@ -49,10 +57,6 @@ percent = (value) => `${Math.round(100 * value)}%`
 
 ```{ojs}
 meta === null ? app.analysesMissing() : html``
-```
-
-```{ojs}
-meta ? md`**The rule.** A profile marked NRT${rule.groups.includes("unknown") ? ", or with no data mode," : ""} is estimated to be delayed mode for a variable when at least ${percent(rule.min_share)} of its observations of that variable with a usable input flag are flagged by the input and not by nrtqclib. The variable counts only with at least ${rule.min_observations} such observations, so a short profile, where a few flagged values make a large share, is not called. The threshold is a setting of the analysis; the figure and table further down show how the count moves with it.` : html``
 ```
 
 ## The groups
@@ -109,13 +113,9 @@ most products. The threshold sits between them, at a clear majority of the
 profile rather than half of it, since an automated test can plausibly
 reject half a profile.
 
-**How much the threshold matters.** The threshold is a setting of the
-analysis, so the figure tries others: for each product and variable, how
-many profiles the rule would estimate to be delayed mode at each threshold
-from 50% to 100%. A flat line means the choice hardly matters there,
-because the input alone flags those profiles almost in full or hardly at
-all. A falling line means many profiles sit between the two humps, and the
-threshold decides how many of them are estimated.
+```{ojs}
+meta ? md`**How much the threshold matters.** The estimated delayed mode profiles on this site are those at or above ${percent(rule.min_share)}. The figure tries other thresholds, for comparison only: for each product and variable, how many profiles the rule would estimate to be delayed mode at each threshold from 50% to 100%. A flat line means the choice hardly matters there, because the input alone flags those profiles almost in full or hardly at all. A falling line means many profiles sit between the two humps, and the threshold decides how many of them are estimated.` : html``
+```
 
 ```{ojs}
 meta ? app.analysisFigure(
