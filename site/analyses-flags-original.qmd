@@ -1,0 +1,203 @@
+---
+title: "Flagged only by the input"
+format:
+  html:
+    page-layout: full
+execute:
+  echo: false
+---
+
+Observations the input flags bad and nrtqclib passes, over the same
+profiles as [Flag differences in NRT](analyses-flags.qmd): at sea, marked
+NRT, and not estimated to carry delayed mode flags, each variable over its
+own profiles.
+
+The input carries one flag per variable and nothing about which test set
+it, so these cannot be traced to a test the way nrtqclib's can. What can
+be asked is where they sit in their profiles, which value the input gave
+them, and which tests the producers say they run that nrtqclib does not
+have. A test that judges a whole profile flags all of it; one that judges
+a level flags a point; a check on the start of a cast flags a stretch at
+the top.
+
+```{ojs}
+//| output: false
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+meta = app.loadAnalyses()
+name = (id) => app.datasetName(meta, id)
+table = app.analysisTable
+byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
+variableLabel = (n) => meta.variables.find((v) => v.name === n)?.label ?? n
+variableOrder = (n) => meta.variables.findIndex((v) => v.name === n)
+byDatasetVariable = (a, b) => byDataset(a, b) || variableOrder(a.variable) - variableOrder(b.variable)
+rule = meta ? meta.rules.estimated_delayed : null
+shapes = meta ? app.loadAnalysisTable("items_shape") : null
+```
+
+```{ojs}
+meta === null ? app.analysesMissing() : html``
+```
+
+## Tests nrtqclib does not have
+
+From the regional centres' answers, set out on
+[Flag differences in NRT](analyses-flags.qmd#what-each-side-runs):
+
+- **Frozen profile**, run by all three regional centres: a platform that
+  keeps sending the same profile. It judges a profile as a whole, so its
+  failures cover a whole profile.
+- **The Baltic's checks on the whole profile**, run before the tests on
+  each variable: negative pressure (a measurement in air), pressure
+  increasing from the surface to the bottom, spikes in pressure, and a
+  soaking depth left in. Negative pressure and a soaking depth act on the
+  start of a cast, so their failures sit at the top of a profile.
+
+The global products are not covered by these answers; their flags come
+from the global product's own QC.
+
+## Where they sit in their profiles
+
+Each observation only the input flags is placed against the observations
+the input calls good in the same profile, by pressure: above the
+shallowest of them, below the deepest, or between them. Between them, it is
+either the only one of its profile there or one of several.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "items_shape_original",
+  "Observations only the input flags, by where they sit in their profile against the observations the input calls good: all of the profile, a stretch above the shallowest good level, a stretch below the deepest, or between them, alone or with others. The number at the end of a bar is the observations it is made of.",
+  "Stacked bars per product and variable of the share of input-only observations by their place in the profile."
+) : html``
+```
+
+```{ojs}
+meta ? md`**A whole profile here is mostly a short one.** A profile marked NRT whose input flags at least ${Math.round(100 * rule.min_share)}% of its observations, where nrtqclib does not, is estimated to be delayed mode once it has ${rule.min_observations} observations with a usable flag, and leaves this comparison. What stays are profiles too short to be estimated, and profiles nrtqclib flags in part too. A frozen profile test would flag whole profiles of any length, so some of the estimated delayed mode profiles may be its failures rather than an operator's.` : html``
+```
+
+```{ojs}
+//| output: false
+shapeKeys = meta ? meta.shapes.map((s) => s.key) : []
+shapeRows = shapes
+  ? [...shapes.filter((r) => r.status === "original_only").reduce((m, r) => {
+      const key = `${r.dataset_id}|${r.variable}`;
+      const row = m.get(key) ?? {
+        key, dataset_id: r.dataset_id, variable: r.variable, n_obs: 0, negative: 0,
+        ...Object.fromEntries(shapeKeys.map((k) => [k, 0]))
+      };
+      row.n_obs += r.n_obs;
+      row[r.shape] += r.n_obs;
+      if (r.negative_pressure) row.negative += r.n_obs;
+      m.set(key, row);
+      return m;
+    }, new Map()).values()].sort(byDatasetVariable)
+  : []
+usedShapes = shapeKeys.filter((k) => shapeRows.some((r) => r[k] > 0))
+```
+
+```{ojs}
+meta ? table(shapeRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "n_obs", label: "Observations" },
+  ...usedShapes.map((k) => ({
+    key: k,
+    label: meta.shapes.find((s) => s.key === k).label,
+    format: (_, r) => app.formatSmallShare(r[k], r.n_obs)
+  })),
+  { key: "negative", label: "At negative pressure", title: "Share recorded at a pressure below 0, above the sea surface", format: (_, r) => app.formatSmallShare(r.negative, r.n_obs) }
+]) : html``
+```
+
+## Which value the input gave them
+
+A value the input calls probably bad (3) is a softer disagreement than one
+it calls bad (4). The 3s are looked at on their own on
+[Probably good and probably bad](analyses-probable-flags.qmd).
+
+```{ojs}
+flagsTable = meta ? app.loadAnalysisTable("items_original_flags") : null
+originalOnly = flagsTable
+  ? app.widen(
+      flagsTable.filter((r) => r.nrtqclib_bad === false &&
+        (meta.variables.find((v) => v.name === r.variable)?.bad_flag_values ?? []).includes(r.original_flag)),
+      { index: ["dataset_id", "variable"], column: "original_flag", value: "n_obs", name: (v) => `f${v}` }
+    ).sort(byDatasetVariable)
+  : []
+flagKeys = [...new Set(originalOnly.flatMap((r) => Object.keys(r).filter((k) => /^f\d+$/.test(k))))].sort()
+originalRows = originalOnly.map((r) => ({ ...r, n_obs: flagKeys.reduce((sum, k) => sum + (r[k] ?? 0), 0) }))
+meta ? table(originalRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "n_obs", label: "Observations" },
+  ...flagKeys.map((k) => ({
+    key: k,
+    label: app.flagWithMeaning(Number(k.slice(1))),
+    format: (v, r) => app.formatSmallShare(v ?? 0, r.n_obs)
+  }))
+]) : html``
+```
+
+## By platform
+
+The platforms of one product by the share of their observations only the
+input flags, highest first. A disagreement concentrated on a few platforms
+points to how those platforms are processed rather than to a test; the
+[Platforms](platforms.qmd) page opens their profiles.
+
+```{ojs}
+platforms = meta ? app.loadAnalysisTable("items_platforms") : null
+viewof platformDataset = meta && platforms
+  ? Inputs.select([...new Set(platforms.map((r) => r.dataset_id))], { label: "Product", format: name })
+  : html``
+```
+
+```{ojs}
+// One row per platform; shares kept as percentages so they sort by value.
+share = (part, whole) => (whole > 0 ? (100 * part) / whole : null)
+platformRows = platforms
+  ? [...platforms
+      .filter((r) => r.dataset_id === platformDataset)
+      .reduce((m, r) => {
+        const row = m.get(r.platform_code) ?? { key: r.platform_code, platform_code: r.platform_code };
+        row[`${r.variable}_profiles`] = r.n_profiles;
+        row[`${r.variable}_n`] = r.n_original_only;
+        row[`${r.variable}_share`] = share(r.n_original_only, r.n_obs);
+        m.set(r.platform_code, row);
+        return m;
+      }, new Map()).values()]
+  : []
+meta && platforms ? table(
+  platformRows,
+  [
+    { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
+    ...meta.variables.flatMap((v) => [
+      { key: `${v.name}_profiles`, label: `${v.label}: profiles`, format: (x) => (x == null ? "" : app.formatCount(x)) },
+      { key: `${v.name}_n`, label: "Original only", format: (x) => (x == null ? "" : app.formatCount(x)) },
+      { key: `${v.name}_share`, label: "Share", format: app.formatPercent }
+    ])
+  ],
+  { sortKey: `${meta.variables[0].name}_n`, descending: true }
+) : html``
+```
+
+## Read together
+
+- **Arctic NRT regional**: nearly all the temperature ones come from one
+  platform, TOP-4, so the temperature shares describe that platform: most
+  several levels inside the profile, a fifth a stretch at the bottom. The
+  salinity ones are spread over more platforms, and half of them are a
+  stretch at the bottom. All are flagged 4.
+- **Baltic NRT regional**: spread over many platforms, with about a third
+  a stretch at the top of the profile and none at negative pressure. That
+  fits the soaking depth check the Baltic centre runs on the whole profile
+  before its other tests, which nrtqclib does not have.
+- **Mediterranean NRT regional**: few observations, all from one platform,
+  29SO; most of the temperature ones are a stretch at the top. The
+  centre's answers name no test acting on the start of a cast, so the test
+  behind them is not known.
+- **The global products**: mostly several levels inside the profile, with
+  stretches at both ends and some whole short profiles, and a few
+  platforms account for a large part of them. Their QC is not described by
+  the regional centres, so this page can only describe them. The
+  Mediterranean global product is the only one with input-only flags at
+  negative pressure.

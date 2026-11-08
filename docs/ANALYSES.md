@@ -1,6 +1,6 @@
 # The analyses
 
-The Analyses menu of the site holds six pages of figures and tables. Their
+The Analyses menu of the site holds eight pages of figures and tables. Their
 figures are meant to be reused in a manuscript, so they are drawn locally,
 in R with ggplot2, rather than in the browser like the rest of the site.
 
@@ -181,6 +181,21 @@ name or columns.
 | `items_depth` | dataset, variable, pressure band, category | observations |
 | `items_original_flags` | dataset, variable, input flag, nrtqclib bad | observations |
 | `items_platforms` | dataset, variable, platform | profiles, observations and agreement counts, over the variable's NRT profiles |
+| `items_shape` | dataset, variable, category (original only or nrtqclib only), place in the profile, input flag, negative pressure | observations, and the profiles they are in |
+
+### Where a one-sided flag sits
+
+`items_shape` places each observation one source alone flags against the
+observations the same source calls good in its profile, by pressure:
+`whole` when it calls none of them good, `top` above the shallowest of
+them, `bottom` below the deepest, and between them `inside_alone` when it
+is its profile's only one there, `inside_several` otherwise. `no_pressure`
+has no pressure to place it by. A test that judges a whole profile, one
+that judges a level, and a check on the start of a cast (a soaking depth
+left in) leave different marks, which is what the two "Flagged only by"
+pages read. It takes two streaming passes per dataset and variable (the
+good pressure range per profile, then the one-sided observations placed in
+it) and adds about 25 seconds to the run.
 
 ### Matching profiles across products
 
@@ -228,7 +243,7 @@ the theme, the palettes and `save_figure()`.
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_cause` |
 | `input_flags.R` | `input_flags_shares` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold`, `dm_probable` |
-| `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |
+| `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth`, `items_shape_original`, `items_shape_nrtqclib` |
 
 Agreement categories take the site's own colours, read from `meta.json`, so
 a figure and the dashboard say the same thing in the same colour. Products

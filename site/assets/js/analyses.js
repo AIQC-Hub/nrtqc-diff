@@ -16,7 +16,7 @@ import { formatPercent, tableView } from "./views.js";
 export const ANALYSES_ROOT = DATA_ROOT + "analyses/";
 
 /** The `analyses_format` these pages read. See ANALYSES_FORMAT in analyse.py. */
-const ANALYSES_FORMAT = 10;
+const ANALYSES_FORMAT = 11;
 
 /**
  * Columns kept as text whatever they hold: a platform code such as 6901234
@@ -236,16 +236,6 @@ export function formatShare(part, whole) {
 export function formatSmallShare(part, whole) {
   if (!whole) return "";
   return formatPercent((100 * part) / whole);
-}
-
-/** A rate per 1,000 with one decimal. */
-export function formatRate(value) {
-  return value === null || value === undefined ? "" : Number(value).toFixed(1);
-}
-
-/** Per 1,000, or null when there is nothing to divide by. */
-export function perThousandOf(part, whole) {
-  return whole > 0 ? (1000 * part) / whole : null;
 }
 
 /**

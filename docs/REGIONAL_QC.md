@@ -31,6 +31,11 @@ The sources are beside this note: the table the centres filled in,
 from the Baltic ([`nrtqc_item_bal.txt`](nrtqc_item_bal.txt)) and the
 Mediterranean ([`nrtqc_item_med.txt`](nrtqc_item_med.txt)).
 
+The site copies this table twice: as a Markdown table on the Flag
+differences in NRT page (`site/analyses-flags.qmd`) and as `REGIONAL_RUNS`
+on the Flagged only by nrtqclib page (`site/analyses-flags-nrtqclib.qmd`).
+Change all three together.
+
 ## Notes from the replies
 
 - **Baltic.** The gradient test is not run because the stratification
