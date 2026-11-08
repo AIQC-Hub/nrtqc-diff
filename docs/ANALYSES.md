@@ -171,6 +171,8 @@ name or columns.
 | `dm_threshold` | dataset, variable, data mode, threshold | profiles at or above it |
 | `dm_estimated_platforms` | platform and variable with an estimated profile | its profiles, candidates, estimated and declared delayed ones |
 | `dm_estimated_profiles` | profile estimated for either variable | its counts, and per variable its share and whether it is estimated |
+| `dm_probable_obs` | dataset, variable, input flag 2 or 3, the observation's own data mode, group, nrtqclib bad | observations at sea, and how many each nrtqclib check failed (`fail_{item}`) |
+| `dm_probable_profiles` | dataset, variable, input flag 2 or 3, group | profiles at sea carrying it, with it on one observation, and with it on most of the profile (the estimate's share and minimum) |
 | `items_cube` | dataset, variable, pressure band, input flag, nrtqclib flag, failing checks | observations: every `items_` table below is a sum over this |
 | `items_status` | dataset, variable, category | observations of NRT profiles |
 | `items_by_item` | dataset, variable, check | failures, with the input too, only nrtqclib, and that check alone |

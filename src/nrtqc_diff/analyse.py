@@ -65,6 +65,7 @@ from nrtqc_diff.flags import (
     NRTQCLIB_ONLY,
     ORIGINAL_ONLY,
     STATUSES,
+    computed_flag,
     is_one_of,
     item_columns,
     original_flag,
@@ -77,7 +78,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 9
+ANALYSES_FORMAT: int = 10
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -132,6 +133,12 @@ ANALYSIS_GROUPS: List[Dict[str, str]] = [
         ),
     },
 ]
+
+#: The input flag values the scheme calls probably good and probably bad.
+#: nrtqclib never writes either, so the Delayed mode in NRT products page
+#: describes how the input uses them rather than comparing them value for
+#: value.
+PROBABLE_FLAGS: List[int] = [2, 3]
 
 #: Pressure bands of the per-depth tables, in dbar: the lower edges.
 PRES_BREAKS: List[float] = [0.0, 10.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0]
@@ -195,11 +202,14 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
 
     land_flags: List[pl.DataFrame] = []
     input_flags: List[pl.DataFrame] = []
+    probable_obs: List[pl.DataFrame] = []
     item_tables: Dict[str, List[pl.DataFrame]] = {}
     for dataset in config.datasets:
         scan = _scan(dataset, spec)
         mine = profiles.filter(pl.col("dataset_id") == dataset.id)
         input_flags.append(input_flag_table(scan, dataset, config))
+        if dataset.data_mode is None:
+            probable_obs.append(probable_flag_table(scan, mine, dataset, config))
 
         land = mine.filter(pl.col("land")).select(PROFILE_KEYS)
         if land.height:
@@ -222,6 +232,8 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     if land_flags:
         tables["depth_land_flags"] = pl.concat(land_flags, how="diagonal_relaxed")
     tables["input_flags"] = pl.concat(input_flags, how="diagonal_relaxed")
+    if probable_obs:
+        tables["dm_probable_obs"] = pl.concat(probable_obs, how="diagonal_relaxed")
     for name, frames in item_tables.items():
         tables[name] = pl.concat(frames, how="diagonal_relaxed")
 
@@ -330,6 +342,14 @@ def profile_summary(
             .cast(pl.Int64)
             .alias(f"{variable.name}_n_original_bad")
         )
+        for flag in PROBABLE_FLAGS:
+            aggregations.append(
+                (original_flag(variable) == flag)
+                .fill_null(False)
+                .sum()
+                .cast(pl.Int64)
+                .alias(f"{variable.name}_n_flag{flag}")
+            )
     aggregations.append(
         is_delayed(config.data_mode).sum().cast(pl.Int64).alias("n_obs_delayed")
     )
@@ -430,6 +450,10 @@ def by_variable(profiles: pl.DataFrame, config: BuildConfig) -> pl.DataFrame:
                 *[
                     pl.col(f"{name}_n_{s['key']}").alias(f"n_{s['key']}")
                     for s in STATUSES
+                ],
+                *[
+                    pl.col(f"{name}_n_flag{flag}").alias(f"n_flag{flag}")
+                    for flag in PROBABLE_FLAGS
                 ],
             )
         )
@@ -642,7 +666,8 @@ def data_mode_tables(
     delayed mode.
 
     :return: ``dm_groups``, ``dm_share_hist``, ``dm_threshold``,
-             ``dm_estimated_platforms`` and ``dm_estimated_profiles``.
+             ``dm_estimated_platforms``, ``dm_estimated_profiles`` and
+             ``dm_probable_profiles``.
     """
     whole = [d.id for d in config.datasets if d.data_mode is not None]
     profiles = profiles.filter(~pl.col("dataset_id").is_in(whole))
@@ -734,12 +759,37 @@ def data_mode_tables(
         .select(listed)
         .sort(["dataset_id", "platform_code", "profile_no"])
     )
+    # How flags 2 and 3 sit in their profiles: one observation, or most of
+    # the profile by the estimate's own measure (the share of the
+    # observations with a usable input flag, counted only with enough of
+    # them).
+    rule = config.data_mode
+    probable = []
+    for flag in PROBABLE_FLAGS:
+        count = pl.col(f"n_flag{flag}")
+        most = (pl.col("n_usable") >= rule.estimated_min_observations) & (
+            count >= rule.estimated_min_share * pl.col("n_usable")
+        )
+        probable.append(
+            at_sea.filter(count > 0)
+            .group_by(keys + ["group"], maintain_order=True)
+            .agg(
+                pl.lit(flag).alias("flag"),
+                pl.len().cast(pl.Int64).alias("n_profiles"),
+                (count == 1).sum().cast(pl.Int64).alias("n_profiles_single"),
+                most.sum().cast(pl.Int64).alias("n_profiles_most"),
+                count.sum().cast(pl.Int64).alias("n_obs"),
+            )
+        )
+    probable_profiles = pl.concat(probable).sort(keys + ["flag", "group"])
+
     return {
         "dm_groups": groups,
         "dm_share_hist": hist,
         "dm_threshold": threshold,
         "dm_estimated_platforms": platforms,
         "dm_estimated_profiles": estimated,
+        "dm_probable_profiles": probable_profiles,
     }
 
 
@@ -825,6 +875,88 @@ def input_flag_table(
     ]
     return pl.concat(per_variable).sort(
         ["variable", "original_flag", "has_position_qc"], nulls_last=True
+    )
+
+
+def probable_flag_table(
+    scan: pl.LazyFrame,
+    profiles: pl.DataFrame,
+    dataset: DatasetSpec,
+    config: BuildConfig,
+) -> pl.DataFrame:
+    """
+    The observations the input flags 2 or 3, at sea, by what is known of them.
+
+    Each is counted by its flag, the data mode of the observation itself
+    (the variable's own data mode column, empty where ctddump found none),
+    the group its profile is filed under for the variable, and whether
+    nrtqclib flags it bad, with the number of them each nrtqclib check
+    failed (``fail_{item}``). The data cannot say who set a flag; these are
+    the signs the page reads it by.
+
+    :param scan: The dataset.
+    :param profiles: The dataset's classified profiles.
+    :param dataset: The dataset's configuration.
+    :param config: The build configuration.
+    :return: One row per variable, flag, ``obs_data_mode``, ``group`` and
+             ``nrtqclib_bad``, with ``n_obs`` and the ``fail_`` counts.
+    """
+    names = scan.collect_schema().names()
+    variable_names = [v.name for v in config.variables]
+    sea = profiles.filter(~pl.col("land"))
+    label = [
+        pl.lit(dataset.id).alias("dataset_id"),
+        pl.lit(dataset.region).alias("region"),
+        pl.lit(dataset.product).alias("product"),
+        pl.lit(dataset.label).alias("label"),
+    ]
+    frames = []
+    for variable in config.variables:
+        mode_column = f"{variable.name}_dm"
+        mode = (
+            pl.col(mode_column).cast(pl.Utf8).fill_null("")
+            if mode_column in names and mode_column in config.data_mode.columns
+            else pl.lit("")
+        )
+        columns = [
+            c
+            for c in item_columns(names, variable_names)
+            if c.startswith((f"{variable.name}_qc_", "qc_"))
+        ]
+        groups = sea.select(
+            PROFILE_KEYS + [pl.col(f"{variable.name}_group").alias("group")]
+        )
+        flag = original_flag(variable)
+        counted = (
+            scan.filter(flag.is_in(PROBABLE_FLAGS))
+            .with_columns(pl.col("platform_code").cast(pl.Utf8))
+            .join(groups.lazy(), on=PROFILE_KEYS, how="inner")
+            .group_by(
+                flag.alias("flag"),
+                mode.alias("obs_data_mode"),
+                "group",
+                (computed_flag(variable) > FLAG_GOOD)
+                .fill_null(False)
+                .alias("nrtqclib_bad"),
+            )
+            .agg(
+                pl.len().cast(pl.Int64).alias("n_obs"),
+                *[
+                    (pl.col(c).cast(pl.Int64, strict=False) > FLAG_GOOD)
+                    .fill_null(False)
+                    .sum()
+                    .cast(pl.Int64)
+                    .alias(f"fail_{item_name(c, variable)}")
+                    for c in columns
+                ],
+            )
+            .collect(engine="streaming")
+        )
+        frames.append(
+            counted.select(label + [pl.lit(variable.name).alias("variable"), pl.all()])
+        )
+    return pl.concat(frames, how="diagonal_relaxed").sort(
+        ["variable", "flag", "obs_data_mode", "group", "nrtqclib_bad"]
     )
 
 

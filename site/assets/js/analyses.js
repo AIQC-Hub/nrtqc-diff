@@ -16,7 +16,7 @@ import { formatPercent, tableView } from "./views.js";
 export const ANALYSES_ROOT = DATA_ROOT + "analyses/";
 
 /** The `analyses_format` these pages read. See ANALYSES_FORMAT in analyse.py. */
-const ANALYSES_FORMAT = 9;
+const ANALYSES_FORMAT = 10;
 
 /**
  * Columns kept as text whatever they hold: a platform code such as 6901234
@@ -27,6 +27,7 @@ const TEXT_COLUMNS = new Set([
   "dataset_id",
   "platform_code",
   "data_mode",
+  "obs_data_mode",
   "combination",
   "status",
   "group",
