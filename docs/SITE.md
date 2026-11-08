@@ -276,7 +276,7 @@ it links to; if that library adds or renames a check, this table is the place
 in this repository that goes stale, together with `QC_CHECKS` in `labels.js`.
 
 **The Analyses pages** (`analyses-conversion`, `analyses-depth`,
-`analyses-data-mode`, `analyses-flags`) are a different kind of page. They
+`analyses-input-flags`, `analyses-data-mode`, `analyses-flags`) are a different kind of page. They
 query nothing: their figures were drawn in R and their tables computed in
 Python where the data is, and the pages fetch both from `data/analyses/`
 with `analyses.js`. Without them, as in the demo build, each page says the

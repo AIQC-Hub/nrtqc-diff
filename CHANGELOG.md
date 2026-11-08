@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- An **Input QC flags** page in the Analyses menu, after Depth: every
+  observation of each product counted by its input flag value, for
+  temperature and salinity, with a link to the matching page of the
+  Arctic, Baltic and Mediterranean summary reports. A second table counts
+  the observations the way those reports do (no flag filed under 9, profiles
+  without a position flag left out), and with that rule the counts match
+  theirs. `nrtqc-diff analyse` writes the new `input_flags` table and
+  `analysis/R/input_flags.R` draws its figure; `analyses_format` is 9.
+
 ## [0.9.1] - 2026-11-08
 
 ### Changed
