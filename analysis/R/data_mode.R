@@ -109,3 +109,67 @@ if (!is.null(thresholds)) {
     theme(strip.text = element_text(size = 6.5))
   save_figure(plot, "dm_threshold", height = 95)
 }
+
+# Where the input's probably good (2) and probably bad (3) flags end up:
+# every such observation at sea in the NRT products, by the group of its
+# profile and, in an NRT profile, by whether nrtqclib flags it bad too.
+probable <- read_table("dm_probable_obs")
+if (!is.null(probable)) {
+  probable_classes <- c(
+    "Declared delayed mode profile" = group_colours[["Contains delayed mode"]],
+    "Estimated delayed mode profile" = group_colours[["Estimated delayed mode"]],
+    "NRT profile, nrtqclib flags it bad too" = group_colours[["NRT"]],
+    "NRT profile, the input's flag alone" = "#b8c0c8"
+  )
+  # The products the page covers: those not filed whole under one data
+  # mode, whether or not they use either flag.
+  nrt_products <- as.character(datasets$short[is.na(datasets$data_mode)])
+  shares <- probable |>
+    with_datasets() |>
+    mutate(
+      class = case_when(
+        group == "delayed" ~ names(probable_classes)[1],
+        group == "estimated_delayed" ~ names(probable_classes)[2],
+        nrtqclib_bad ~ names(probable_classes)[3],
+        TRUE ~ names(probable_classes)[4]
+      ),
+      class = factor(class, levels = names(probable_classes)),
+      panel = paste0(variable_label(variable), ", ",
+                     c("2" = "2 (probably good)", "3" = "3 (probably bad)")[as.character(flag)]),
+      panel = factor(panel, levels = as.vector(outer(
+        levels(variable_label(meta$variables$name)),
+        c("2 (probably good)", "3 (probably bad)"), paste, sep = ", ")))
+    ) |>
+    group_by(short, panel, class) |>
+    summarise(n_obs = sum(n_obs), .groups = "drop") |>
+    group_by(short, panel) |>
+    mutate(share = n_obs / sum(n_obs)) |>
+    ungroup() |>
+    mutate(short = factor(as.character(short), levels = nrt_products))
+  # A product with none of a flag gets a row that says so, rather than a
+  # gap that reads like missing data.
+  totals <- shares |>
+    group_by(short, panel) |>
+    summarise(n_obs = sum(n_obs), .groups = "drop") |>
+    mutate(short = factor(short, levels = nrt_products)) |>
+    complete(short, panel, fill = list(n_obs = 0L)) |>
+    mutate(text = if_else(n_obs == 0, "none", comma(n_obs)),
+           x = if_else(n_obs == 0, 0, 1))
+
+  plot <- ggplot(shares, aes(share, forcats::fct_rev(short), fill = class)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+             position = position_stack(reverse = TRUE)) +
+    geom_text(data = totals, inherit.aes = FALSE,
+              aes(x, forcats::fct_rev(short), label = text),
+              hjust = -0.15, size = 2.3, colour = "#52514e") +
+    facet_wrap(~panel, ncol = 2, drop = FALSE) +
+    scale_fill_manual(values = probable_classes, drop = FALSE) +
+    scale_y_discrete(limits = rev(nrt_products)) +
+    scale_x_continuous(labels = label_percent(), breaks = c(0, 0.5, 1),
+                       expand = expansion(mult = c(0, 0.22))) +
+    labs(x = "Share of the observations with this input flag (number at the end)",
+         y = NULL) +
+    guides(fill = guide_legend(nrow = 2)) +
+    theme(panel.grid.major.y = element_blank())
+  save_figure(plot, "dm_probable", height = 105)
+}

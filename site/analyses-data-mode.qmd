@@ -236,3 +236,11 @@ meta ? table((platforms ?? []).map((r) => ({ ...r, key: `${r.dataset_id}|${r.var
 Every profile estimated for either variable is listed, with its share and
 estimate per variable, in
 [the table this page reads](data/analyses/tables/dm_estimated_profiles.csv).
+
+## Flags 2 and 3
+
+The input also uses 2 (probably good) and 3 (probably bad), which
+nrtqclib never writes. Whether they look like delayed mode flags, by the
+groups this page sets up, and whether nrtqclib fails the same
+observations is on the next page,
+[Probably good and probably bad](analyses-probable-flags.qmd).

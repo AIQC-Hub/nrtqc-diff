@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   without a position flag left out), and with that rule the counts match
   theirs. `nrtqc-diff analyse` writes the new `input_flags` table and
   `analysis/R/input_flags.R` draws its figure; `analyses_format` is 9.
+- A **Probably good and probably bad** page, after Delayed mode in NRT
+  products, whose groups it uses: for input flags 2 and 3, the data mode of the observation
+  itself, the group of its profile, how much of the profile carries the
+  flag, how often nrtqclib flags the same observation bad, and which of its
+  checks do, with a figure summing it up: where each flag's observations
+  end up, in declared or estimated delayed mode profiles or in NRT ones
+  with or without nrtqclib. New tables `dm_probable_obs` and
+  `dm_probable_profiles`; `analyses_format` is 10.
 
 ### Changed
 

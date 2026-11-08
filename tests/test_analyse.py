@@ -16,6 +16,7 @@ from nrtqc_diff.analyse import (
     land_causes,
     match_tables,
     overlap_table,
+    probable_flag_table,
     run_analyses,
 )
 from nrtqc_diff.config import read_config
@@ -244,6 +245,60 @@ def test_input_flags_keep_profiles_without_a_position_flag(tmp_path):
         "original_flag", "has_position_qc", "n_obs"
     )
     assert rows.rows() == [(1, False, 1), (1, True, 1), (4, True, 1), (None, True, 1)]
+
+
+def test_probable_flags_are_counted_by_mode_group_and_check(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    scan = pl.LazyFrame(
+        {
+            "platform_code": ["A", "A", "A", "B", "B", "C"],
+            "profile_no": [1, 1, 1, 1, 1, 1],
+            "temp_qc": ["3", "3", "1", "2", "3", "3"],
+            "temp_dm": ["R", "R", "R", "D", None, "R"],
+            "temp_nrt_flag": [4, 1, 1, 1, 4, 4],
+            "temp_qc_spike": [4, 1, 1, 1, 1, 4],
+        }
+    )
+    # C is on land, so its 3 is left out.
+    profiles = pl.DataFrame(
+        {
+            "platform_code": ["A", "B", "C"],
+            "profile_no": [1, 1, 1],
+            "land": [False, False, True],
+            "temp_group": ["nrt", "delayed", "land"],
+        }
+    )
+    rows = {
+        (r["flag"], r["obs_data_mode"], r["group"], r["nrtqclib_bad"]): r
+        for r in probable_flag_table(scan, profiles, spec.datasets[0], spec).iter_rows(
+            named=True
+        )
+    }
+    assert set(rows) == {
+        (3, "R", "nrt", True),
+        (3, "R", "nrt", False),
+        (2, "D", "delayed", False),
+        (3, "", "delayed", True),
+    }
+    assert rows[(3, "R", "nrt", True)]["n_obs"] == 1
+    assert rows[(3, "R", "nrt", True)]["fail_spike"] == 1
+    assert rows[(3, "", "delayed", True)]["fail_spike"] == 0
 
 
 def test_items_are_attributed_over_nrt_profiles_only(analysed):

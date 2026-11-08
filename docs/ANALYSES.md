@@ -1,6 +1,6 @@
 # The analyses
 
-The Analyses menu of the site holds five pages of figures and tables. Their
+The Analyses menu of the site holds six pages of figures and tables. Their
 figures are meant to be reused in a manuscript, so they are drawn locally,
 in R with ggplot2, rather than in the browser like the rest of the site.
 
@@ -115,8 +115,9 @@ estimated profiles are estimated for salinity only).
 
 The land group is the Depth page's subject. The Delayed mode in NRT
 products page shows the other groups only, over the profiles at sea, and
-the analyses after it never count land profiles. That page and its `dm_`
-tables also leave out every dataset configured whole under one data mode
+the analyses after it never count land profiles. The Probably good and
+probably bad page reads its groups for input flags 2 and 3 (the
+`dm_probable_` tables). Both pages and their `dm_` tables also leave out every dataset configured whole under one data mode
 (CORA): none of its profiles can be estimated, and it would only add rows
 that are all delayed mode.
 
@@ -171,6 +172,8 @@ name or columns.
 | `dm_threshold` | dataset, variable, data mode, threshold | profiles at or above it |
 | `dm_estimated_platforms` | platform and variable with an estimated profile | its profiles, candidates, estimated and declared delayed ones |
 | `dm_estimated_profiles` | profile estimated for either variable | its counts, and per variable its share and whether it is estimated |
+| `dm_probable_obs` | dataset, variable, input flag 2 or 3, the observation's own data mode, group, nrtqclib bad | observations at sea, and how many each nrtqclib check failed (`fail_{item}`) |
+| `dm_probable_profiles` | dataset, variable, input flag 2 or 3, group | profiles at sea carrying it, with it on one observation, and with it on most of the profile (the estimate's share and minimum) |
 | `items_cube` | dataset, variable, pressure band, input flag, nrtqclib flag, failing checks | observations: every `items_` table below is a sum over this |
 | `items_status` | dataset, variable, category | observations of NRT profiles |
 | `items_by_item` | dataset, variable, check | failures, with the input too, only nrtqclib, and that check alone |
@@ -224,7 +227,7 @@ the theme, the palettes and `save_figure()`.
 | `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_coverage`, `conversion_coverage_years` |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_cause` |
 | `input_flags.R` | `input_flags_shares` |
-| `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold` |
+| `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold`, `dm_probable` |
 | `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth` |
 
 Agreement categories take the site's own colours, read from `meta.json`, so
