@@ -118,19 +118,16 @@ grand = {
   return totals;
 }
 
-// Per 1,000 published observations, so products of very different sizes can
-// be compared. Anything derived from a rate is null when there is nothing to
-// divide by, rather than zero, which would read as "no disagreement".
+// A percentage of the published observations, so products of very different
+// sizes can be compared. Anything derived from it is null when there is
+// nothing to divide by, rather than zero, which would read as "no
+// disagreement".
 function rate(count, observations) {
-  return observations > 0 ? (1000 * count) / observations : null;
+  return observations > 0 ? (100 * count) / observations : null;
 }
 
 function share(value) {
   return value === null || value === undefined ? "" : `${(100 * value).toFixed(1)}%`;
-}
-
-function perThousand(value) {
-  return value === null || value === undefined ? "" : value.toFixed(1);
 }
 
 // The categories where at least one source flagged the observation. The
@@ -202,8 +199,8 @@ htl.html`<p class="nq-meta">All products, ${summary_mode.label}:
 
 Counts below cover the published profiles only, which is why "neither flagged"
 is large: a published profile carries all of its observations, most of which
-both sources call good. The rate in the last column is what makes products of
-different sizes comparable.
+both sources call good. The percentage in the last column is what makes
+products of different sizes comparable.
 
 ```{ojs}
 viewof summary_variable = Inputs.select(variables, {
@@ -260,10 +257,10 @@ app.statusLegend(statuses)
       })),
       {
         key: "disagree_rate",
-        label: "Disagree per 1,000",
-        format: perThousand,
+        label: "% disagree",
+        format: app.formatPercent,
         title:
-          "Observations the two sources disagree on, per 1,000 published observations"
+          "Observations the two sources disagree on, as a share of the published observations"
       }
     ],
     rowKey: "key",
@@ -281,15 +278,15 @@ app.statusLegend(statuses)
     grand[`${name}_original_only`] + grand[`${name}_nrtqclib_only`];
   return htl.html`<p class="nq-meta">All products, ${summary_variable.label.toLowerCase()}:
     <strong>${app.formatCount(n_disagree)}</strong> observations the two
-    sources disagree on, ${perThousand(rate(n_disagree, grand.n_obs))} per
-    1,000 published observations.</p>`;
+    sources disagree on, ${app.formatPercent(rate(n_disagree, grand.n_obs))}
+    of the published observations.</p>`;
 }
 ```
 
 ## The groups side by side
 
 The same products split by group, one row per group a product has, for
-the variable chosen above, each as a rate per 1,000 of its own published
+the variable chosen above, each as a percentage of its own published
 observations. Where a product has delayed mode profiles, this is where the
 difference shows: the automated tests and an operator tend to disagree in
 other ways than two automated systems do.
@@ -342,21 +339,21 @@ other ways than two automated systems do.
       { key: "n_obs", label: "Observations", title: "Published observations" },
       {
         key: "original_rate",
-        label: "Original only per 1,000",
-        format: perThousand,
-        title: `${summary_variable.label} flagged by the input alone, per 1,000 observations`
+        label: "% original only",
+        format: app.formatPercent,
+        title: `${summary_variable.label} flagged by the input alone, as a share of the observations`
       },
       {
         key: "nrtqclib_rate",
-        label: "nrtqclib only per 1,000",
-        format: perThousand,
-        title: `${summary_variable.label} flagged by nrtqclib alone, per 1,000 observations`
+        label: "% nrtqclib only",
+        format: app.formatPercent,
+        title: `${summary_variable.label} flagged by nrtqclib alone, as a share of the observations`
       },
       {
         key: "disagree_rate",
-        label: "Disagree per 1,000",
-        format: perThousand,
-        title: "The two together: observations the sources disagree on, per 1,000"
+        label: "% disagree",
+        format: app.formatPercent,
+        title: "The two together: observations the sources disagree on, as a share of the observations"
       }
     ],
     rowKey: "key",

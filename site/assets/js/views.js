@@ -55,6 +55,21 @@ export function formatCount(value) {
 }
 
 /**
+ * Format a percentage that stays readable when it is small: one decimal from
+ * 1% up, two significant digits below (0.35%, 0.0093%). Empty for null, which
+ * means there was nothing to divide by.
+ *
+ * @param {number|null|undefined} value already in percent.
+ * @returns {string}
+ */
+export function formatPercent(value) {
+  if (value === null || value === undefined) return "";
+  const number = Number(value);
+  if (number === 0) return "0%";
+  return `${number >= 1 ? number.toFixed(1) : number.toPrecision(2)}%`;
+}
+
+/**
  * Format a timestamp as a short UTC date and time.
  *
  * @param {*} value anything Date can parse, or null.
