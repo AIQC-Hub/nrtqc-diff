@@ -17,6 +17,7 @@ from nrtqc_diff.analyse import (
     match_tables,
     overlap_table,
     probable_flag_table,
+    response_table,
     run_analyses,
     shape_table,
 )
@@ -713,3 +714,66 @@ def test_one_sided_flags_are_placed_in_their_profiles(tmp_path):
         ("original_only", "whole", False): (2, 1),
         ("nrtqclib_only", "inside_several", False): (2, 1),
     }
+
+
+def test_failures_are_banded_by_how_far_past_the_threshold(tmp_path, monkeypatch):
+    # Slices of four rows, so that profile A is cut by a slice edge and has
+    # to be carried over whole.
+    monkeypatch.setattr("nrtqc_diff.analyse.RESPONSE_CHUNK_ROWS", 4)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"},
+                    {"name": "psal", "flag": "psal_qc", "nrt_flag": "psal_nrt_flag"},
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    # A: a temperature spike of 2.5 times the threshold at its third level,
+    # which the input flags, and a stuck salinity of five values it does
+    # not. B: a temperature 10 above the global range at the top, flagged,
+    # and a repeated pressure at the bottom, flagged in the pressure flag
+    # only, and a NaN temperature, which is missing rather than out of
+    # range. C is not compared, and its outlier must not count.
+    scan = pl.LazyFrame(
+        {
+            "platform_code": ["A"] * 5 + ["B"] * 3 + ["C"],
+            "profile_no": [1] * 9,
+            "observation_no": [1, 2, 3, 4, 5, 1, 2, 3, 1],
+            "pres": [1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 2.0, 1.0],
+            "temp": [10.0, 10.0, 25.0, 10.0, 10.0, 50.0, 10.0, float("nan"), 100.0],
+            "psal": [35.0] * 5 + [35.0, 35.1, 35.2, 35.0],
+            "temp_qc": ["1", "1", "4", "1", "1", "4", "1", "1", "1"],
+            "psal_qc": ["1"] * 9,
+            "pres_qc": ["1"] * 7 + ["4", "1"],
+        }
+    )
+    keep = {
+        name: pl.DataFrame({"platform_code": ["A", "B"], "profile_no": [1, 1]})
+        for name in ["temp", "psal"]
+    }
+    table = response_table(scan, keep, spec.datasets[0], spec)
+    rows = {
+        (r["test"], r["variable"], r["band"]): (r["n"], r["n_flagged"])
+        for r in table.iter_rows(named=True)
+    }
+    assert rows[("global_range", "temp", 0)] == (6, 1)
+    assert rows[("global_range", "temp", 3)] == (1, 1)
+    assert ("global_range", "temp", 4) not in rows
+    assert rows[("spike", "temp", 3)] == (1, 1)
+    assert rows[("stuck_value", "psal", 2)] == (1, 0)
+    assert rows[("stuck_value", "psal", 0)] == (1, 0)
+    assert rows[("stuck_value", "temp", 0)] == (1, 0)
+    assert rows[("density_inversion", "density", 5)] == (1, 1)
+    assert rows[("density_inversion", "density", 0)] == (3, 1)
+    assert rows[("pressure_increasing", "pres", 1)] == (1, 1)
+    assert rows[("pressure_increasing", "temp", 1)] == (1, 0)

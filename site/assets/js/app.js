@@ -11,3 +11,4 @@ export * from "./views.js";
 export * from "./plots.js";
 export * from "./labels.js";
 export * from "./analyses.js";
+export * from "./regional.js";

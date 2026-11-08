@@ -27,7 +27,8 @@ profile test; `nc2parquet` has one, described in
 [`NC2PARQUET.md`](NC2PARQUET.md#only-in-nc2parquet-the-frozen-profile-test).
 
 The data shows no sign of the centres' frozen profile test (checked on the
-batch of 2026-11-08, with throwaway scripts, not in `nrtqc-diff analyse`):
+`test_nrt` batch on 2026-11-08, with throwaway scripts, not in
+`nrtqc-diff analyse`):
 
 - ctddump's own parquet keeps every copy ctddump's duplicate step later
   removes, so repeats within a platform can be checked. Among copies of one
@@ -48,10 +49,10 @@ The sources are beside this note: the table the centres filled in,
 from the Baltic ([`nrtqc_item_bal.txt`](nrtqc_item_bal.txt)) and the
 Mediterranean ([`nrtqc_item_med.txt`](nrtqc_item_med.txt)).
 
-The site copies this table twice: as a Markdown table on the Flag
-differences in NRT page (`site/analyses-flags.qmd`) and as `REGIONAL_RUNS`
-on the Flagged only by nrtqclib page (`site/analyses-flags-nrtqclib.qmd`).
-Change all three together.
+The site keeps one copy of this table, `REGIONAL_TESTS` in
+`site/assets/js/regional.js`, which the Flag differences in NRT page draws
+and the Flagged only by nrtqclib page reads per check. Change the two
+together.
 
 ## Notes from the replies
 
@@ -65,15 +66,30 @@ Change all three together.
 
 ## How this fits the data
 
-The share of nrtqclib's failures of a test that the input flags too, from
-`items_by_item`, is consistent with the table:
+`items_response` (see [`ANALYSES.md`](ANALYSES.md#whether-the-input-runs-a-test))
+measures each failure of nrtqclib's version of a test and counts how many
+the input flags, by how far past the threshold it is. In the analyses run
+on 2026-11-09, the share of the clear failures the input flags:
 
-- The Baltic input flags almost none of what nrtqclib's gradient and stuck
-  value tests fail (about 1%), as expected of tests it does not run.
-- The Arctic regional input flags most of what nrtqclib's gradient test
-  fails (about 70% in temperature, 90% in salinity).
-- The Baltic spike test is listed as run, yet its input flags only about 2%
-  of nrtqclib's spike failures, so the two spike tests must differ.
+- **Arctic regional:** global range and spike as claimed (97% to 100%);
+  gradient mostly (79% in temperature, 85% in salinity). Density inversion
+  only partly: 26% of inversions above 0.05 kg/m³, and 3% measured per
+  dbar, the way the centre states its threshold. Too few stuck profiles to
+  tell.
+- **Baltic regional:** gradient and stuck value leave no sign (under 1%),
+  as the centre says it runs neither. Spike and density inversion, which
+  it says it runs, leave none either: 1.5% of clear salinity spikes, 2% of
+  clear inversions. Salinity just under 2 is flagged three times in four,
+  which fits a range test with a bound near it. Repeated pressures are not
+  flagged, and no pressure goes shallower, so its pressure check cannot be
+  seen.
+- **Mediterranean regional:** too few clear failures for most tests. 16% of
+  its few clear density inversions are flagged, although the reply says
+  the test is not run yet.
+
+No profile of these products goes shallower in recorded order, so every
+failure of nrtqclib's pressure increasing check is a repeated pressure.
+The Mediterranean global product flags 59% of them, in the pressure flag.
 
 ## The global products
 

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **What the input flags show**, a section of Flag differences in NRT that
+  checks the regional centres' answers against their flags. Each failure of
+  nrtqclib's global range, spike, gradient, stuck value, density inversion
+  and pressure increasing tests is measured again from the values and
+  banded by how far past the threshold it is, and the share of each band
+  the input flags is counted: a producer running the test flags nearly all
+  of the clear failures. The claims table is now drawn from one shared
+  module (`site/assets/js/regional.js`), with what the flags show under
+  each answer. New table `items_response` and figure `items_response`;
+  `analyses_format` is 12. The run takes about a minute longer.
 - **Flagged only by the input** and **Flagged only by nrtqclib** pages, split
   from Flag differences in NRT, which keeps the comparison of the two sides.
   The summary page opens with which tests each regional centre says it runs
@@ -48,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The Flagged only by nrtqclib page no longer says the global producers
+  sort profiles by pressure: no profile in these data goes shallower, so
+  every failure of pressure increasing is a repeated pressure, which the
+  Mediterranean global producer flags in its pressure flag.
 - The About page says plainly that profiles neither source flags are not
   published, what counts as flagged for each source (an input value the
   build counts as an anomaly; an `nrtqclib` flag above 1), that a profile

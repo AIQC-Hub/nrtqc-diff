@@ -21,7 +21,7 @@ and seastamp reports beside it (see the `analyses` section of
 `config/test_nrt.yaml`):
 
 ```bash
-uv run nrtqc-diff analyse -c config/test_nrt.yaml   # about 2 minutes, 3.5 GB
+uv run nrtqc-diff analyse -c config/test_nrt.yaml   # about 4 minutes, 3.8 GB
 Rscript analysis/run_all.R                          # about 15 seconds
 quarto render site
 ```
@@ -52,7 +52,7 @@ The Python step is careful about memory in two ways, both measured:
   them one at a time instead, which took its peak on the Arctic NRT file
   from 5.9 GB to 2.7 GB.
 
-The full batch peaks at about 3.5 GB. To check a change against that, run it
+The full batch peaks at about 3.8 GB. To check a change against that, run it
 under a memory limit, for example `systemd-run --user --scope -p MemoryMax=8G`.
 
 ### R packages
@@ -182,6 +182,7 @@ name or columns.
 | `items_original_flags` | dataset, variable, input flag, nrtqclib bad | observations |
 | `items_platforms` | dataset, variable, platform | profiles, observations and agreement counts, over the variable's NRT profiles |
 | `items_shape` | dataset, variable, category (original only or nrtqclib only), place in the profile, input flag, negative pressure | observations, and the profiles they are in |
+| `items_response` | dataset, test, flag it is set against (a variable, `density` for either variable's flag, `pres` for the pressure flag), band of how far past nrtqclib's threshold | failures (`n`, as observations, pairs of levels or profiles) and how many the input flags (`n_flagged`) |
 
 ### Where a one-sided flag sits
 
@@ -196,6 +197,41 @@ left in) leave different marks, which is what the two "Flagged only by"
 pages read. It takes two streaming passes per dataset and variable (the
 good pressure range per profile, then the one-sided observations placed in
 it) and adds about 25 seconds to the run.
+
+### Whether the input runs a test
+
+`items_response` checks what the regional centres say they run (see
+[`REGIONAL_QC.md`](REGIONAL_QC.md)) against their flags. Each failure of
+an nrtqclib test is measured again from the values, in recorded order as
+nrtqclib does, and put in a band by how far past nrtqclib's threshold it
+is; the bands and which of them count as clear failures are
+`RESPONSE_TESTS` in `analyse.py`, written to `meta.json` as
+`response_tests`. A producer that runs the test flags nearly all of the
+clear failures; one that does not flags them about as often as any other
+observation.
+
+- **Thresholds** are those of the `test_nrt` batch, as constants in
+  `analyse.py` (`RESPONSE_GLOBAL_RANGE`, `RESPONSE_SPIKE`,
+  `RESPONSE_GRADIENT`); change them with the batch's
+  `nrt_qc_config.yaml`.
+- **Keeping the tests apart**: spike and gradient only on values inside
+  the global range with both neighbours inside it, gradient only on
+  levels that pass the spike test, and stuck value and density inversion
+  only on values inside the range. A stuck profile counts as flagged when
+  the input flags at least 95% of its values.
+- **Density** is EOS-80 density at zero pressure from the in situ
+  temperature, not nrtqclib's TEOS-10 potential density: close enough to
+  band an inversion, not to repeat the test exactly. The centres give
+  their threshold per dbar, so `density_inversion_per_dbar` divides by the
+  pressure between the levels.
+- **Pressure** is set against the pressure flag and each variable's flag,
+  since a producer can flag a repeated pressure in the pressure flag only.
+
+A test needs a level's neighbours, which the streaming engine cannot give,
+so the pass reads 2 million rows at a time, carries a profile cut by the
+end of a slice over to the next, and numbers the profiles of a slice so
+that it compares and groups on integers. NaN values are read as missing.
+It adds about a minute to the run.
 
 ### Matching profiles across products
 
@@ -243,7 +279,7 @@ the theme, the palettes and `save_figure()`.
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_cause` |
 | `input_flags.R` | `input_flags_shares` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold`, `dm_probable` |
-| `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth`, `items_shape_original`, `items_shape_nrtqclib` |
+| `flag_differences.R` | `items_status`, `items_attribution`, `items_combinations`, `items_depth`, `items_shape_original`, `items_shape_nrtqclib`, `items_response` |
 
 Agreement categories take the site's own colours, read from `meta.json`, so
 a figure and the dashboard say the same thing in the same colour. Products

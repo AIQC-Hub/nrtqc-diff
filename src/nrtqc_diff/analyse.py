@@ -78,7 +78,7 @@ from nrtqc_diff.reports import report_tables
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 11
+ANALYSES_FORMAT: int = 12
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -231,6 +231,9 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
             shapes = shape_table(scan, nrt, dataset, config)
             if shapes.height:
                 item_tables.setdefault("items_shape", []).append(shapes)
+            response = response_table(scan, nrt, dataset, config)
+            if response.height:
+                item_tables.setdefault("items_response", []).append(response)
 
     if land_flags:
         tables["depth_land_flags"] = pl.concat(land_flags, how="diagonal_relaxed")
@@ -1385,6 +1388,451 @@ def shape_table(
     )
 
 
+#: nrtqclib's thresholds in the ``test_nrt`` batch, which :func:`response_table`
+#: measures each failure against: the global range (min, max), and the spike
+#: and gradient thresholds above and below :data:`RESPONSE_DEEP_DBAR`
+#: (shallow, deep). They follow the batch's ``nrt_qc_config.yaml``; a
+#: variable not listed is left out of the tests that need its thresholds.
+RESPONSE_GLOBAL_RANGE: Dict[str, tuple] = {"temp": (-2.5, 40.0), "psal": (2.0, 41.0)}
+RESPONSE_SPIKE: Dict[str, tuple] = {"temp": (6.0, 2.0), "psal": (0.9, 0.3)}
+RESPONSE_GRADIENT: Dict[str, tuple] = {"temp": (9.0, 3.0), "psal": (1.5, 0.5)}
+RESPONSE_DEEP_DBAR: float = 500.0
+
+#: Rows read at a time by :func:`response_table`. The tests compare a level
+#: with its neighbours, which the streaming engine cannot do, so the data is
+#: read in slices of this many rows instead, a profile cut by the edge of a
+#: slice carried over whole to the next.
+RESPONSE_CHUNK_ROWS: int = 2_000_000
+
+#: The share of a profile's values the input must flag for a stuck profile
+#: to count as flagged throughout; a little under all, so that one level
+#: left unflagged does not hide it.
+RESPONSE_WHOLE_SHARE: float = 0.95
+
+#: The tests :func:`response_table` measures, in the order the pages show
+#: them. Each failure is put in a band by how far it is past the test's
+#: threshold, ``uppers`` being the upper edge of each band (included) and
+#: None the last. ``clear`` names the bands of clear failures: a producer
+#: that runs the test flags nearly all of those, one that does not flags
+#: them about as often as anything else. ``unit`` is what the counts count.
+RESPONSE_TESTS: List[Dict[str, Any]] = [
+    {
+        "key": "global_range",
+        "label": "Global range",
+        "unit": "observations",
+        "measure": "How far outside nrtqclib's global range, in the variable's unit",
+        "bands": ["Inside", "Up to 0.5 outside", "0.5 to 2", "2 to 10", "More than 10"],
+        "uppers": [0.0, 0.5, 2.0, 10.0, None],
+        "clear": [3, 4],
+    },
+    {
+        "key": "spike",
+        "label": "Spike",
+        "unit": "observations",
+        "measure": "The spike test value, as a multiple of nrtqclib's threshold",
+        "bands": ["Under half", "Half to 1", "1 to 2", "2 to 5", "More than 5"],
+        "uppers": [0.5, 1.0, 2.0, 5.0, None],
+        "clear": [3, 4],
+    },
+    {
+        "key": "gradient",
+        "label": "Gradient",
+        "unit": "observations",
+        "measure": (
+            "The gradient test value, as a multiple of nrtqclib's threshold, "
+            "over levels that pass the spike test"
+        ),
+        "bands": ["Under half", "Half to 1", "1 to 2", "2 to 5", "More than 5"],
+        "uppers": [0.5, 1.0, 2.0, 5.0, None],
+        "clear": [3, 4],
+    },
+    {
+        "key": "stuck_value",
+        "label": "Stuck value",
+        "unit": "profiles",
+        "measure": "Profiles whose values are all the same, by their number of values",
+        "bands": ["Not stuck", "2 to 4 values", "5 to 9 values", "10 values or more"],
+        "uppers": [0.0, 4.0, 9.0, None],
+        "clear": [2, 3],
+    },
+    {
+        "key": "density_inversion",
+        "label": "Density inversion",
+        "unit": "pairs of levels",
+        "measure": "How much lighter the deeper level is, in kg/m³",
+        "bands": [
+            "Stable",
+            "Up to 0.01",
+            "0.01 to 0.03",
+            "0.03 to 0.05",
+            "0.05 to 0.2",
+            "More than 0.2",
+        ],
+        "uppers": [0.0, 0.01, 0.03, 0.05, 0.2, None],
+        "clear": [4, 5],
+    },
+    {
+        "key": "density_inversion_per_dbar",
+        "label": "Density inversion per dbar",
+        "unit": "pairs of levels",
+        "measure": (
+            "How much lighter the deeper level is, in kg/m³ per dbar between them"
+        ),
+        "bands": [
+            "Stable",
+            "Up to 0.01",
+            "0.01 to 0.03",
+            "0.03 to 0.05",
+            "0.05 to 0.2",
+            "More than 0.2",
+        ],
+        "uppers": [0.0, 0.01, 0.03, 0.05, 0.2, None],
+        "clear": [4, 5],
+    },
+    {
+        "key": "pressure_increasing",
+        "label": "Pressure increasing",
+        "unit": "observations",
+        "measure": "How much shallower than the deepest level before it, in dbar",
+        "bands": ["Deeper", "Repeated", "Up to 1 shallower", "1 to 10", "More than 10"],
+        "uppers": [-1e-6, 1e-6, 1.0, 10.0, None],
+        "clear": [1, 2, 3, 4],
+    },
+]
+
+
+def sigma0_eos80(temp: pl.Expr, psal: pl.Expr) -> pl.Expr:
+    """
+    Density at the surface minus 1000 kg/m³, by the EOS-80 equation of state
+    (UNESCO 1981) at zero pressure.
+
+    nrtqclib uses potential density from TEOS-10; the in situ temperature
+    and practical salinity here differ from its inputs by a few hundredths
+    of a kg/m³ at most in the upper ocean, which is enough to band an
+    inversion but not to repeat nrtqclib's test exactly.
+    """
+    t = temp.cast(pl.Float64)
+    s = psal.cast(pl.Float64)
+    water = (
+        999.842594
+        + 6.793952e-2 * t
+        - 9.095290e-3 * t**2
+        + 1.001685e-4 * t**3
+        - 1.120083e-6 * t**4
+        + 6.536332e-9 * t**5
+    )
+    a = (
+        8.24493e-1
+        - 4.0899e-3 * t
+        + 7.6438e-5 * t**2
+        - 8.2467e-7 * t**3
+        + 5.3875e-9 * t**4
+    )
+    b = -5.72466e-3 + 1.0227e-4 * t - 1.6546e-6 * t**2
+    return water + a * s + b * s.abs().sqrt() * s + 4.8314e-4 * s**2 - 1000.0
+
+
+def _response_band(test: Dict[str, Any], margin: pl.Expr) -> pl.Expr:
+    """The index of the band of ``test`` that ``margin`` falls in."""
+    band = pl.when(margin.is_null()).then(pl.lit(None, pl.Int8))
+    for index, upper in enumerate(test["uppers"]):
+        if upper is None:
+            return band.otherwise(pl.lit(index, pl.Int8))
+        band = band.when(margin <= upper).then(pl.lit(index, pl.Int8))
+    return band.otherwise(pl.lit(None, pl.Int8))
+
+
+def _with_profile_ids(frame: pl.DataFrame) -> pl.DataFrame:
+    """
+    ``frame`` with ``_pid``, a whole number per profile counted from 0 in
+    the order the profiles come, which the tests compare and group on
+    instead of the platform code, a string.
+
+    nrtqclib writes each profile's rows together and in recorded order; a
+    slice that is not is sorted first.
+    """
+    new = (
+        (pl.col("platform_code") != pl.col("platform_code").shift(1))
+        | (pl.col("profile_no") != pl.col("profile_no").shift(1))
+    ).fill_null(True)
+    pid = (new.cast(pl.UInt32).cum_sum() - 1).alias("_pid")
+    frame = frame.with_columns(pid)
+    starts = frame.filter(new)
+    backwards = frame.select(
+        ((pl.col("_pid").diff() == 0) & (pl.col("observation_no").diff() <= 0)).sum()
+    ).item()
+    if starts.select(pl.struct(PROFILE_KEYS).n_unique()).item() != starts.height or (
+        backwards
+    ):
+        frame = frame.sort([*PROFILE_KEYS, "observation_no"], maintain_order=True)
+        frame = frame.drop("_pid").with_columns(pid)
+    return frame
+
+
+def _response_chunk(
+    frame: pl.DataFrame, variables: List[VariableSpec], has_pres_flag: bool
+) -> List[pl.DataFrame]:
+    """
+    The banded failures of one slice of whole profiles, per test.
+
+    :param frame: Whole profiles, in recorded order, numbered by ``_pid``
+                  (:func:`_with_profile_ids`), with the values, a
+                  ``bad_<name>`` input flag per variable, ``keep_<name>``
+                  saying the profile is compared for that variable, and
+                  ``bad_pres`` when the input has a pressure flag.
+    :return: One frame per test and variable: ``test``, ``variable``,
+             ``band``, how many fall in it (``n``) and how many of those
+             the input flags (``n_flagged``).
+    """
+    tests = {t["key"]: t for t in RESPONSE_TESTS}
+    frame = frame.lazy().with_columns(
+        (pl.col("_pid") == pl.col("_pid").shift(1)).fill_null(False).alias("_sp"),
+        (pl.col("_pid") == pl.col("_pid").shift(-1)).fill_null(False).alias("_sn"),
+    )
+    pres = pl.col("pres")
+    deep = pres > RESPONSE_DEEP_DBAR
+    out: List[pl.LazyFrame] = []
+
+    def banded(test: str, variable: str, rows: pl.LazyFrame, margin, flagged):
+        out.append(
+            rows.select(
+                _response_band(tests[test], margin).alias("band"),
+                flagged.fill_null(False).alias("flagged"),
+            )
+            .filter(pl.col("band").is_not_null())
+            .group_by("band")
+            .agg(
+                pl.len().cast(pl.Int64).alias("n"),
+                pl.col("flagged").sum().cast(pl.Int64).alias("n_flagged"),
+            )
+            .with_columns(
+                pl.lit(test).alias("test"), pl.lit(variable).alias("variable")
+            )
+        )
+
+    in_range: Dict[str, pl.Expr] = {}
+    for variable in variables:
+        name = variable.name
+        if name not in RESPONSE_GLOBAL_RANGE:
+            continue
+        low, high = RESPONSE_GLOBAL_RANGE[name]
+        x = pl.col(name).cast(pl.Float64)
+        in_range[name] = x.is_between(low, high)
+        bad = pl.col(f"bad_{name}")
+        mine = frame.filter(pl.col(f"keep_{name}"))
+        banded("global_range", name, mine, pl.max_horizontal(low - x, x - high), bad)
+
+        # Spike and gradient on values inside the range with both neighbours
+        # inside it too, so that a range test is not taken for either.
+        prev = pl.when(pl.col("_sp")).then(x.shift(1))
+        nxt = pl.when(pl.col("_sn")).then(x.shift(-1))
+        inside = in_range[name] & prev.is_between(low, high) & nxt.is_between(low, high)
+        neighbours = mine.with_columns(
+            inside.alias("_in"),
+            ((x - (prev + nxt) / 2).abs() - ((nxt - prev) / 2).abs()).alias("_spike"),
+            (x - (prev + nxt) / 2).abs().alias("_gradient"),
+        ).filter(pl.col("_in"))
+        shallow, deep_spike = RESPONSE_SPIKE[name]
+        spike = pl.col("_spike") / pl.when(deep).then(deep_spike).otherwise(shallow)
+        banded("spike", name, neighbours, spike, bad)
+        shallow, deep_gradient = RESPONSE_GRADIENT[name]
+        gradient = pl.col("_gradient") / pl.when(deep).then(deep_gradient).otherwise(
+            shallow
+        )
+        banded("gradient", name, neighbours.filter(spike < 1), gradient, bad)
+
+        # Stuck value: a profile all of whose values, inside the range, are
+        # the same, banded by how many values it has.
+        stuck = (
+            mine.filter(x.is_not_null())
+            .group_by("_pid")
+            .agg(
+                pl.len().alias("_n"),
+                x.n_unique().alias("_unique"),
+                in_range[name].all().alias("_in"),
+                bad.mean().alias("_bad"),
+            )
+            .filter((pl.col("_n") >= 2) & pl.col("_in"))
+        )
+        banded(
+            "stuck_value",
+            name,
+            stuck,
+            pl.when(pl.col("_unique") == 1)
+            .then(pl.col("_n").cast(pl.Float64))
+            .otherwise(0.0),
+            pl.col("_bad") >= RESPONSE_WHOLE_SHARE,
+        )
+
+    # Both variables' tests run over the profiles compared for every variable.
+    names = [v.name for v in variables]
+    both = frame.filter(pl.all_horizontal([pl.col(f"keep_{n}") for n in names]))
+    any_bad = pl.any_horizontal([pl.col(f"bad_{n}") for n in names])
+    if "temp" in in_range and "psal" in in_range:
+        ok = in_range["temp"] & in_range["psal"]
+        pairs = both.with_columns(
+            sigma0_eos80(pl.col("temp"), pl.col("psal")).alias("_sigma"),
+            ok.alias("_ok"),
+            any_bad.alias("_bad"),
+        ).with_columns(
+            pl.when(
+                pl.col("_sp")
+                & pl.col("_ok")
+                & pl.col("_ok").shift(1)
+                & (pres > pres.shift(1))
+            )
+            .then(pl.col("_sigma").shift(1) - pl.col("_sigma"))
+            .alias("_inversion"),
+            (pres - pres.shift(1)).alias("_dp"),
+            (pl.col("_bad") | pl.col("_bad").shift(1)).alias("_pair_bad"),
+        )
+        banded(
+            "density_inversion",
+            "density",
+            pairs,
+            pl.col("_inversion"),
+            pl.col("_pair_bad"),
+        )
+        banded(
+            "density_inversion_per_dbar",
+            "density",
+            pairs,
+            pl.col("_inversion") / pl.col("_dp"),
+            pl.col("_pair_bad"),
+        )
+
+    # Pressure: how far shallower than the deepest level before it, set
+    # against the pressure flag and each variable's flag in turn.
+    deepest = pl.when(pl.col("_sp")).then(pres.cum_max().over("_pid").shift(1))
+    margin = deepest - pres
+    if has_pres_flag:
+        banded("pressure_increasing", "pres", both, margin, pl.col("bad_pres"))
+    for name in names:
+        banded(
+            "pressure_increasing",
+            name,
+            frame.filter(pl.col(f"keep_{name}")),
+            margin,
+            pl.col(f"bad_{name}"),
+        )
+    return pl.collect_all(out)
+
+
+def response_table(
+    scan: pl.LazyFrame,
+    keep: Dict[str, pl.DataFrame],
+    dataset: DatasetSpec,
+    config: BuildConfig,
+) -> pl.DataFrame:
+    """
+    How often the input flags the failures of each of nrtqclib's tests, by
+    how far past the threshold they are.
+
+    The regional centres say which tests they run; this is how to check it
+    against their flags. A producer that runs a test flags nearly all of its
+    clear failures, and one with another threshold starts flagging further
+    out; one that does not run it flags them about as often as any other
+    observation. Each failure is measured again from the values, in the
+    order the levels were recorded as nrtqclib does, and banded as
+    :data:`RESPONSE_TESTS` describes. Profiles are those of
+    :func:`item_tables_for`; a test of both variables or of pressure takes
+    the profiles compared for every variable.
+
+    :param scan: The dataset.
+    :param keep: Per variable name, the keys of the profiles compared for it.
+    :param dataset: The dataset's configuration.
+    :param config: The build configuration.
+    :return: One row per test, variable (``density`` for the density tests,
+             ``pres`` for the input's pressure flag) and band, with how many
+             there are (``n``) and how many the input flags (``n_flagged``).
+    """
+    variables = list(config.variables)
+    if not any(keep[v.name].height for v in variables):
+        return pl.DataFrame()
+    schema = scan.collect_schema().names()
+    has_pres_flag = "pres_qc" in schema
+    columns = [
+        pl.col("platform_code").cast(pl.Utf8),
+        pl.col("profile_no"),
+        pl.col("observation_no"),
+        # A NaN would fail every comparison and land in the last band, so it
+        # is read as missing, as the tests treat it.
+        pl.col("pres").cast(pl.Float64, strict=False).fill_nan(None),
+        *[
+            pl.col(v.name).cast(pl.Float64, strict=False).fill_nan(None)
+            for v in variables
+        ],
+        *[
+            is_one_of(original_flag(v), v.bad_flag_values).alias(f"bad_{v.name}")
+            for v in variables
+        ],
+    ]
+    if has_pres_flag:
+        columns.append(
+            is_one_of(
+                pl.col("pres_qc").cast(pl.Int64, strict=False), DEFAULT_BAD_FLAG_VALUES
+            ).alias("bad_pres")
+        )
+    marks = {
+        v.name: keep[v.name]
+        .select(pl.col("platform_code").cast(pl.Utf8), pl.col("profile_no"))
+        .with_columns(pl.lit(True).alias(f"keep_{v.name}"))
+        for v in variables
+    }
+
+    total = scan.select(pl.len()).collect().item()
+    counts: List[pl.DataFrame] = []
+    carry = None
+    for start in range(0, total, RESPONSE_CHUNK_ROWS):
+        part = scan.slice(start, RESPONSE_CHUNK_ROWS).select(columns).collect()
+        if carry is not None:
+            part = pl.concat([carry, part])
+        if start + RESPONSE_CHUNK_ROWS < total and part.height:
+            last = part.select(PROFILE_KEYS).tail(1)
+            cut = (pl.col("platform_code") == last["platform_code"][0]) & (
+                pl.col("profile_no") == last["profile_no"][0]
+            )
+            carry = part.filter(cut)
+            part = part.filter(~cut)
+        else:
+            carry = None
+        if not part.height:
+            continue
+        # Whether each profile is compared for each variable, looked up once
+        # per profile and spread to its rows by the profile number.
+        part = _with_profile_ids(part)
+        profiles = part.filter(
+            (pl.col("_pid") != pl.col("_pid").shift(1)).fill_null(True)
+        ).select("_pid", *PROFILE_KEYS)
+        for name, mark in marks.items():
+            profiles = profiles.join(
+                mark, on=PROFILE_KEYS, how="left", maintain_order="left"
+            ).with_columns(pl.col(f"keep_{name}").fill_null(False))
+        part = part.with_columns(
+            [profiles[f"keep_{v.name}"].gather(part["_pid"]) for v in variables]
+        ).filter(pl.any_horizontal([pl.col(f"keep_{v.name}") for v in variables]))
+        if not part.height:
+            continue
+        counts.extend(_response_chunk(part, variables, has_pres_flag))
+    if not counts:
+        return pl.DataFrame()
+    label = [
+        pl.lit(dataset.id).alias("dataset_id"),
+        pl.lit(dataset.region).alias("region"),
+        pl.lit(dataset.product).alias("product"),
+        pl.lit(dataset.label).alias("label"),
+    ]
+    order = {t["key"]: i for i, t in enumerate(RESPONSE_TESTS)}
+    return (
+        pl.concat(counts)
+        .group_by("test", "variable", "band")
+        .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
+        .with_columns(pl.col("test").replace_strict(order).alias("_order"))
+        .sort("_order", "variable", "band")
+        .select(label + ["test", "variable", "band", "n", "n_flagged"])
+    )
+
+
 #: Two profiles of different products are the same cast when they share a
 #: date and their positions are within this many degrees of each other, in
 #: longitude and in latitude. ctddump rounds to 3 decimals instead, which
@@ -1848,6 +2296,17 @@ def _write(
         "data_modes": DATA_MODES,
         "pres_bands": pres_band_labels(),
         "shapes": [{"key": k, "label": SHAPE_LABELS[k]} for k in SHAPES],
+        "response_tests": [
+            {
+                "key": t["key"],
+                "label": t["label"],
+                "unit": t["unit"],
+                "measure": t["measure"],
+                "bands": [{"band": i, "label": b} for i, b in enumerate(t["bands"])],
+                "clear": t["clear"],
+            }
+            for t in RESPONSE_TESTS
+        ],
         "rules": {
             "land": {
                 "column": spec.bathymetry_column,
