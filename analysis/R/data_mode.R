@@ -72,26 +72,104 @@ if (!is.null(hist)) {
 
 thresholds <- read_table("dm_threshold")
 if (!is.null(thresholds)) {
-  lines <- thresholds |>
+  # What the estimate would catch at each threshold: profiles of the groups
+  # the rule applies to (marked NRT, or with no data mode), one panel per
+  # product and variable. Each panel has its own scale but starts at zero,
+  # so a line's fall is its real proportion: flat means the threshold hardly
+  # matters there, falling means it decides how many are estimated. The
+  # profiles that declare delayed mode are left to the table: drawn here as
+  # well, they needed a second legend and were in the Arctic only.
+  caught <- thresholds |>
+    filter(data_mode %in% rule$groups) |>
     with_datasets() |>
-    mutate(set = if_else(data_mode %in% rule$groups, "NRT or unknown: estimated",
-                         "Delayed mode: would be caught")) |>
-    group_by(short, region, product, variable, set, threshold) |>
+    group_by(short, variable, threshold) |>
     summarise(n_profiles = sum(n_profiles), .groups = "drop") |>
-    filter(n_profiles > 0 | set == "NRT or unknown: estimated") |>
-    mutate(variable = variable_label(variable))
-  # Within a region every dataset is a different product, so the product's
-  # colour tells the lines of a panel apart.
-  plot <- ggplot(lines, aes(threshold, n_profiles, colour = product, linetype = set,
-                            group = interaction(short, set))) +
-    geom_line(linewidth = 0.6) +
-    geom_point(size = 1.2) +
-    geom_vline(xintercept = rule$min_share, linetype = "22", linewidth = 0.3) +
-    facet_grid(variable ~ region, scales = "free_y") +
-    scale_colour_manual(values = product_colours) +
-    scale_x_continuous(labels = label_percent()) +
-    scale_y_continuous(labels = comma0, limits = c(0, NA)) +
-    labs(x = "Threshold", y = "Profiles at or above it") +
-    guides(linetype = guide_legend(nrow = 2))
-  save_figure(plot, "dm_threshold", height = 120)
+    mutate(variable = variable_label(variable)) |>
+    left_join(select(datasets, short, region_short, product, order),
+              by = c("short" = "short")) |>
+    arrange(variable, order) |>
+    mutate(panel = paste0(region_short, "\n", product, "\n", variable),
+           panel = factor(panel, levels = unique(panel)))
+  chosen <- caught |> filter(abs(threshold - rule$min_share) < 1e-9)
+  estimated <- group_colours[["Estimated delayed mode"]]
+  plot <- ggplot(caught, aes(threshold, n_profiles)) +
+    geom_vline(xintercept = rule$min_share, colour = "#9a9a96", linewidth = 0.3) +
+    geom_line(colour = estimated, linewidth = 0.6) +
+    geom_point(colour = estimated, size = 1) +
+    geom_point(data = chosen, colour = estimated, size = 2.2) +
+    geom_text(data = chosen, aes(label = comma(n_profiles)), colour = "#0b0b0b",
+              hjust = -0.25, vjust = -0.6, size = 2.3) +
+    facet_wrap(~panel, ncol = length(unique(caught$short)), scales = "free_y") +
+    scale_x_continuous(labels = label_percent(), breaks = c(0.5, 0.75, 1),
+                       expand = expansion(mult = 0.08)) +
+    scale_y_continuous(labels = comma0, limits = c(0, NA),
+                       expand = expansion(mult = c(0, 0.2))) +
+    labs(x = "Threshold: share of the profile's observations flagged by the input alone",
+         y = "Profiles estimated delayed mode") +
+    theme(strip.text = element_text(size = 6.5))
+  save_figure(plot, "dm_threshold", height = 95)
+}
+
+# Where the input's probably good (2) and probably bad (3) flags end up:
+# every such observation at sea in the NRT products, by the group of its
+# profile and, in an NRT profile, by whether nrtqclib flags it bad too.
+probable <- read_table("dm_probable_obs")
+if (!is.null(probable)) {
+  probable_classes <- c(
+    "Declared delayed mode profile" = group_colours[["Contains delayed mode"]],
+    "Estimated delayed mode profile" = group_colours[["Estimated delayed mode"]],
+    "NRT profile, nrtqclib flags it bad too" = group_colours[["NRT"]],
+    "NRT profile, the input's flag alone" = "#b8c0c8"
+  )
+  # The products the page covers: those not filed whole under one data
+  # mode, whether or not they use either flag.
+  nrt_products <- as.character(datasets$short[is.na(datasets$data_mode)])
+  shares <- probable |>
+    with_datasets() |>
+    mutate(
+      class = case_when(
+        group == "delayed" ~ names(probable_classes)[1],
+        group == "estimated_delayed" ~ names(probable_classes)[2],
+        nrtqclib_bad ~ names(probable_classes)[3],
+        TRUE ~ names(probable_classes)[4]
+      ),
+      class = factor(class, levels = names(probable_classes)),
+      panel = paste0(variable_label(variable), ", ",
+                     c("2" = "2 (probably good)", "3" = "3 (probably bad)")[as.character(flag)]),
+      panel = factor(panel, levels = as.vector(outer(
+        levels(variable_label(meta$variables$name)),
+        c("2 (probably good)", "3 (probably bad)"), paste, sep = ", ")))
+    ) |>
+    group_by(short, panel, class) |>
+    summarise(n_obs = sum(n_obs), .groups = "drop") |>
+    group_by(short, panel) |>
+    mutate(share = n_obs / sum(n_obs)) |>
+    ungroup() |>
+    mutate(short = factor(as.character(short), levels = nrt_products))
+  # A product with none of a flag gets a row that says so, rather than a
+  # gap that reads like missing data.
+  totals <- shares |>
+    group_by(short, panel) |>
+    summarise(n_obs = sum(n_obs), .groups = "drop") |>
+    mutate(short = factor(short, levels = nrt_products)) |>
+    complete(short, panel, fill = list(n_obs = 0L)) |>
+    mutate(text = if_else(n_obs == 0, "none", comma(n_obs)),
+           x = if_else(n_obs == 0, 0, 1))
+
+  plot <- ggplot(shares, aes(share, forcats::fct_rev(short), fill = class)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+             position = position_stack(reverse = TRUE)) +
+    geom_text(data = totals, inherit.aes = FALSE,
+              aes(x, forcats::fct_rev(short), label = text),
+              hjust = -0.15, size = 2.3, colour = "#52514e") +
+    facet_wrap(~panel, ncol = 2, drop = FALSE) +
+    scale_fill_manual(values = probable_classes, drop = FALSE) +
+    scale_y_discrete(limits = rev(nrt_products)) +
+    scale_x_continuous(labels = label_percent(), breaks = c(0, 0.5, 1),
+                       expand = expansion(mult = c(0, 0.22))) +
+    labs(x = "Share of the observations with this input flag (number at the end)",
+         y = NULL) +
+    guides(fill = guide_legend(nrow = 2)) +
+    theme(panel.grid.major.y = element_blank())
+  save_figure(plot, "dm_probable", height = 105)
 }

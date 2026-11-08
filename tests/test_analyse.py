@@ -12,10 +12,14 @@ from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
     check_conversion_steps,
     classify,
+    input_flag_table,
     land_causes,
     match_tables,
     overlap_table,
+    probable_flag_table,
+    response_table,
     run_analyses,
+    shape_table,
 )
 from nrtqc_diff.config import read_config
 
@@ -202,6 +206,101 @@ def test_land_profiles_are_counted_with_their_flags(analysed):
     assert dict(zip(margin["margin_m"], margin["n_profiles"]))[5.0] == 0
     flags = table(analysed, "depth_land_flags")
     assert dict(zip(flags["original_flag"], flags["n_obs"])) == {1: 4, 4: 2}
+
+
+def test_input_flags_count_every_observation(analysed):
+    flags = table(analysed, "input_flags")
+    # Land, delayed and estimated profiles too: the whole input is counted.
+    expected = {1: 0, 4: 0}
+    for _, observations in CASES.values():
+        for flag, *_ in observations:
+            expected[flag] += 1
+    assert dict(zip(flags["original_flag"], flags["n_obs"])) == expected
+    assert flags["has_position_qc"].to_list() == [True, True]
+
+
+def test_input_flags_keep_profiles_without_a_position_flag(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    scan = pl.LazyFrame(
+        {
+            "temp_qc": ["1", "4", "", "1"],
+            "position_qc": ["1", "1", "1", ""],
+        }
+    )
+    rows = input_flag_table(scan, spec.datasets[0], spec).select(
+        "original_flag", "has_position_qc", "n_obs"
+    )
+    assert rows.rows() == [(1, False, 1), (1, True, 1), (4, True, 1), (None, True, 1)]
+
+
+def test_probable_flags_are_counted_by_mode_group_and_check(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    scan = pl.LazyFrame(
+        {
+            "platform_code": ["A", "A", "A", "B", "B", "C"],
+            "profile_no": [1, 1, 1, 1, 1, 1],
+            "temp_qc": ["3", "3", "1", "2", "3", "3"],
+            "temp_dm": ["R", "R", "R", "D", None, "R"],
+            "temp_nrt_flag": [4, 1, 1, 1, 4, 4],
+            "temp_qc_spike": [4, 1, 1, 1, 1, 4],
+        }
+    )
+    # C is on land, so its 3 is left out.
+    profiles = pl.DataFrame(
+        {
+            "platform_code": ["A", "B", "C"],
+            "profile_no": [1, 1, 1],
+            "land": [False, False, True],
+            "temp_group": ["nrt", "delayed", "land"],
+        }
+    )
+    rows = {
+        (r["flag"], r["obs_data_mode"], r["group"], r["nrtqclib_bad"]): r
+        for r in probable_flag_table(scan, profiles, spec.datasets[0], spec).iter_rows(
+            named=True
+        )
+    }
+    assert set(rows) == {
+        (3, "R", "nrt", True),
+        (3, "R", "nrt", False),
+        (2, "D", "delayed", False),
+        (3, "", "delayed", True),
+    }
+    assert rows[(3, "R", "nrt", True)]["n_obs"] == 1
+    assert rows[(3, "R", "nrt", True)]["fail_spike"] == 1
+    assert rows[(3, "", "delayed", True)]["fail_spike"] == 0
 
 
 def test_items_are_attributed_over_nrt_profiles_only(analysed):
@@ -571,3 +670,110 @@ def test_a_dataset_filed_whole_is_left_out_of_the_data_mode_tables(analysed):
         assert set(table(out, name)["dataset_id"]) == {"one"}, name
     # The other pages still count it.
     assert set(table(out, "depth_summary")["dataset_id"]) == {"one", "whole"}
+
+
+def test_one_sided_flags_are_placed_in_their_profiles(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    # A: the input flags the top level (at negative pressure), one level
+    # inside and the bottom one; nrtqclib flags two levels inside.
+    # B: the input flags all of it. C is not kept.
+    scan = pl.LazyFrame(
+        {
+            "platform_code": ["A"] * 6 + ["B"] * 2 + ["C"],
+            "profile_no": [1] * 9,
+            "pres": [-1.0, 5.0, 10.0, 15.0, 20.0, 25.0, 1.0, 2.0, 1.0],
+            "temp_qc": ["4", "1", "3", "1", "1", "4", "4", "4", "4"],
+            "temp_nrt_flag": [1, 1, 1, 4, 4, 1, 1, 1, 1],
+        }
+    )
+    keep = {"temp": pl.DataFrame({"platform_code": ["A", "B"], "profile_no": [1, 1]})}
+    rows = {
+        (r["status"], r["shape"], r["negative_pressure"]): (r["n_obs"], r["n_profiles"])
+        for r in shape_table(scan, keep, spec.datasets[0], spec).iter_rows(named=True)
+    }
+    assert rows == {
+        ("original_only", "top", True): (1, 1),
+        ("original_only", "inside_alone", False): (1, 1),
+        ("original_only", "bottom", False): (1, 1),
+        ("original_only", "whole", False): (2, 1),
+        ("nrtqclib_only", "inside_several", False): (2, 1),
+    }
+
+
+def test_failures_are_banded_by_how_far_past_the_threshold(tmp_path, monkeypatch):
+    # Slices of four rows, so that profile A is cut by a slice edge and has
+    # to be carried over whole.
+    monkeypatch.setattr("nrtqc_diff.analyse.RESPONSE_CHUNK_ROWS", 4)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"},
+                    {"name": "psal", "flag": "psal_qc", "nrt_flag": "psal_nrt_flag"},
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    # A: a temperature spike of 2.5 times the threshold at its third level,
+    # which the input flags, and a stuck salinity of five values it does
+    # not. B: a temperature 10 above the global range at the top, flagged,
+    # and a repeated pressure at the bottom, flagged in the pressure flag
+    # only, and a NaN temperature, which is missing rather than out of
+    # range. C is not compared, and its outlier must not count.
+    scan = pl.LazyFrame(
+        {
+            "platform_code": ["A"] * 5 + ["B"] * 3 + ["C"],
+            "profile_no": [1] * 9,
+            "observation_no": [1, 2, 3, 4, 5, 1, 2, 3, 1],
+            "pres": [1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 2.0, 1.0],
+            "temp": [10.0, 10.0, 25.0, 10.0, 10.0, 50.0, 10.0, float("nan"), 100.0],
+            "psal": [35.0] * 5 + [35.0, 35.1, 35.2, 35.0],
+            "temp_qc": ["1", "1", "4", "1", "1", "4", "1", "1", "1"],
+            "psal_qc": ["1"] * 9,
+            "pres_qc": ["1"] * 7 + ["4", "1"],
+        }
+    )
+    keep = {
+        name: pl.DataFrame({"platform_code": ["A", "B"], "profile_no": [1, 1]})
+        for name in ["temp", "psal"]
+    }
+    table = response_table(scan, keep, spec.datasets[0], spec)
+    rows = {
+        (r["test"], r["variable"], r["band"]): (r["n"], r["n_flagged"])
+        for r in table.iter_rows(named=True)
+    }
+    assert rows[("global_range", "temp", 0)] == (6, 1)
+    assert rows[("global_range", "temp", 3)] == (1, 1)
+    assert ("global_range", "temp", 4) not in rows
+    assert rows[("spike", "temp", 3)] == (1, 1)
+    assert rows[("stuck_value", "psal", 2)] == (1, 0)
+    assert rows[("stuck_value", "psal", 0)] == (1, 0)
+    assert rows[("stuck_value", "temp", 0)] == (1, 0)
+    assert rows[("density_inversion", "density", 5)] == (1, 1)
+    assert rows[("density_inversion", "density", 0)] == (3, 1)
+    assert rows[("pressure_increasing", "pres", 1)] == (1, 1)
+    assert rows[("pressure_increasing", "temp", 1)] == (1, 0)

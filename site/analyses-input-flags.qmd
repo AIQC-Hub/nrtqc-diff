@@ -1,0 +1,190 @@
+---
+title: "Input QC flags"
+format:
+  html:
+    page-layout: full
+execute:
+  echo: false
+---
+
+The flags the input arrived with, before anything on this site compares
+them: every observation of each product, counted by the value of its
+temperature or salinity flag. The regional summary reports of the
+[Arctic](https://aiqc-hub.github.io/arc-report/),
+[Baltic](https://aiqc-hub.github.io/bal-report/) and
+[Mediterranean](https://aiqc-hub.github.io/med-report/) give the same counts
+one product at a time, with the flags by platform and over time; this page
+puts them side by side. The
+[exploratory data analysis](https://aiqc-hub.github.io/aiqc-report/) behind
+those reports shows the fraction of bad flags per profile and how the flags
+change over the years.
+
+**This page counts every profile**, on land and in delayed mode too. The
+Depth page leaves land profiles out of the analyses after it, and the
+Delayed mode page sets profiles apart by their data mode; this one
+describes the input as it is, not a subset that an analysis compares.
+
+```{ojs}
+//| output: false
+app = import(new URL("assets/js/app.js", document.baseURI).href)
+meta = app.loadAnalyses()
+name = (id) => app.datasetName(meta, id)
+table = app.analysisTable
+byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
+variableLabel = (n) => meta.variables.find((v) => v.name === n)?.label ?? n
+byVariable = (a, b) =>
+  meta.variables.findIndex((v) => v.name === a.variable) -
+  meta.variables.findIndex((v) => v.name === b.variable)
+flags = meta ? app.loadAnalysisTable("input_flags") : null
+
+// The regional report page of each product and variable, where there is one.
+// The ids are those of config/test_nrt.yaml; another configuration simply
+// gets no links.
+reportPrefix = new Map([
+  ["ar_ar", "arc-report/ar_"],
+  ["ar_gl", "arc-report/ar_gl_"],
+  ["cora_ar", "arc-report/ar_cora_"],
+  ["bo_bo", "bal-report/bo_"],
+  ["cora_bo", "bal-report/bo_cora_"],
+  ["mo_mo", "med-report/mo_"],
+  ["mo_gl", "med-report/mo_gl_"],
+  ["cora_mo", "med-report/mo_cora_"]
+])
+function reportLink(row) {
+  const prefix = reportPrefix.get(row.dataset_id);
+  if (!prefix) return document.createTextNode("");
+  const link = document.createElement("a");
+  link.href = `https://aiqc-hub.github.io/${prefix}${row.variable}_qc.html`;
+  link.textContent = "QC page";
+  return link;
+}
+
+// How the site reads a flag value, from each variable's lists in
+// meta.json: the heading of a column says it once when every variable
+// reads the value the same way.
+function flagClass(spec, flag) {
+  if (flag !== null && spec.bad_flag_values.includes(flag)) return "counted as bad";
+  if (flag === null || spec.missing_flag_values.includes(flag)) return "no input flag";
+  return "counted as good";
+}
+function flagTitle(flag) {
+  const read = [...new Set(meta.variables.map((v) => flagClass(v, flag)))];
+  return read.length === 1
+    ? `On this site: ${read[0]}`
+    : meta.variables.map((v) => `${v.label}: ${flagClass(v, flag)}`).join("; ");
+}
+
+flagKey = (flag) => (flag === null ? "none" : `flag ${flag}`)
+
+// The site glosses only the values the IOC/Argo scheme fixes. The regional
+// reports also name 5 to 8, as the Copernicus in situ products use them,
+// and this page is about those products, so it names them too.
+REPORT_MEANINGS = new Map([
+  [5, "value changed"],
+  [6, "below detection limit"],
+  [7, "in excess of quoted value"],
+  [8, "interpolated"]
+])
+flagHeading = (flag) =>
+  REPORT_MEANINGS.has(flag) ? `${flag} (${REPORT_MEANINGS.get(flag)})` : app.flagWithMeaning(flag)
+wide = flags
+  ? app.widen(flags, {
+      index: ["dataset_id", "variable"], column: "original_flag", value: "n_obs",
+      name: flagKey
+    }).sort((a, b) => byDataset(a, b) || byVariable(a, b))
+  : []
+// Every flag value any product uses, in order, with no flag last.
+flagValues = [...new Set((flags ?? []).map((r) => r.original_flag))]
+  .sort((a, b) => (a === null) - (b === null) || a - b)
+withTotals = wide.map((row) => ({
+  ...row,
+  n_obs: flagValues.reduce((sum, f) => sum + row[flagKey(f)], 0)
+}))
+```
+
+```{ojs}
+meta === null ? app.analysesMissing() : html``
+```
+
+## The flags per product
+
+One row per product and variable. The flag values follow the IOC/Argo
+scheme, with the meanings of 5 to 8 as the regional reports give them for
+these products; pointing at a heading says how the rest of the site reads
+the value. "none" is an observation the input gives no flag at all.
+
+```{ojs}
+viewof flagUnit = Inputs.radio(["Share of the observations", "Observations"], {
+  value: "Share of the observations",
+  label: "Show"
+})
+```
+
+```{ojs}
+meta ? table(withTotals, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "n_obs", label: "Observations" },
+  ...flagValues.map((flag) => ({
+    key: flagKey(flag),
+    label: flagHeading(flag),
+    title: flagTitle(flag),
+    format: flagUnit === "Observations"
+      ? undefined
+      : (value, row) => app.formatSmallShare(value, row.n_obs)
+  })),
+  { key: "report", label: "Regional report", align: "left", render: (_, row) => reportLink(row) }
+]) : html``
+```
+
+```{ojs}
+meta ? app.analysisFigure(
+  "input_flags_shares",
+  "The observations each product flags other than 1 (good), as a share of all its observations, grouped the way the site reads them: bad (3, 4, 6, 7), no flag (0 for no QC performed, 9 for a missing value, or none), and usable values marked otherwise (2 probably good, 5 changed, 8 interpolated). The label is the total. Flag 1 is the rest of each product, too large to draw beside them.",
+  "Stacked bars per product and variable of the share of observations with an input flag other than 1."
+) : html``
+```
+
+## Against the regional reports
+
+The regional reports count the same observations with two differences.
+They file an observation the input gives no flag under 9 (missing value),
+and they keep only profiles whose position is flagged good, which drops a
+profile with no position flag at all. This site keeps those profiles: the
+conversion dropped profiles whose position was flagged bad, and a missing
+flag is no evidence of that. The table counts the observations both ways;
+the last column is what the report shows.
+
+```{ojs}
+positionRows = flags
+  ? [...flags.reduce((byKey, r) => {
+      const key = `${r.dataset_id}|${r.variable}`;
+      const row = byKey.get(key) ?? {
+        dataset_id: r.dataset_id, variable: r.variable,
+        n_obs: 0, n_no_position: 0, n_none: 0
+      };
+      row.n_obs += r.n_obs;
+      if (r.has_position_qc === false) row.n_no_position += r.n_obs;
+      else if (r.original_flag === null) row.n_none += r.n_obs;
+      byKey.set(key, row);
+      return byKey;
+    }, new Map()).values()]
+      .map((r) => ({ ...r, n_report: r.n_obs - r.n_no_position }))
+      .sort((a, b) => byDataset(a, b) || byVariable(a, b))
+  : []
+meta ? table(positionRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "n_obs", label: "Observations here" },
+  { key: "n_no_position", label: "No position flag", title: "Observations of profiles with no position_qc, which the reports leave out" },
+  { key: "no_position_share", label: "Share", format: (_, r) => app.formatSmallShare(r.n_no_position, r.n_obs) },
+  { key: "n_none", label: "No flag, counted as 9", title: "Observations with no input flag, in profiles the reports keep; the reports file them under 9" },
+  { key: "n_report", label: "By the reports' rule", title: "Observations of profiles with a position flag: the total of the report's table" },
+  { key: "report", label: "Regional report", align: "left", render: (_, row) => reportLink(row) }
+]) : html``
+```
+
+Counted by the reports' rule, the flags here matched each report's table
+value for value when this page was written. Where a product is off by a
+few observations, a profile lies on the edge of the report's region box:
+inside it for the conversion, just outside it for the report.

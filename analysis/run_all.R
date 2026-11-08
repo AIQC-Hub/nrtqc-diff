@@ -7,7 +7,7 @@
 # environment, so one can be rerun alone the same way:
 #   Rscript -e 'source("analysis/R/depth.R")'
 
-scripts <- c("conversion", "depth", "data_mode", "flag_differences")
+scripts <- c("conversion", "depth", "input_flags", "data_mode", "flag_differences")
 for (name in scripts) {
   source(file.path("analysis", "R", paste0(name, ".R")), local = new.env())
 }

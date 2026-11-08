@@ -21,7 +21,8 @@ site/
 │       ├── views.js      tree, tables, profile list, contingency, legend, bars
 │       ├── labels.js     the column names and flag values, said in words
 │       ├── plots.js      the profile plots
-│       └── analyses.js   the Analyses pages' tables and figures
+│       ├── analyses.js   the Analyses pages' tables and figures
+│       └── regional.js   the regional centres' answers on their NRT QC tests
 ├── data/                 written by the build step  (gitignored)
 ├── libs/                 vendored by scripts/fetch_assets.sh  (gitignored)
 └── _site/                rendered output  (gitignored)
@@ -51,8 +52,8 @@ product built from several datasets aggregates in SQL rather than in the page;
 the totals the trimming was measured against come from `catalog.json`.
 
 The counts there cover published profiles only. That is why "neither flagged"
-is the largest column on the page, and why the last column is a rate per 1,000
-published observations: it is the only figure on the row that compares fairly
+is the largest column on the page, and why the last column is a percentage of
+the published observations: it is the only figure on the row that compares fairly
 between a product of 800 observations and one of 25 million.
 
 **Every data page has a group choice**: "NRT only", "Estimated delayed
@@ -74,8 +75,8 @@ read for a profile already chosen.
 On the summary page it governs both tables, with the source totals read from
 the per-group `modes` of each catalog entry, and a third table, **NRT against
 delayed mode**, ignores it on purpose: it lists every group a product has,
-one row per product and group with each product's rows together, as rates of
-"original only", "nrtqclib only" and both per 1,000 of each group's own
+one row per product and group with each product's rows together, as
+percentages of "original only", "nrtqclib only" and both, of each group's own
 observations. That is where the difference between the groups shows, and
 the reason for having them. `regionProductTotals` groups by
 `data_mode` as well as region and product, so all three tables are sums over
@@ -245,7 +246,7 @@ of the build rather than anything the scheme fixes.
 **`platforms.qmd` sits between the two.** An ordinary page, not a dashboard:
 a region, a product, a variable and a data mode are chosen at the top, and
 under them is one row per platform of that product, with the same agreement counts, flagged
-mix and rate per 1,000 as the summary page. Clicking a platform opens a row
+mix and percentage disagreeing as the summary page. Clicking a platform opens a row
 under it listing that platform's profiles, and clicking it again closes it.
 It answers the question the other two pages leave open: which platforms of a
 product the disagreements come from.
@@ -276,7 +277,9 @@ it links to; if that library adds or renames a check, this table is the place
 in this repository that goes stale, together with `QC_CHECKS` in `labels.js`.
 
 **The Analyses pages** (`analyses-conversion`, `analyses-depth`,
-`analyses-data-mode`, `analyses-flags`) are a different kind of page. They
+`analyses-input-flags`, `analyses-data-mode`, `analyses-probable-flags`,
+`analyses-flags`, `analyses-flags-original`, `analyses-flags-nrtqclib`) are a
+different kind of page. They
 query nothing: their figures were drawn in R and their tables computed in
 Python where the data is, and the pages fetch both from `data/analyses/`
 with `analyses.js`. Without them, as in the demo build, each page says the

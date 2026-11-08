@@ -7,21 +7,26 @@ execute:
   echo: false
 ---
 
-What is left after the two previous pages: profiles at sea, marked NRT, and
-not estimated to carry delayed mode flags. The estimate is made per
-variable, so each variable is counted over its own profiles: one whose
-salinity looks reworked by an operator is in the temperature figures and
-not in the salinity ones. Both flags on them should come
-from automated tests, so where they disagree, the tests differ. Either one
-side runs a test the other does not, or both run it with different logic or
-thresholds.
+What is left after the Depth and Delayed mode pages: profiles at sea,
+marked NRT, and not estimated to carry delayed mode flags. The estimate is
+made per variable, so each variable is counted over its own profiles: one
+whose salinity looks reworked by an operator is in the temperature figures
+and not in the salinity ones. Both flags on them should come from automated
+tests, so where they disagree, the tests differ. Either one side runs a test
+the other does not, or both run it with different logic or thresholds.
 
-The two sides of a disagreement can be read to different depths. nrtqclib
-records which of its checks failed, so an observation only nrtqclib flags
-can be traced to the check, or checks, behind it. The input carries one
-flag per variable and nothing about how it was reached, so an observation
-only the input flags is described by where it is and which value the input
-gave it.
+This page compares the two sides. The next two take each side of a
+disagreement in turn, because they can be read to different depths:
+
+- [Flagged only by the input](analyses-flags-original.qmd): the input
+  carries one flag per variable and nothing about how it was reached, so
+  these are described by where they sit in their profiles, the value the
+  input gave them, and the tests the producers say they run that nrtqclib
+  does not.
+- [Flagged only by nrtqclib](analyses-flags-nrtqclib.qmd): nrtqclib records
+  which of its checks failed, so these can be traced to the checks behind
+  them, and set against whether the producer runs the same test and how
+  the two designs of a test can differ.
 
 ```{ojs}
 //| output: false
@@ -31,7 +36,8 @@ name = (id) => app.datasetName(meta, id)
 table = app.analysisTable
 byDataset = (a, b) => app.datasetOrder(meta, a.dataset_id) - app.datasetOrder(meta, b.dataset_id)
 variableLabel = (n) => meta.variables.find((v) => v.name === n)?.label ?? n
-statusLabel = (k) => meta.statuses.find((s) => s.key === k)?.label ?? k
+variableOrder = (n) => meta.variables.findIndex((v) => v.name === n)
+byDatasetVariable = (a, b) => byDataset(a, b) || variableOrder(a.variable) - variableOrder(b.variable)
 status = meta ? app.loadAnalysisTable("items_status") : null
 totals = new Map((status ?? []).reduce((m, r) => {
   const key = `${r.dataset_id}|${r.variable}`;
@@ -44,12 +50,167 @@ totals = new Map((status ?? []).reduce((m, r) => {
 meta === null ? app.analysesMissing() : html``
 ```
 
+## What each side runs
+
+nrtqclib runs the same checks on every product. The input's tests are the
+producer's. The Arctic, Baltic and Mediterranean regional centres said which
+near real time tests they run on CTD profiles; the table sets their answers
+beside nrtqclib's checks. The answers describe the regional products only:
+the global products' flags come from the global product's own QC, which
+they do not describe.
+
+Under an answer, in grey, is what the input flags show of it: the share of
+the clear failures of nrtqclib's version of the test that the input flags,
+per variable, per flag, or for density per level and per dbar,
+explained in [What the input flags show](#what-the-input-flags-show). Near
+100% means the producer runs the test; near 0 means it does not, or only
+with a far larger threshold. "Too few" is a test with too few clear
+failures in the product to tell.
+
+```{ojs}
+response = meta ? app.loadAnalysisTable("items_response") : null
+seenText = (datasetId, test) => {
+  if (!response) return "";
+  const parts = test.response.flatMap((key) => {
+    const rows = app.clearFailures(response, meta, datasetId, key);
+    const what = (r) => key === "density_inversion" ? "per level"
+      : key === "density_inversion_per_dbar" ? "per dbar"
+      : app.responseFlagLabel(meta, r.variable);
+    return rows.map((r) => `${what(r)} ${r.share === null ? "too few" : app.formatPercent(100 * r.share)}`);
+  });
+  return parts.length ? `flags: ${parts.join(", ")}` : "";
+}
+claimCell = (datasetId) => (_, row) => {
+  const cell = document.createElement("span");
+  cell.append(row.claims[datasetId]);
+  const seen = seenText(datasetId, row);
+  if (seen) {
+    const note = document.createElement("span");
+    note.className = "nq-seen";
+    note.textContent = seen;
+    cell.append(note);
+  }
+  return cell;
+}
+claimsTable = {
+  const box = table(app.REGIONAL_TESTS, [
+    { key: "label", label: "Test", align: "left", wrap: true, format: (v) => v },
+    { key: "nrtqclib", label: "nrtqclib", align: "left", format: (v) => v },
+    ...app.REGIONAL_PRODUCTS.map((p) => ({
+      key: p.id, label: p.label, align: "left", wrap: true, render: claimCell(p.id)
+    }))
+  ]);
+  box.classList.add("nq-claims");
+  return box;
+}
+```
+
+"Not asked" is a test the centres were not asked about and did not
+mention. The frozen profile test is listed by all three, but leaves no
+sign in their flags: see
+[Flagged only by the input](analyses-flags-original.qmd#tests-nrtqclib-does-not-have).
+A test both sides run can still disagree: the
+[nrtqclib page](analyses-flags-nrtqclib.qmd#how-one-test-can-differ)
+describes how.
+
+## What the input flags show
+
+A producer may run a test it does not list, or list one that has no effect
+on its flags. To see which, every failure of a test is measured again from
+the values, the way nrtqclib's check does it, and put in a band by how far
+past nrtqclib's threshold it is; then the share of each band the input
+flags is counted. A producer that runs the test flags nearly all of the
+failures far past the threshold, and starts flagging where its own
+threshold lies. One that does not run it flags them about as often as any
+other observation, well under 1%.
+
+The tests are measured over the same profiles as the rest of this page.
+Spike and gradient are measured on values inside the global range, and
+gradient only on levels that pass the spike test, so that one test is not
+taken for another; stuck value and density inversion likewise only on
+values inside the range. Density is the density at the surface from the
+in situ temperature, close to but not the same as nrtqclib's potential
+density, and the centres' threshold is per dbar, so both are shown. A
+stuck profile is counted as flagged when the input flags nearly all of its
+values.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "items_response",
+  "The share of each test's failures the input flags, by how far past nrtqclib's threshold they are. One panel per test and the flag it is set against; a band with fewer than 20 failures is left out. Colour is the product and line type the region.",
+  "Line charts per test of the share flagged by the input against the size of the failure, one line per product."
+) : html``
+```
+
+The bands of one product, with how many failures each holds.
+
+```{ojs}
+viewof responseDataset = meta && response
+  ? Inputs.select([...new Set(response.map((r) => r.dataset_id))], { label: "Product", format: name })
+  : html``
+```
+
+```{ojs}
+meta && response ? table(
+  response
+    .filter((r) => r.dataset_id === responseDataset)
+    .map((r) => {
+      const test = meta.response_tests.find((t) => t.key === r.test);
+      return {
+        ...r,
+        key: `${r.test}|${r.variable}|${r.band}`,
+        test_label: test.label,
+        flag: app.responseFlagLabel(meta, r.variable),
+        band_label: test.bands[r.band].label,
+        clear: test.clear.includes(r.band) ? "clear" : "",
+        unit: test.unit
+      };
+    }),
+  [
+    { key: "test_label", label: "Test", align: "left", format: (v) => v },
+    { key: "flag", label: "Set against", align: "left", format: (v) => v },
+    { key: "band_label", label: "How far past", align: "left", format: (v) => v },
+    { key: "clear", label: "Clear failure", align: "left", format: (v) => v },
+    { key: "n", label: "Failures", title: "Observations, pairs of levels or profiles, as the test counts them" },
+    { key: "n_flagged", label: "The input flags", format: (v, r) => app.formatSmallShare(v, r.n) }
+  ]
+) : html``
+```
+
+Read together, for the regional products whose centres answered:
+
+- **Arctic NRT regional**: global range and spike behave as claimed: the
+  input flags nearly all of their clear failures, from about nrtqclib's
+  thresholds. Gradient mostly, about four in five. Density inversion only
+  partly: the input flags about a quarter of the clear inversions, and
+  hardly any measured per dbar, so its density test is not the one
+  described, or runs on part of the data. There are too few stuck profiles
+  to tell.
+- **Baltic NRT regional**: gradient and stuck value leave no sign, as the
+  centre says it runs neither. Spike and density inversion, which it says
+  it runs, leave none either: the input flags almost none of the clear
+  salinity spikes or the clear inversions (there are too few clear
+  temperature spikes to tell). Salinity just under nrtqclib's lower bound
+  of 2 is mostly flagged, which fits a range test with a bound near it.
+- **Mediterranean NRT regional**: too few clear failures to tell for most
+  tests. The input flags a sixth of the few clear density inversions,
+  although the centre says the test is not run yet; another test may
+  account for them.
+
+No profile in these data goes shallower in recorded order, so the only
+failures of pressure increasing are repeated pressures. The Baltic input
+leaves those unflagged, which fits a test that fails only a pressure going
+shallower, and there is none to show whether it runs. Of the global
+products, the Mediterranean one flags more than half of the repeated
+pressures, but in its pressure flag rather than in temperature or salinity,
+which this site compares.
+
 ## How often they disagree
 
 ```{ojs}
 meta ? app.analysisFigure(
   "items_status",
-  "Observations flagged by both sources, by the input alone and by nrtqclib alone, per 1,000 observations of NRT profiles at sea.",
+  "Observations flagged by both sources, by the input alone and by nrtqclib alone, as a share of the observations of NRT profiles at sea.",
   "Bars of the three flagged categories per product and variable."
 ) : html``
 ```
@@ -57,65 +218,17 @@ meta ? app.analysisFigure(
 ```{ojs}
 statusRows = status
   ? app.widen(status, { index: ["dataset_id", "variable"], column: "status", value: "n_obs" })
-      .sort((a, b) => byDataset(a, b) || a.variable.localeCompare(b.variable) * -1)
+      .sort(byDatasetVariable)
   : []
 meta ? table(statusRows, [
   { key: "dataset_id", label: "Product", align: "left", format: name },
   { key: "variable", label: "Variable", align: "left", format: variableLabel },
   { key: "total", label: "Observations", format: (_, r) => app.formatCount(totals.get(`${r.dataset_id}|${r.variable}`)) },
   ...meta.statuses.map((s) => ({
-    key: s.key, label: `${s.label} per 1,000`,
-    format: (v, r) => app.formatRate(app.perThousandOf(v, totals.get(`${r.dataset_id}|${r.variable}`)))
+    key: s.key, label: s.label,
+    format: (v, r) => app.formatSmallShare(v, totals.get(`${r.dataset_id}|${r.variable}`))
   }))
 ]) : html``
-```
-
-## Which nrtqclib checks account for what only nrtqclib flags
-
-An observation can fail more than one check. The dark part of a bar is the
-observations this check alone flagged, which nothing else in nrtqclib would
-have caught; the light part is those it flagged together with other checks.
-
-```{ojs}
-meta ? app.analysisFigure(
-  "items_attribution",
-  "Observations only nrtqclib flags, per 1,000 observations, by the check that failed. Checks that never contributed are left out. Note the different scales across products.",
-  "Bar charts per product and variable of nrtqclib-only observations by check."
-) : html``
-```
-
-```{ojs}
-byItem = meta ? app.loadAnalysisTable("items_by_item") : null
-viewof itemDataset = meta && byItem
-  ? Inputs.select([...new Set(byItem.map((r) => r.dataset_id))], { label: "Product", format: name })
-  : html``
-```
-
-```{ojs}
-meta && byItem ? table(
-  byItem.filter((r) => r.dataset_id === itemDataset && r.n_fail > 0),
-  [
-    { key: "variable", label: "Variable", align: "left", format: variableLabel },
-    { key: "item", label: "Check", align: "left", format: (_, r) => app.qcCheck(r.column, meta.variables).label },
-    { key: "column", label: "Column", align: "left", format: (v) => v },
-    { key: "n_fail", label: "Failed" },
-    { key: "n_fail_agree_bad", label: "Also flagged by the input" },
-    { key: "n_fail_nrtqclib_only", label: "Only nrtqclib" },
-    { key: "n_alone_nrtqclib_only", label: "This check alone" }
-  ]
-) : html``
-```
-
-The commonest sets of failing checks behind the observations only nrtqclib
-flags, over every NRT product together. A column is one set; the dots below
-it say which checks are in it.
-
-```{ojs}
-meta ? app.analysisFigure(
-  "items_combinations",
-  "The ten commonest sets of failing nrtqclib checks among observations only nrtqclib flags, pooled over the NRT products.",
-  "UpSet charts, one per variable, of check combinations."
-) : html``
 ```
 
 ## Where in the water column
@@ -123,39 +236,16 @@ meta ? app.analysisFigure(
 ```{ojs}
 meta ? app.analysisFigure(
   "items_depth",
-  "Observations flagged by one source alone, per 1,000 observations in each pressure band. Colour is the product and line type the region.",
-  "Line charts of disagreement rates against pressure, per variable and source."
+  "Observations flagged by one source alone, as a share of the observations in each pressure band. Colour is the product and line type the region.",
+  "Line charts of disagreement shares against pressure, per variable and source."
 ) : html``
-```
-
-## What the input called the values only it flags
-
-The input flag of each observation it flags and nrtqclib does not. A value
-the input calls probably bad (3) is a softer disagreement than one it calls
-bad (4).
-
-```{ojs}
-flagsTable = meta ? app.loadAnalysisTable("items_original_flags") : null
-originalOnly = flagsTable
-  ? app.widen(
-      flagsTable.filter((r) => r.nrtqclib_bad === false &&
-        (meta.variables.find((v) => v.name === r.variable)?.bad_flag_values ?? []).includes(r.original_flag)),
-      { index: ["dataset_id", "variable"], column: "original_flag", value: "n_obs", name: (v) => `f${v}` }
-    ).sort((a, b) => byDataset(a, b) || a.variable.localeCompare(b.variable) * -1)
-  : []
-flagKeys = [...new Set(originalOnly.flatMap((r) => Object.keys(r).filter((k) => /^f\d+$/.test(k))))].sort()
-meta ? table(originalOnly, [
-  { key: "dataset_id", label: "Product", align: "left", format: name },
-  { key: "variable", label: "Variable", align: "left", format: variableLabel },
-  ...flagKeys.map((k) => ({ key: k, label: app.flagWithMeaning(Number(k.slice(1))) }))
-]) : html``
 ```
 
 ## By platform
 
-The platforms of one product, with their rates of each kind of
-disagreement. Sort by a column to find the platforms a disagreement comes
-from; the [Platforms](platforms.qmd) page opens their profiles.
+The platforms of one product, with the share of their observations each
+side alone flags. Sort by a column to find the platforms a disagreement
+comes from; the [Platforms](platforms.qmd) page opens their profiles.
 
 ```{ojs}
 platforms = meta ? app.loadAnalysisTable("items_platforms") : null
@@ -166,6 +256,8 @@ viewof platformDataset = meta && platforms
 
 ```{ojs}
 // One row per platform, each variable's counts over its own NRT profiles.
+// The shares are kept as percentages so the columns sort by value.
+share = (part, whole) => (whole > 0 ? (100 * part) / whole : null)
 platformRows = platforms
   ? [...platforms
       .filter((r) => r.dataset_id === platformDataset)
@@ -173,8 +265,8 @@ platformRows = platforms
         const row = m.get(r.platform_code) ?? { key: r.platform_code, platform_code: r.platform_code };
         row[`${r.variable}_profiles`] = r.n_profiles;
         row[`${r.variable}_obs`] = r.n_obs;
-        row[`${r.variable}_oo`] = app.perThousandOf(r.n_original_only, r.n_obs);
-        row[`${r.variable}_no`] = app.perThousandOf(r.n_nrtqclib_only, r.n_obs);
+        row[`${r.variable}_oo`] = share(r.n_original_only, r.n_obs);
+        row[`${r.variable}_no`] = share(r.n_nrtqclib_only, r.n_obs);
         m.set(r.platform_code, row);
         return m;
       }, new Map()).values()]
@@ -185,8 +277,8 @@ meta && platforms ? table(
     { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
     ...meta.variables.flatMap((v) => [
       { key: `${v.name}_profiles`, label: `${v.label}: profiles`, format: (x) => (x == null ? "" : app.formatCount(x)) },
-      { key: `${v.name}_oo`, label: `original only per 1,000`, format: app.formatRate },
-      { key: `${v.name}_no`, label: `nrtqclib only per 1,000`, format: app.formatRate }
+      { key: `${v.name}_oo`, label: "Original only", format: app.formatPercent },
+      { key: `${v.name}_no`, label: "nrtqclib only", format: app.formatPercent }
     ])
   ],
   { sortKey: `${meta.variables[0].name}_profiles`, descending: true }

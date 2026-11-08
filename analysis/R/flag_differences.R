@@ -1,6 +1,8 @@
-# Figures of the Flag differences page: over NRT profiles at sea, how the
-# two sources agree, which nrtqclib checks account for what only nrtqclib
-# flags, and where in the water column each side flags alone.
+# Figures of the three Flag differences pages: over NRT profiles at sea, how
+# the two sources agree, which nrtqclib checks account for what only
+# nrtqclib flags, where in the water column each side flags alone, where
+# in its profile each one-sided flag sits, and how often the input flags the
+# failures of each nrtqclib test by how far past the threshold they are.
 
 source("analysis/R/setup.R")
 message("Flag differences")
@@ -12,7 +14,7 @@ if (!is.null(status)) {
   rates <- status |>
     with_datasets() |>
     group_by(short, variable) |>
-    mutate(rate = 1000 * n_obs / sum(n_obs)) |>
+    mutate(rate = n_obs / sum(n_obs)) |>
     ungroup() |>
     filter(status %in% flagged) |>
     mutate(status = status_label(status), variable = variable_label(variable))
@@ -20,8 +22,8 @@ if (!is.null(status)) {
     geom_col(width = 0.7, position = position_dodge2(width = 0.75, reverse = TRUE)) +
     facet_wrap(~variable, nrow = 1) +
     scale_fill_manual(values = status_colours[levels(droplevels(rates$status))]) +
-    scale_x_continuous(labels = comma0, expand = expansion(mult = c(0, 0.05))) +
-    labs(x = "Observations per 1,000", y = NULL)
+    scale_x_continuous(labels = label_percent(), expand = expansion(mult = c(0, 0.05))) +
+    labs(x = "Share of the observations", y = NULL)
   save_figure(plot, "items_status", height = 75)
 }
 
@@ -34,8 +36,8 @@ if (!is.null(by_item)) {
               by = c("dataset_id", "variable")) |>
     transmute(
       short, variable = variable_label(variable), check = check_label(item),
-      `The only check that failed` = 1000 * n_alone_nrtqclib_only / total,
-      `Failed with other checks` = 1000 * (n_fail_nrtqclib_only - n_alone_nrtqclib_only) / total
+      `The only check that failed` = n_alone_nrtqclib_only / total,
+      `Failed with other checks` = (n_fail_nrtqclib_only - n_alone_nrtqclib_only) / total
     ) |>
     pivot_longer(c(`The only check that failed`, `Failed with other checks`),
                  names_to = "how", values_to = "rate") |>
@@ -51,9 +53,9 @@ if (!is.null(by_item)) {
                labeller = labeller(short = label_wrap_gen(14))) +
     scale_fill_manual(values = c("The only check that failed" = "#cc3355",
                                  "Failed with other checks" = "#eba0b0")) +
-    scale_x_continuous(labels = label_number(drop0trailing = TRUE),
+    scale_x_continuous(labels = label_percent(drop0trailing = TRUE),
                        expand = expansion(mult = c(0, 0.12)), n.breaks = 3) +
-    labs(x = "Observations only nrtqclib flags, per 1,000 observations", y = NULL)
+    labs(x = "Observations only nrtqclib flags, share of all observations", y = NULL)
   save_figure(plot, "items_attribution", height = 120)
 }
 
@@ -112,7 +114,7 @@ if (!is.null(depth)) {
     with_datasets() |>
     filter(pres_band >= 0) |>
     group_by(short, product, region_short, variable, pres_label) |>
-    mutate(rate = 1000 * n_obs / sum(n_obs)) |>
+    mutate(rate = n_obs / sum(n_obs)) |>
     ungroup() |>
     filter(status %in% c("original_only", "nrtqclib_only")) |>
     mutate(
@@ -127,10 +129,102 @@ if (!is.null(depth)) {
     geom_path(linewidth = 0.5) +
     geom_point(size = 1.1) +
     facet_grid(variable ~ status, scales = "free_x") +
-    scale_x_continuous(labels = comma0, limits = c(0, NA)) +
+    scale_x_continuous(labels = label_percent(), limits = c(0, NA)) +
     scale_colour_manual(values = product_colours) +
-    labs(x = "Observations per 1,000 in the pressure band",
+    labs(x = "Share of the observations in the pressure band",
          y = "Pressure (dbar)") +
     guides(linetype = guide_legend(nrow = 1))
   save_figure(plot, "items_depth", height = 110)
+}
+
+shapes <- read_table("items_shape")
+if (!is.null(shapes)) {
+  # Where each observation one source alone flags sits in its profile, as a
+  # share of that source's one-sided observations. One figure per source,
+  # for its own page.
+  shape_levels <- meta$shapes$label
+  shape_colours <- setNames(
+    c("#6250d6", "#2a78d6", "#1baf7a", "#eb6834", "#f4b98f", "#b8c0c8"),
+    shape_levels
+  )
+  shape_figure <- function(side, name) {
+    shares <- shapes |>
+      filter(status == side) |>
+      with_datasets() |>
+      mutate(shape = factor(meta$shapes$label[match(shape, meta$shapes$key)],
+                            levels = shape_levels),
+             variable = variable_label(variable)) |>
+      group_by(short, variable, shape) |>
+      summarise(n_obs = sum(n_obs), .groups = "drop") |>
+      group_by(short, variable) |>
+      mutate(share = n_obs / sum(n_obs), total = sum(n_obs)) |>
+      ungroup()
+    if (nrow(shares) == 0) return(invisible(NULL))
+    totals <- distinct(shares, short, variable, total)
+    plot <- ggplot(shares, aes(share, forcats::fct_rev(short), fill = shape)) +
+      geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+               position = position_stack(reverse = TRUE)) +
+      geom_text(data = totals, inherit.aes = FALSE,
+                aes(1, forcats::fct_rev(short), label = comma0(total)),
+                hjust = -0.15, size = 2.4) +
+      facet_wrap(~variable) +
+      scale_fill_manual(values = shape_colours) +
+      scale_x_continuous(labels = label_percent(), breaks = c(0, 0.5, 1),
+                         expand = expansion(mult = c(0, 0.3))) +
+      labs(x = "Share of the observations only this source flags", y = NULL,
+           fill = NULL) +
+      theme(panel.grid.major.y = element_blank()) +
+      guides(fill = guide_legend(nrow = 2))
+    save_figure(plot, name, height = 70)
+  }
+  shape_figure("original_only", "items_shape_original")
+  shape_figure("nrtqclib_only", "items_shape_nrtqclib")
+}
+
+response <- read_table("items_response")
+if (!is.null(response)) {
+  # How often the input flags the failures of each nrtqclib test, by how far
+  # past the threshold they are: a producer running the test climbs to
+  # nearly all of them, one that does not stays flat. One panel per test and
+  # variable; a band with fewer than min_n failures is left out as noise.
+  min_n <- 20
+  tests <- meta$response_tests
+  flag_names <- c(setNames(paste(meta$variables$label, "flag"), meta$variables$name),
+                  pres = "Pressure flag",
+                  density = "Either flag")
+  band_label <- function(test, band) {
+    mapply(function(t, b) tests$bands[[match(t, tests$key)]]$label[b + 1], test, band)
+  }
+  panels <- response |>
+    filter(n >= min_n) |>
+    with_datasets() |>
+    mutate(
+      share = n_flagged / n,
+      test_label = tests$label[match(test, tests$key)],
+      panel = paste0(test_label, ": ", flag_names[variable]),
+      band_text = band_label(test, band),
+      panel_order = match(test, tests$key) * 10 +
+        match(variable, c(meta$variables$name, "density", "pres"))
+    ) |>
+    mutate(panel = forcats::fct_reorder(panel, panel_order))
+  # Each test has bands of its own: the x axis is the test and band, so a
+  # free scale keeps only a panel's own, labelled with their words.
+  panels <- panels |>
+    mutate(x = paste(test, band)) |>
+    arrange(panel_order, band) |>
+    mutate(x = factor(x, levels = unique(x)))
+  x_labels <- setNames(panels$band_text, panels$x)
+  plot <- ggplot(panels, aes(x, share, colour = product,
+                             linetype = region_short, group = short)) +
+    geom_line(linewidth = 0.5) +
+    geom_point(size = 1.1) +
+    facet_wrap(~panel, ncol = 3, scales = "free_x") +
+    scale_x_discrete(labels = x_labels) +
+    scale_y_continuous(labels = label_percent(), limits = c(0, 1),
+                       breaks = c(0, 0.5, 1)) +
+    scale_colour_manual(values = product_colours) +
+    labs(x = NULL, y = "Share the input flags") +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 6)) +
+    guides(linetype = guide_legend(nrow = 1))
+  save_figure(plot, "items_response", height = 230)
 }

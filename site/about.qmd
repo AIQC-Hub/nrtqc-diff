@@ -30,17 +30,31 @@ nothing would defeat the point of the comparison.
 
 ## What is published here
 
-Only profiles in which **at least one source flagged at least one
-observation** are published. Profiles both sources call entirely good carry no
-comparison, and leaving them out keeps the site small enough to run in the
-browser. The trimming is by profile, not by observation: once a profile
-qualifies, all of its observations are published, because a flagged point is
-only readable next to the unflagged ones above and below it.
+**Profiles that neither source flags are not on this site.** A profile is
+published only when at least one of its observations, of temperature or
+salinity, is flagged by at least one source:
 
-Every count on this site therefore describes the published profiles, not the
-source dataset. How much of each dataset that is, region by region and product
-by product, is on the [Regions and products](summary.qmd) page, which shows
-the published figure beside the number of profiles that were considered.
+- by the input, with a value the build counts as an anomaly (see
+  [Flag values](#flag-values) below), or
+- by `nrtqclib`, with any flag above 1 (good).
+
+Everything else is left out: a profile both sources call good throughout,
+and also one whose input flags are only values that count as usable or say
+nothing (such as 2 probably good, or 9 missing) while `nrtqclib` passes it. Such a profile carries no
+disagreement to show, and leaving it out keeps the site small enough to run
+in the browser.
+
+The trimming is by profile, not by observation: once a profile qualifies,
+all of its observations are published, the good ones too, because a flagged
+point is only readable next to the unflagged ones above and below it. That
+is why "neither flagged" is still the largest case in the tables.
+
+Every count on the Dashboard, [Regions and products](summary.qmd) and
+[Platforms](platforms.qmd) pages therefore describes the published
+profiles, not the source dataset. Regions and products shows how much of
+each dataset that is, beside the number of profiles that were considered.
+The Analyses pages are the exception: they are computed where the data is,
+from every profile of the input, and each says which profiles it counts.
 
 ## How it runs
 
