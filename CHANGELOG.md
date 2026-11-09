@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   section says the reports are missing. The flag pages and docs no longer
   say the data keep the recorded order.
 
+### Changed
+
+- **NRT, CORA and overlap**, a page of its own after Data conversion: the
+  coverage of each NRT product in CORA, the pairs of the same cast, and
+  the overlap between the regional and global NRT products move there from
+  Data conversion, which now follows ctddump's steps only. Other
+  parameters moves up beside The source files.
+
 ## [0.10.0] - 2026-11-09
 
 ### Added
