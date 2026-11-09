@@ -150,6 +150,7 @@ name or columns.
 | `conversion_dup_sizes` | dataset, kind, group size | groups of that many profiles; above 10 pooled as `11+` |
 | `conversion_dup_platforms` | dataset, platform set | the 15 commonest sets of platform codes sharing casts, over groups `across` and `both`, then the rest in one row |
 | `conversion_files` | dataset, variable | source files carrying it |
+| `conversion_pressure_order` | dataset | ctddump's `checkpres` summary (`convert/checkpres/<stem>.summary.tsv`, ctddump 0.37 or later): profiles, platforms and files checked before the merge sorts by pressure, profiles without pressure, and those whose pressure steps down, `reversed` and `non_monotonic`, with the platforms and files holding them |
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
 | `conversion_extra_parameters` | dataset, parameter | source files carrying a parameter ctddump does not read |
 | `conversion_compare` | reference, compared dataset | ctddump's profile matching between products of one region, with the platform code in the key |
@@ -275,7 +276,7 @@ the theme, the palettes and `save_figure()`.
 
 | Script | Figures |
 | --- | --- |
-| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_coverage`, `conversion_coverage_years` |
+| `conversion.R` | `conversion_steps`, `conversion_data_mode`, `conversion_duplicates`, `conversion_pressure_order`, `conversion_coverage`, `conversion_coverage_years` |
 | `depth.R` | `depth_land_qc`, `depth_land_map`, `depth_elevation`, `depth_land_cause` |
 | `input_flags.R` | `input_flags_shares` |
 | `data_mode.R` | `dm_groups`, `dm_share`, `dm_threshold`, `dm_probable` |

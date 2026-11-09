@@ -125,22 +125,43 @@ looks at the profiles before the sort, for pressure stepping down somewhere
 in the profile. A **reversed** profile is stored from the bottom up, and
 the sort puts it right; a **non-monotonic** one goes down and up again
 (loops, spikes in pressure or misplaced levels), and the sort hides it.
-Reversed profiles are rare in every product, 0.2% or less of them. The
-non-monotonic ones:
-
-- **Arctic:** none in the regional product; about 2% of the global
-  product's profiles, from about one platform in twenty, some of them with
-  half their profiles affected; 0.4% in CORA, nearly all of them one
-  platform's casts of 1953 to 1990.
-- **Baltic:** about 2% in the regional product and in CORA. In the regional
-  product they come from about one platform in eight, many of them with
-  nearly half their profiles affected, between 1992 and 2009.
-- **Mediterranean:** about 2% in the regional product, 6% in the global
-  product and 15% in CORA, mostly from platforms with half their profiles
-  affected or more.
-
 The shares are of every profile converted, before cleaning, not only the
-NRT profiles the flag pages compare. What the sort means there:
+NRT profiles the flag pages compare.
+
+```{ojs}
+meta ? app.analysisFigure(
+  "conversion_pressure_order",
+  "Source profiles whose pressure steps down somewhere, as a share of the profiles checked, split into reversed and non-monotonic. The label gives the total and, in brackets, the number of profiles.",
+  "Stacked bars per product of the share of source profiles stored reversed or non-monotonic."
+) : html``
+```
+
+```{ojs}
+pressureOrder = meta ? app.loadAnalysisTable("conversion_pressure_order") : null
+ofChecked = (v, r) => app.formatSmallShare(v, r.n_profiles)
+meta && pressureOrder ? table(
+  pressureOrder.map((r) => ({ ...r, key: r.dataset_id })).sort(byDataset),
+  [
+    { key: "dataset_id", label: "Product", align: "left", format: name },
+    { key: "n_profiles", label: "Profiles checked", title: "Source profiles with a pressure, before the merge" },
+    { key: "n_no_pres", label: "Without pressure", title: "Profiles with no pressure at all, not checked; the merge drops them" },
+    { key: "n_bad_profiles", label: "Pressure steps down", format: ofChecked },
+    { key: "n_reversed", label: "Reversed", title: "Stored from the bottom up; the sort puts them right", format: ofChecked },
+    { key: "n_non_monotonic", label: "Non-monotonic", title: "Going down and up again; the sort hides them", format: ofChecked },
+    { key: "n_bad_platforms", label: "Platforms with any", format: (v, r) => `${app.formatCount(v)} of ${app.formatCount(r.n_platforms)}` },
+    { key: "n_bad_files", label: "Files with any", format: (v, r) => `${app.formatCount(v)} of ${app.formatCount(r.n_files)}` }
+  ]
+) : meta ? app.analysesMissing("The pressure order reports (ctddump 0.37 or later)") : html``
+```
+
+Reversed profiles are rare everywhere. The non-monotonic ones are a few
+percent of most products, none of the Arctic regional one, and come from a
+minority of the platforms, some of which have half their profiles or more
+out of order: in the Baltic regional product, platforms of 1992 to 2009,
+and in the Arctic CORA nearly all of them one platform's casts of 1953 to
+1990. ctddump's reports list the platforms and every such profile.
+
+What the sort means for the flag pages:
 
 - **nrtqclib's pressure increasing check can fail only a repeated
   pressure**, which the sort keeps; a profile out of order never reaches it
