@@ -181,17 +181,24 @@ Read together, for the regional products whose centres answered:
 
 - **Arctic NRT regional**: global range and spike behave as claimed: the
   input flags nearly all of their clear failures, from about nrtqclib's
-  thresholds. Gradient mostly, about four in five. Density inversion only
-  partly: the input flags about a quarter of the clear inversions, and
-  hardly any measured per dbar, so its density test is not the one
-  described, or runs on part of the data. There are too few stuck profiles
-  to tell.
+  thresholds. Gradient mostly, about four in five. Density inversion runs
+  on the ice-tethered profilers only, and not as described: on them the
+  input flags the deeper level of nearly every pair of levels whose
+  potential density falls by 0.05 kg/m³ or more, and almost none below,
+  so the threshold is 0.05 between levels rather than per dbar. The other
+  platforms flag no inversion of any size, which is why only about a
+  quarter of the clear inversions are flagged. There are too few stuck
+  profiles to tell.
 - **Baltic NRT regional**: gradient and stuck value leave no sign, as the
   centre says it runs neither. Spike and density inversion, which it says
-  it runs, leave none either: the input flags almost none of the clear
-  salinity spikes or the clear inversions (there are too few clear
-  temperature spikes to tell). Salinity just under nrtqclib's lower bound
-  of 2 is mostly flagged, which fits a range test with a bound near it.
+  it runs, leave almost none either: the input flags almost none of the
+  clear salinity spikes (there are too few clear temperature spikes to
+  tell), and nearly all of its platforms flag no inversion of any size. A
+  few platforms, about 1% of the inversions, flag most of those above
+  about 0.05 to 0.06 kg/m³ between levels: too few to place the threshold,
+  and none of them show one per dbar. Salinity just under nrtqclib's lower
+  bound of 2 is mostly flagged, which fits a range test with a bound near
+  it.
 - **Mediterranean NRT regional**: too few clear failures to tell for most
   tests. The input flags a sixth of the few clear density inversions,
   although the centre says the test is not run yet; another test may

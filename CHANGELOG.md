@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Density inversion as the regional flags show it.** The Flag
+  differences in NRT and Flagged only by nrtqclib pages now say what the
+  Arctic and Baltic inputs actually do, rather than the 0.05 kg/m³ per
+  dbar the centres give: the Arctic input flags the deeper level at
+  0.05 kg/m³ between levels of potential density, on ice-tethered
+  profilers only, and the Baltic input shows a test on a few platforms
+  only. `docs/REGIONAL_QC.md` records the check behind it. nrtqclib's
+  default of 0.03 kg/m³ is unchanged.
+
 ## [0.10.0] - 2026-11-09
 
 ### Added
