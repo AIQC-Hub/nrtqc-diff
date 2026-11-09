@@ -160,8 +160,10 @@ time and place therefore become one profile there.
 Because `nc2parquet` sorts by pressure, it never sees a profile in the order
 it was recorded: a pressure reversal disappears into the sort, and the spike,
 gradient and density tests compare each level with its neighbours in pressure
-rather than in time. `nrtqclib` keeps the recorded order and flags reversals
-with `pressure_increasing`.
+rather than in time. `nrtqclib` keeps the order it is given and flags reversals
+with `pressure_increasing`, but in this repository's data ctddump has already
+sorted each profile by pressure, so it sees none either (the Arctic regional
+source files store none out of order anyway).
 
 ### Missing values
 

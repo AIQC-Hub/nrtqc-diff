@@ -100,6 +100,14 @@ def analysed(tmp_path):
             header + f"A\t{profiles - 1}\t30\t20\t10\nB\t1\t2\t2\t0\nC\t0\t0\t0\t0\n",
             encoding="utf-8",
         )
+    checkpres = reports / "convert" / "checkpres"
+    checkpres.mkdir()
+    (checkpres / "src.summary.tsv").write_text(
+        "n_files\tn_platforms\tn_profiles\tn_no_pres\tn_bad_profiles\tpct_bad"
+        "\tn_reversed\tn_non_monotonic\tn_bad_platforms\tn_bad_files\n"
+        "3\t2\t9\t1\t3\t33.3\t1\t2\t1\t2\n",
+        encoding="utf-8",
+    )
     headers = tmp_path / "ctddump" / "header"
     headers.mkdir(parents=True)
     (headers / "src.yaml").write_text(
@@ -345,6 +353,14 @@ def test_the_reports_are_read(analysed):
     assert dict(zip(extra["parameter"], extra["n_files"])) == {"DOX1": 2, "CNDC": 1}
     files = table(analysed, "conversion_files")
     assert dict(zip(files["item"], files["n_with"])) == {"temp": 1}
+    order = table(analysed, "conversion_pressure_order").row(0, named=True)
+    assert order["dataset_id"] == "one"
+    assert (order["n_profiles"], order["n_reversed"], order["n_non_monotonic"]) == (
+        9,
+        1,
+        2,
+    )
+    assert "pct_bad" not in order
 
 
 def test_duplicates_are_split_within_and_across_platforms(analysed):

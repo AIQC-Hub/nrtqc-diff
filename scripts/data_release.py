@@ -29,8 +29,8 @@ rendered against a site that has moved on. See `DATA_FORMAT` in
 Usage:
 
     uv run nrtqc-diff build -c config/test_nrt.yaml
-    uv run python scripts/data_release.py publish data-2026-09-23
-    uv run python scripts/data_release.py fetch data-2026-09-23
+    uv run python scripts/data_release.py publish data-2026-11-09
+    uv run python scripts/data_release.py fetch data-2026-11-09
 
 Both need the `gh` CLI, authenticated for the data repository.
 """
@@ -435,7 +435,7 @@ def main() -> None:
     upload = commands.add_parser(
         "publish", parents=[common], help="Upload a built site/data to a release."
     )
-    upload.add_argument("tag", help="The release tag, e.g. data-2026-09-23.")
+    upload.add_argument("tag", help="The release tag, e.g. data-2026-11-09.")
     upload.add_argument(
         "--dry-run", action="store_true", help="List what would be uploaded."
     )

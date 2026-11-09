@@ -15,9 +15,26 @@ goes up, and a patch bump is for `### Fixed` and `### Changed` only.
 3. Move the `## [Unreleased]` entries under a new `## [x.y.z] - YYYY-MM-DD`
    heading, leaving `## [Unreleased]` empty above it.
 4. Bump `version` in `pyproject.toml`, then `uv sync` to update `uv.lock`.
+   Set `version` and `date-released` in `CITATION.cff` to match.
 5. Commit on a `release/x.y.z` branch, merge into `main` and back into
    `develop` with `--no-ff`, tag `vx.y.z` on `main`.
 6. Delete the release branch.
+7. Push `main`, `develop` and the tag, then publish a GitHub Release for the
+   tag, with that version's `CHANGELOG.md` entries as its notes:
+   `gh release create vx.y.z --title vx.y.z --notes-file <notes>`. Pushing
+   `main` also deploys the site (see below).
+
+### Zenodo
+
+The repository is connected to [Zenodo](https://zenodo.org/) through its
+GitHub integration. Every published GitHub Release, not a bare tag, is
+archived there and gets a DOI of its own, and the first one also creates a
+concept DOI that always resolves to the latest version. Zenodo takes the
+title, authors, license and version from `CITATION.cff`, which is why step 4
+keeps it current. Once the concept DOI exists, it goes in `CITATION.cff` as
+`doi` and in a badge at the top of `README.md`. If a release is missing on
+Zenodo, check that the integration is still switched on for
+`AIQC-Hub/nrtqc-diff` in Zenodo's GitHub settings.
 
 ## Site
 
@@ -75,7 +92,7 @@ The settings this needs, all on this repository:
 
 | Setting | Kind | What it is |
 | --- | --- | --- |
-| `NRTQC_DATA_RELEASE` | Variable | The tag to deploy, e.g. `data-2026-09-23` |
+| `NRTQC_DATA_RELEASE` | Variable | The tag to deploy, e.g. `data-2026-11-09` |
 | `NRTQC_DATA_REPO` | Variable, optional | Overrides `AIQC-Hub/nrtqc-diff-data` |
 | `NRTQC_DATA_TOKEN` | Secret, optional | Read access, needed only if the data repository is private |
 
@@ -103,8 +120,8 @@ From a checkout whose `data/` holds the `nrtqclib` run:
 uv run nrtqc-diff build -c config/test_nrt.yaml
 uv run nrtqc-diff analyse -c config/test_nrt.yaml   # the Analyses tables
 Rscript analysis/run_all.R                          # and their figures
-uv run python scripts/data_release.py publish data-2026-09-23 --dry-run
-uv run python scripts/data_release.py publish data-2026-09-23
+uv run python scripts/data_release.py publish data-2026-11-09 --dry-run
+uv run python scripts/data_release.py publish data-2026-11-09
 ```
 
 That creates the release if it is not there and uploads what the build wrote,
@@ -123,7 +140,7 @@ build it is serving, and no parquet file ever enters a history that has to be
 carried forever. When an old one is no longer worth the storage:
 
 ```bash
-gh release delete data-2026-08-12 \
+gh release delete data-2026-11-08 \
   --repo AIQC-Hub/nrtqc-diff-data --cleanup-tag --yes
 ```
 

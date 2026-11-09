@@ -201,6 +201,59 @@ def duplicate_table(config: BuildConfig, reports: str) -> pl.DataFrame:
     return _concat(frames)
 
 
+#: The totals of ctddump's ``checkpres`` summary, as written there:
+#: profiles, platforms and files checked, profiles without any pressure (not
+#: checked), and the profiles whose pressure steps down somewhere, split
+#: into ``reversed`` (stored bottom up) and ``non_monotonic`` (down and up
+#: again), with the platforms and files that hold them.
+PRESSURE_ORDER_COLUMNS: List[str] = [
+    "n_files",
+    "n_platforms",
+    "n_profiles",
+    "n_no_pres",
+    "n_bad_profiles",
+    "n_reversed",
+    "n_non_monotonic",
+    "n_bad_platforms",
+    "n_bad_files",
+]
+
+
+def pressure_order_table(config: BuildConfig, reports: str) -> pl.DataFrame:
+    """
+    The pressure order ctddump found in the source files, before its merge.
+
+    ``checkpres`` runs on the per-file parquet, before ``concat convert``
+    sorts each profile by increasing pressure, and writes
+    ``convert/checkpres/<stem>.summary.tsv``. ctddump versions before 0.37
+    did not, and a dataset without the file is left out.
+
+    :param config: The build configuration.
+    :param reports: The ctddump ``report`` directory.
+    :return: One row per dataset.
+    """
+    frames = []
+    for spec in _sourced(config):
+        name = f"{spec.source}.summary.tsv"
+        path = os.path.join(reports, "convert", "checkpres", name)
+        if not os.path.isfile(path):
+            continue
+        table = _read_tsv(path)
+        frames.append(
+            table.head(1)
+            .select(
+                [
+                    _number(c).cast(pl.Int64).alias(c)
+                    if c in table.columns
+                    else pl.lit(None, dtype=pl.Int64).alias(c)
+                    for c in PRESSURE_ORDER_COLUMNS
+                ]
+            )
+            .select(_label_columns(spec) + [pl.all()])
+        )
+    return _concat(frames)
+
+
 #: Duplicate groups larger than this are pooled into one size class.
 DUP_SIZE_CAP: int = 10
 
@@ -533,6 +586,9 @@ def report_tables(config: BuildConfig) -> Dict[str, pl.DataFrame]:
             config, spec.ctddump_reports
         )
         tables["conversion_compare"] = compare_table(config, spec.ctddump_reports)
+        tables["conversion_pressure_order"] = pressure_order_table(
+            config, spec.ctddump_reports
+        )
     if spec is not None and spec.ctddump_headers:
         tables["conversion_file_data_mode"] = header_data_mode_table(
             config, spec.ctddump_headers

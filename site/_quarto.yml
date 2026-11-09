@@ -24,6 +24,8 @@ website:
         menu:
           - href: analyses-conversion.qmd
             text: Data conversion
+          - href: analyses-products.qmd
+            text: NRT, CORA and overlap
           - href: analyses-depth.qmd
             text: Depth
           - href: analyses-input-flags.qmd

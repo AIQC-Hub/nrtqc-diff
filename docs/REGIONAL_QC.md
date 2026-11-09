@@ -74,12 +74,16 @@ on 2026-11-09, the share of the clear failures the input flags:
 - **Arctic regional:** global range and spike as claimed (97% to 100%);
   gradient mostly (79% in temperature, 85% in salinity). Density inversion
   only partly: 26% of inversions above 0.05 kg/m³, and 3% measured per
-  dbar, the way the centre states its threshold. Too few stuck profiles to
-  tell.
+  dbar, the way the centre states its threshold. The reason is that it
+  runs on ice-tethered profilers only, at 0.05 kg/m³ between levels (see
+  [Density inversion in detail](#density-inversion-in-detail)). Too few
+  stuck profiles to tell.
 - **Baltic regional:** gradient and stuck value leave no sign (under 1%),
   as the centre says it runs neither. Spike and density inversion, which
-  it says it runs, leave none either: 1.5% of clear salinity spikes, 2% of
-  clear inversions. Salinity just under 2 is flagged three times in four,
+  it says it runs, leave almost none either: 1.5% of clear salinity
+  spikes, 2% of clear inversions; a density test shows on a few platforms
+  only ([Density inversion in detail](#density-inversion-in-detail)).
+  Salinity just under 2 is flagged three times in four,
   which fits a range test with a bound near it. Repeated pressures are not
   flagged, and no pressure goes shallower, so its pressure check cannot be
   seen.
@@ -87,9 +91,79 @@ on 2026-11-09, the share of the clear failures the input flags:
   its few clear density inversions are flagged, although the reply says
   the test is not run yet.
 
-No profile of these products goes shallower in recorded order, so every
-failure of nrtqclib's pressure increasing check is a repeated pressure.
+ctddump sorts each profile by pressure when it merges the converted files,
+so no profile of these products goes shallower in the data nrtqclib checks,
+and every failure of its pressure increasing check is a repeated pressure.
+The source files do hold profiles that go back up (ctddump's `checkpres`
+reports count them, and the Data conversion page sums them up), so a
+producer's pressure test on the stored order cannot be checked here.
 The Mediterranean global product flags 59% of them, in the pressure flag.
+
+### Density inversion in detail
+
+The Arctic and Baltic centres give 0.05 kg/m³ per dbar; nrtqclib uses
+0.03 kg/m³ between consecutive levels. nrtqclib's default stays at 0.03
+(decided on 2026-11-10); this records what the flags show instead.
+
+Checked on the `test_nrt` batch on 2026-11-10, with throwaway scripts, not
+in `nrtqc-diff analyse`. Every consecutive pair of levels in the NRT
+profiles compared for both variables, with both values inside the global
+range, was taken with the input flags of both levels; "flagged" below means
+the input flags both temperature and salinity of the deeper level. To keep
+the choice of platforms from making the step, the platforms were also
+chosen on their even profiles (most inversions of 0.1 kg/m³ or more
+flagged) and the step measured on their odd profiles; it is the same.
+
+**Arctic regional.** A density test at **0.05 kg/m³ between consecutive
+levels, on potential density, flagging the deeper level**, run on the
+ice-tethered profilers only (platform codes `ITP-` and `TOP-`):
+
+| Inversion between levels, potential density (kg/m³) | Flagged, ice-tethered profilers |
+| --- | --- |
+| Under 0.0495 | 0.3% or less |
+| 0.0495 to 0.05 | 2% to 6% (by TEOS-10 or EOS-80 density) |
+| 0.05 to 0.0505 | 97% to 98% |
+| 0.0505 and above | 99.6% to 100% |
+
+- **Not per dbar.** Their levels are a median 2 dbar apart, so the test is
+  0.025 kg/m³ per dbar there; measured per dbar, the share flagged is flat
+  at 2% to 5% in every band.
+- **Not in situ density.** With TEOS-10 in situ density (`gsw.rho` at each
+  level's pressure), flagging starts at 0.04 to 0.045 kg/m³ and moves with
+  the level spacing; with potential density it sits at 0.05 exactly.
+- **The deeper level only.** The upper level is flagged too in a quarter
+  to a half of the pairs, rising with the size of the inversion, not
+  always as a density test flagging both levels would.
+- **The other platforms flag none**, at any size: 23 platforms with ship
+  style codes (for example `LCLJ`, `3YAR`, `58S2`), at 0.1 to 2 dbar
+  spacing, holding about three quarters of the inversions of 0.05 kg/m³
+  or more. That is why only a quarter of the clear inversions are flagged
+  in `items_response`.
+
+The data cannot say whether the Arctic centre runs the test on these
+platforms only or the flags come with the profiler data.
+[`NC2PARQUET.md`](NC2PARQUET.md#density_inversion) has 0.05 kg/m³ too, but
+on in situ density and flagging both levels, and off by default; the
+Arctic flags match neither, so they come from another implementation with
+the same threshold.
+
+**Baltic regional.** No sign of the test on almost all of the data:
+
+- 99% of the inversions of 0.05 kg/m³ or more are on platforms that flag
+  none or nearly none of them, at any size up to more than 2 kg/m³,
+  measured between levels or per dbar. Over the whole product the share
+  flagged goes from 0.3% under 0.05 kg/m³ to 1% to 3% above.
+- The other 1% are on about a dozen platforms (13 chosen on even profiles)
+  that flag most inversions above about 0.06 kg/m³ (74% to 90% on odd
+  profiles) and few under 0.05 (5% or less). Counted here as a flag on
+  either variable of either level, since these mostly flag the upper level.
+  There are too few pairs to place the threshold closer than 0.05 to 0.06.
+  It is not 0.05 per dbar either: their levels are 0.1 to 0.5 dbar apart,
+  so that would flag inversions from 0.005 to 0.025 kg/m³ between levels,
+  which they leave alone.
+
+So the Baltic threshold cannot be read from its flags; ask the centre
+which platforms the test runs on.
 
 ## The global products
 
