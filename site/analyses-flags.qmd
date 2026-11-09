@@ -204,10 +204,13 @@ Read together, for the regional products whose centres answered:
   although the centre says the test is not run yet; another test may
   account for them.
 
-No profile in these data goes shallower in recorded order, so the only
-failures of pressure increasing are repeated pressures. The Baltic input
-leaves those unflagged, which fits a test that fails only a pressure going
-shallower, and there is none to show whether it runs. Of the global
+ctddump sorts each profile by pressure when it converts it
+([Data conversion](analyses-conversion.qmd#pressure-order)), so no profile
+in these data goes shallower, and the only failures of pressure increasing
+are repeated pressures. The Baltic input leaves those unflagged, which fits
+a test that fails only a pressure going shallower. The Baltic source files
+do hold profiles that go back up, but the sort has hidden them, so whether
+its test runs cannot be seen here. Of the global
 products, the Mediterranean one flags more than half of the repeated
 pressures, but in its pressure flag rather than in temperature or salinity,
 which this site compares.

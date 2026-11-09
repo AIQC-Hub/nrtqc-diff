@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Pressure order**, a section of Data conversion on ctddump's new
+  pressure order check: ctddump sorts each profile by pressure when it
+  merges the converted files, and the section gives, per product, the
+  source profiles stored bottom up (reversed) or going down and up again
+  (non-monotonic), in a figure and a table, and what the sort means for
+  nrtqclib's pressure increasing, spike, gradient and density inversion
+  tests. New table and figure `conversion_pressure_order`, read from
+  ctddump's `checkpres` summaries (ctddump 0.37 or later); without them the
+  section says the reports are missing. The flag pages and docs no longer
+  say the data keep the recorded order.
+
 ### Changed
 
 - **Density inversion as the regional flags show it.** The Flag
@@ -17,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   profilers only, and the Baltic input shows a test on a few platforms
   only. `docs/REGIONAL_QC.md` records the check behind it. nrtqclib's
   default of 0.03 kg/m³ is unchanged.
+- **NRT, CORA and overlap**, a page of its own after Data conversion: the
+  coverage of each NRT product in CORA, the pairs of the same cast, and
+  the overlap between the regional and global NRT products move there from
+  Data conversion, which now follows ctddump's steps only. Other
+  parameters moves up beside The source files.
 
 ## [0.10.0] - 2026-11-09
 

@@ -108,6 +108,36 @@ if (!is.null(kinds) && !is.null(before)) {
   save_figure(plot, "conversion_duplicates", height = 70)
 }
 
+# Pressure order: the source profiles whose pressure steps down somewhere,
+# before ctddump's merge sorts them, as a share of the profiles checked.
+# Reversed ones the sort puts right; non-monotonic ones it hides.
+order_colours <- c("Non-monotonic" = "#cc3355", "Reversed" = "#9ec5f0")
+
+order <- read_table("conversion_pressure_order")
+if (!is.null(order)) {
+  order <- order |> with_datasets()
+  kinds <- order |>
+    select(short, n_profiles, Reversed = n_reversed, `Non-monotonic` = n_non_monotonic) |>
+    pivot_longer(c(Reversed, `Non-monotonic`), names_to = "kind", values_to = "n") |>
+    mutate(share = n / n_profiles, kind = factor(kind, levels = names(order_colours)))
+  totals <- order |>
+    mutate(share = n_bad_profiles / n_profiles)
+
+  plot <- ggplot(kinds, aes(share, forcats::fct_rev(short), fill = kind)) +
+    geom_col(width = 0.7, colour = "white", linewidth = 0.3,
+             position = position_stack(reverse = TRUE)) +
+    geom_text(data = totals, inherit.aes = FALSE,
+              aes(share, forcats::fct_rev(short),
+                  label = paste0(percent(share, accuracy = 0.1), "  (",
+                                 comma(n_bad_profiles), ")")),
+              hjust = -0.08, size = 2.4) +
+    scale_fill_manual(values = order_colours, drop = FALSE) +
+    scale_x_continuous(labels = label_percent(), expand = expansion(mult = c(0, 0.35))) +
+    labs(x = "Source profiles whose pressure steps down, share of those checked",
+         y = NULL, fill = NULL)
+  save_figure(plot, "conversion_pressure_order", height = 70)
+}
+
 # Coverage: an NRT product carries real time QC and CORA delayed mode QC of
 # the same casts, so CORA should hold every NRT profile it covers in time.
 # Where each NRT profile was found, as a share of those in CORA's period.
