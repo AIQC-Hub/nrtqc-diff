@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
+### Changed
 
 - **The Zenodo DOI**: the concept DOI `10.5281/zenodo.24094695`, which always
   resolves to the latest release, is in `CITATION.cff`, in a badge at
