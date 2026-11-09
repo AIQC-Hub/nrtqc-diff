@@ -31,10 +31,17 @@ GitHub integration. Every published GitHub Release, not a bare tag, is
 archived there and gets a DOI of its own, and the first one also creates a
 concept DOI that always resolves to the latest version. Zenodo takes the
 title, authors, license and version from `CITATION.cff`, which is why step 4
-keeps it current. Once the concept DOI exists, it goes in `CITATION.cff` as
-`doi` and in a badge at the top of `README.md`. If a release is missing on
-Zenodo, check that the integration is still switched on for
-`AIQC-Hub/nrtqc-diff` in Zenodo's GitHub settings.
+keeps it current. The concept DOI, created by the 0.11.0 release, is
+[10.5281/zenodo.24094695](https://doi.org/10.5281/zenodo.24094695); it is in
+`CITATION.cff` as `doi` and in the badge at the top of `README.md`, and
+does not change from one release to the next.
+
+Publishing a release sends the repository's Zenodo webhook three `release`
+events (published, released and created). Zenodo archives the release
+from the first and answers the other two with 409, so a 409 as the
+webhook's last response in the repository settings is not a failure. If a
+release is missing on Zenodo, check that the integration is still switched
+on for `AIQC-Hub/nrtqc-diff` in Zenodo's GitHub settings.
 
 ## Site
 

@@ -1,5 +1,7 @@
 # nrtqc-diff
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24094695.svg)](https://doi.org/10.5281/zenodo.24094695)
+
 A static dashboard showing where the near-real-time QC flags that ship with
 ocean profile data disagree with the flags [`nrtqclib`](https://nrtqclib.readthedocs.io/en/latest/)
 computes for the same observations.
@@ -113,6 +115,14 @@ own NRT QC output and rebuild. Nothing else changes.
 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Dev setup, tests, git workflow |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | Versioning and deployment |
 | [`docs/NC2PARQUET.md`](docs/NC2PARQUET.md) | How the NRT QC tests of `nc2parquet` differ from `nrtqclib`'s |
+
+## Citing
+
+Each release from 0.11.0 on is archived on
+[Zenodo](https://doi.org/10.5281/zenodo.24094695). To cite nrtqc-diff, use
+the concept DOI `10.5281/zenodo.24094695`, which always resolves to the
+latest release; [`CITATION.cff`](CITATION.cff) has the rest of the citation,
+and GitHub's "Cite this repository" button reads it.
 
 ## License
 
