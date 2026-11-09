@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-10
+
 ### Added
 
+- **`CITATION.cff`**, with the repository connected to Zenodo: each
+  published GitHub Release is archived there with a DOI, starting with
+  this one. `docs/RELEASING.md` describes the extra steps.
 - **Pressure order**, a section of Data conversion on ctddump's new
   pressure order check: ctddump sorts each profile by pressure when it
   merges the converted files, and the section gives, per product, the
