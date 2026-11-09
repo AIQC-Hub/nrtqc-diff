@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata in this file."
+type: software
+title: "nrtqc-diff"
+abstract: >-
+  A static dashboard comparing the near real time QC flags that ship with
+  Copernicus Marine in situ CTD profiles with the flags nrtqclib computes for
+  the same observations: a Python build step that trims the nrtqclib output
+  into small parquet files, analyses of the differences in Python and R, and
+  a Quarto site that queries the files in the browser with DuckDB WASM.
+authors:
+  - family-names: "Saito"
+    given-names: "Takaya"
+repository-code: "https://github.com/AIQC-Hub/nrtqc-diff"
+url: "https://aiqc-hub.github.io/nrtqc-diff/"
+license: MIT
+keywords:
+  - oceanography
+  - CTD
+  - quality control
+  - near real time
+  - Copernicus Marine
+version: "0.10.0"
+date-released: "2026-11-09"
