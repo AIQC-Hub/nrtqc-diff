@@ -1,6 +1,6 @@
 [project]
 name = "nrtqc-diff"
-version = "0.11.0"
+version = "0.11.1"
 description = "Static dashboard comparing existing NRT QC flags with the ones nrtqclib computes"
 readme = "README.md"
 license = "MIT"

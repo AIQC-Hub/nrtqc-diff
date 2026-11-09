@@ -14,11 +14,12 @@ authors:
 repository-code: "https://github.com/AIQC-Hub/nrtqc-diff"
 url: "https://aiqc-hub.github.io/nrtqc-diff/"
 license: MIT
+doi: "10.5281/zenodo.24094695"
 keywords:
   - oceanography
   - CTD
   - quality control
   - near real time
   - Copernicus Marine
-version: "0.11.0"
+version: "0.11.1"
 date-released: "2026-11-10"
