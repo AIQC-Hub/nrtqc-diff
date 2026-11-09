@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Pressure order**, a section of Data conversion summing up ctddump's
+  new pressure order check: ctddump sorts each profile by pressure when it
+  merges the converted files, and the section gives, per region, how many
+  source profiles were stored bottom up (reversed) or going down and up
+  again (non-monotonic), and what the sort means for nrtqclib's pressure
+  increasing, spike, gradient and density inversion tests. The flag pages
+  and docs no longer say the data keep the recorded order.
+
 ## [0.10.0] - 2026-11-09
 
 ### Added

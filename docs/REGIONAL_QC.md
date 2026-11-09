@@ -87,8 +87,12 @@ on 2026-11-09, the share of the clear failures the input flags:
   its few clear density inversions are flagged, although the reply says
   the test is not run yet.
 
-No profile of these products goes shallower in recorded order, so every
-failure of nrtqclib's pressure increasing check is a repeated pressure.
+ctddump sorts each profile by pressure when it merges the converted files,
+so no profile of these products goes shallower in the data nrtqclib checks,
+and every failure of its pressure increasing check is a repeated pressure.
+The source files do hold profiles that go back up (ctddump's `checkpres`
+reports count them, and the Data conversion page sums them up), so a
+producer's pressure test on the stored order cannot be checked here.
 The Mediterranean global product flags 59% of them, in the pressure flag.
 
 ## The global products

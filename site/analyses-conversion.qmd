@@ -114,6 +114,42 @@ meta ? table(fileRows, [
 ]) : html``
 ```
 
+## Pressure order
+
+When ctddump merges the converted files into one table, it sorts each
+profile's observations by increasing pressure, so every level on this site,
+and every test nrtqclib runs, is in pressure order rather than the order the
+source file stores. ctddump's
+[pressure order check](https://aiqc-hub.github.io/ctddump-report-example/nrt_ar_gl.html#pressure-order)
+looks at the profiles before the sort, for pressure stepping down somewhere
+in the profile. A **reversed** profile is stored from the bottom up, and
+the sort puts it right; a **non-monotonic** one goes down and up again
+(loops, spikes in pressure or misplaced levels), and the sort hides it.
+Reversed profiles are rare in every product, 0.2% or less of them. The
+non-monotonic ones:
+
+- **Arctic:** none in the regional product; about 2% of the global
+  product's profiles, from about one platform in twenty, some of them with
+  half their profiles affected; 0.4% in CORA, nearly all of them one
+  platform's casts of 1953 to 1990.
+- **Baltic:** about 2% in the regional product and in CORA. In the regional
+  product they come from about one platform in eight, many of them with
+  nearly half their profiles affected, between 1992 and 2009.
+- **Mediterranean:** about 2% in the regional product, 6% in the global
+  product and 15% in CORA, mostly from platforms with half their profiles
+  affected or more.
+
+The shares are of every profile converted, before cleaning, not only the
+NRT profiles the flag pages compare. What the sort means there:
+
+- **nrtqclib's pressure increasing check can fail only a repeated
+  pressure**, which the sort keeps; a profile out of order never reaches it
+  as one ([Flagged only by nrtqclib](analyses-flags-nrtqclib.qmd#how-one-test-can-differ)).
+- **Spike, gradient and density inversion compare each level with its
+  neighbours in pressure.** A producer that ran its tests in the stored
+  order compared other neighbours on a non-monotonic profile, so the two
+  sides can disagree there with the same test.
+
 ## Data modes
 
 The data mode of every temperature observation, at the two ends of the

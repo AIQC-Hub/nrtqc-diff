@@ -202,8 +202,8 @@ it) and adds about 25 seconds to the run.
 
 `items_response` checks what the regional centres say they run (see
 [`REGIONAL_QC.md`](REGIONAL_QC.md)) against their flags. Each failure of
-an nrtqclib test is measured again from the values, in recorded order as
-nrtqclib does, and put in a band by how far past nrtqclib's threshold it
+an nrtqclib test is measured again from the values, in the order nrtqclib
+sees them (ctddump's, by increasing pressure), and put in a band by how far past nrtqclib's threshold it
 is; the bands and which of them count as clear failures are
 `RESPONSE_TESTS` in `analyse.py`, written to `meta.json` as
 `response_tests`. A producer that runs the test flags nearly all of the
