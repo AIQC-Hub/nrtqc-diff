@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-10
+
 ### Changed
 
 - **The Zenodo DOI**: the concept DOI `10.5281/zenodo.24094695`, which always
