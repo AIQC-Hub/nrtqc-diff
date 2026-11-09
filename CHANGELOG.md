@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The Zenodo DOI**: the concept DOI `10.5281/zenodo.24094695`, which always
+  resolves to the latest release, is in `CITATION.cff`, in a badge at
+  the top of the README and in a new Citing section there.
+  `docs/RELEASING.md` records it, and why the webhook shows 409 after a
+  release.
+
 ## [0.11.0] - 2026-11-10
 
 ### Added
