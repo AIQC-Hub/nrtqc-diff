@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Where the dropped profiles were**: `conversion_dropqc` and
+  `conversion_dropqc_platforms` count the profiles ctddump's `dropqc` step
+  dropped and place those of fixed platforms with the batch's stamp of the
+  platform's one point, at sea or on land by the Depth page's rule and
+  causes. Profiles of moving platforms stay unplaced: the reports give no
+  position for each.
+
 ## [0.11.1] - 2026-11-10
 
 ### Changed
