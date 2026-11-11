@@ -73,7 +73,7 @@ from nrtqc_diff.flags import (
     status_predicates,
     usable_flag,
 )
-from nrtqc_diff.reports import report_tables
+from nrtqc_diff.reports import dropped_platform_table, report_tables
 
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
@@ -248,6 +248,10 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
         for message in check_conversion_steps(reports["conversion_steps"], profiles):
             print(f"[nrtqc-diff] warning: {message}", file=sys.stderr)
     tables.update(reports)
+    if spec.ctddump_reports:
+        drops = dropped_platform_table(config, spec.ctddump_reports)
+        if drops.height:
+            tables.update(dropped_tables(drops, config, spec))
     overlap = overlap_table(profiles, config)
     if overlap.height:
         tables["conversion_overlap"] = overlap
@@ -610,6 +614,20 @@ def _whole_degree(column: str) -> pl.Expr:
     return (value - value.round(0)).abs() <= WHOLE_DEGREE_TOLERANCE
 
 
+def _land_cause() -> pl.Expr:
+    """The first of :data:`LAND_CAUSES` that fits, as :func:`land_causes` says."""
+    low = pl.col("elevation") <= SHORE_HEIGHT_M
+    return (
+        pl.when(_whole_degree("longitude") & _whole_degree("latitude"))
+        .then(pl.lit("whole_degrees"))
+        .when(low & (pl.col("dist_to_coast") <= SHORE_DISTANCE_KM))
+        .then(pl.lit("shore"))
+        .when(low)
+        .then(pl.lit("low_far"))
+        .otherwise(pl.lit("inland"))
+    )
+
+
 def land_causes(on_land: pl.DataFrame) -> pl.DataFrame:
     """
     The land profiles by their likely cause, the first of
@@ -629,19 +647,9 @@ def land_causes(on_land: pl.DataFrame) -> pl.DataFrame:
     :return: One row per dataset and cause, with its profiles and positions.
     """
     keys = _dataset_columns()
-    low = pl.col("elevation") <= SHORE_HEIGHT_M
-    cause = (
-        pl.when(_whole_degree("longitude") & _whole_degree("latitude"))
-        .then(pl.lit("whole_degrees"))
-        .when(low & (pl.col("dist_to_coast") <= SHORE_DISTANCE_KM))
-        .then(pl.lit("shore"))
-        .when(low)
-        .then(pl.lit("low_far"))
-        .otherwise(pl.lit("inland"))
-    )
     order = {name: i for i, name in enumerate(LAND_CAUSES)}
     return (
-        on_land.with_columns(cause.alias("cause"))
+        on_land.with_columns(_land_cause().alias("cause"))
         .group_by(keys + ["cause"], maintain_order=True)
         .agg(
             pl.len().cast(pl.Int64).alias("n_profiles"),
@@ -656,6 +664,161 @@ def land_causes(on_land: pl.DataFrame) -> pl.DataFrame:
         .sort(keys[:1] + ["_o"])
         .drop("_o")
     )
+
+
+#: How far, in degrees, the batch's position of a fixed platform may be from
+#: the one ctddump's report gives (written to four decimals) and still be
+#: taken as the same point.
+DROPPED_POSITION_TOLERANCE: float = 1e-3
+
+#: What is known of where a dropped profile was, in the order the tables
+#: list it: on a moving platform, so nowhere; on a fixed platform the batch
+#: holds no stamped profile of; at sea; on land.
+DROPPED_STATUSES: List[str] = ["moving", "not_stamped", "sea", "land"]
+
+
+def dropped_tables(
+    drops: pl.DataFrame, config: BuildConfig, spec: AnalysesSpec
+) -> Dict[str, pl.DataFrame]:
+    """
+    Where the profiles ctddump's ``dropqc`` dropped were, as far as is known.
+
+    seastamp ran after ``dropqc``, so no dropped profile was stamped. A
+    fixed platform's dropped profiles were at its one point, which the
+    batch stamped wherever the platform has a profile left: that stamp is
+    taken, graded by the land rule and the causes of :func:`land_causes`.
+    A moving platform's dropped profiles cannot be placed from the reports.
+
+    :param drops: :func:`~nrtqc_diff.reports.dropped_platform_table`.
+    :param config: The build configuration, for the datasets' paths.
+    :param spec: The analyses section, for the sea floor column.
+    :return: ``conversion_dropqc``, one row per dataset, and
+             ``conversion_dropqc_platforms``, one row per platform that lost
+             a profile.
+    """
+    keys = _dataset_columns()
+    stamps = []
+    for dataset in config.datasets:
+        fixed = drops.filter(
+            (pl.col("dataset_id") == dataset.id)
+            & pl.col("fixed")
+            & (pl.col("n_dropped") > 0)
+        )
+        if not fixed.height or not os.path.exists(dataset.path):
+            continue
+        stamps.append(
+            _scan(dataset, spec)
+            .filter(
+                pl.col("platform_code")
+                .cast(pl.Utf8)
+                .is_in(fixed["platform_code"].implode())
+            )
+            .group_by(pl.col("platform_code").cast(pl.Utf8))
+            .agg(
+                pl.col("longitude").cast(pl.Float64).first().alias("stamp_longitude"),
+                pl.col("latitude").cast(pl.Float64).first().alias("stamp_latitude"),
+                elevation(spec).first().alias("elevation"),
+                pl.col("dist_to_coast").cast(pl.Float64).first(),
+                pl.struct("longitude", "latitude").n_unique().alias("_n_positions"),
+            )
+            .with_columns(pl.lit(dataset.id).alias("dataset_id"))
+            .collect()
+        )
+    columns = {
+        "dataset_id": pl.Utf8,
+        "platform_code": pl.Utf8,
+        "stamp_longitude": pl.Float64,
+        "stamp_latitude": pl.Float64,
+        "elevation": pl.Float64,
+        "dist_to_coast": pl.Float64,
+        "_n_positions": pl.UInt32,
+    }
+    stamped = (
+        pl.concat(
+            [s.select([pl.col(c).cast(t) for c, t in columns.items()]) for s in stamps]
+        )
+        if stamps
+        else pl.DataFrame(schema=columns)
+    )
+
+    # The stamp counts only if the batch holds the platform at one point,
+    # the report's own.
+    same_point = (
+        (pl.col("_n_positions") == 1)
+        & (
+            (pl.col("stamp_longitude") - pl.col("longitude")).abs()
+            <= DROPPED_POSITION_TOLERANCE
+        )
+        & (
+            (pl.col("stamp_latitude") - pl.col("latitude")).abs()
+            <= DROPPED_POSITION_TOLERANCE
+        )
+    ).fill_null(False)
+    platforms = (
+        drops.filter(pl.col("n_dropped") > 0)
+        .join(stamped, on=["dataset_id", "platform_code"], how="left")
+        .with_columns(same_point.alias("_stamped"))
+        .with_columns(
+            pl.when(~pl.col("fixed"))
+            .then(pl.lit("moving"))
+            .when(~pl.col("_stamped"))
+            .then(pl.lit("not_stamped"))
+            .when(pl.col("elevation") >= 0)
+            .then(pl.lit("land"))
+            .otherwise(pl.lit("sea"))
+            .alias("status"),
+            pl.when(pl.col("_stamped")).then(pl.col("elevation")).alias("elevation"),
+            pl.when(pl.col("_stamped"))
+            .then(pl.col("dist_to_coast"))
+            .alias("dist_to_coast"),
+        )
+        .with_columns(
+            pl.when(pl.col("status") == "land").then(_land_cause()).alias("cause")
+        )
+        .select(
+            keys
+            + [
+                "platform_code",
+                "n_before",
+                "n_dropped",
+                "status",
+                "cause",
+                "longitude",
+                "latitude",
+                "elevation",
+                "dist_to_coast",
+            ]
+        )
+        .sort(["dataset_id", "platform_code"])
+    )
+
+    def dropped_where(condition: pl.Expr, name: str) -> pl.Expr:
+        return pl.col("n_dropped").filter(condition).sum().cast(pl.Int64).alias(name)
+
+    summary = (
+        drops.group_by(keys, maintain_order=True)
+        .agg(pl.col("n_before").sum().cast(pl.Int64).alias("n_profiles"))
+        .join(
+            platforms.group_by(keys).agg(
+                pl.col("n_dropped").sum().cast(pl.Int64),
+                *[
+                    dropped_where(pl.col("status") == s, f"n_{s}")
+                    for s in DROPPED_STATUSES
+                ],
+                *[
+                    dropped_where(pl.col("cause") == c, f"n_land_{c}")
+                    for c in LAND_CAUSES
+                ],
+            ),
+            on=keys,
+            how="left",
+        )
+        .with_columns(pl.exclude(keys + ["n_profiles"]).fill_null(0))
+    )
+    return {
+        "conversion_dropqc": summary,
+        "conversion_dropqc_platforms": platforms,
+    }
 
 
 def data_mode_tables(

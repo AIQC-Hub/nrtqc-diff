@@ -254,6 +254,75 @@ def pressure_order_table(config: BuildConfig, reports: str) -> pl.DataFrame:
     return _concat(frames)
 
 
+def dropped_platform_table(config: BuildConfig, reports: str) -> pl.DataFrame:
+    """
+    The profiles ctddump's ``dropqc`` step dropped, per platform.
+
+    ``dropqc`` keeps a profile only if its time and position flags are both
+    good or missing, and drops it before seastamp runs, so nothing stamps
+    where it was. The per-platform reports before and after the step give
+    how many each platform lost and the range of its positions before. A
+    platform whose positions all fall on one point is ``fixed``: that point
+    is where every one of its dropped profiles was, and it is kept as
+    ``longitude`` and ``latitude``. Any other platform is left without one.
+
+    :param config: The build configuration.
+    :param reports: The ctddump ``report`` directory.
+    :return: One row per dataset and platform present before the step,
+             dropped profiles or not.
+    """
+    frames = []
+    for spec in _sourced(config):
+        before_path = os.path.join(reports, "convert", f"{spec.source}.parquet.tsv")
+        after_path = os.path.join(
+            reports, "clean", "dropqc", f"{spec.source}.parquet.tsv"
+        )
+        if not (os.path.isfile(before_path) and os.path.isfile(after_path)):
+            continue
+        before = _read_tsv(before_path)
+        bounds = ["longitude_min", "longitude_max", "latitude_min", "latitude_max"]
+        if all(c in before.columns for c in bounds):
+            fixed = (_number("longitude_min") == _number("longitude_max")) & (
+                _number("latitude_min") == _number("latitude_max")
+            )
+        else:
+            fixed = pl.lit(False)
+        after = _read_tsv(after_path).select(
+            "platform_code", _number("n_profiles").cast(pl.Int64).alias("n_after")
+        )
+        table = (
+            before.select(
+                "platform_code",
+                _number("n_profiles").cast(pl.Int64).alias("n_before"),
+                fixed.fill_null(False).alias("fixed"),
+                *[
+                    _number(c) if c in before.columns else pl.lit(None, pl.Float64)
+                    for c in ("longitude_min", "latitude_min")
+                ],
+            )
+            .join(after, on="platform_code", how="left")
+            .with_columns(
+                (pl.col("n_before") - pl.col("n_after").fill_null(0)).alias(
+                    "n_dropped"
+                ),
+                pl.when(pl.col("fixed"))
+                .then(pl.col("longitude_min"))
+                .alias("longitude"),
+                pl.when(pl.col("fixed")).then(pl.col("latitude_min")).alias("latitude"),
+            )
+            .select(
+                "platform_code",
+                "n_before",
+                "n_dropped",
+                "fixed",
+                "longitude",
+                "latitude",
+            )
+        )
+        frames.append(table.select(_label_columns(spec) + [pl.all()]))
+    return _concat(frames)
+
+
 #: Duplicate groups larger than this are pooled into one size class.
 DUP_SIZE_CAP: int = 10
 
