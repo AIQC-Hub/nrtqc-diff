@@ -12,6 +12,7 @@ from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
     check_conversion_steps,
     classify,
+    dropped_tables,
     input_flag_table,
     land_causes,
     match_tables,
@@ -22,6 +23,7 @@ from nrtqc_diff.analyse import (
     shape_table,
 )
 from nrtqc_diff.config import read_config
+from nrtqc_diff.reports import dropped_platform_table
 
 #: ``platform: (temp_dm, [(temp_qc, temp_nrt_flag, spike, date, elevation)])``.
 #: Each platform is one profile built to land in one group.
@@ -793,3 +795,90 @@ def test_failures_are_banded_by_how_far_past_the_threshold(tmp_path, monkeypatch
     assert rows[("density_inversion", "density", 0)] == (3, 1)
     assert rows[("pressure_increasing", "pres", 1)] == (1, 1)
     assert rows[("pressure_increasing", "temp", 1)] == (1, 0)
+
+
+def test_dropped_profiles_are_placed_where_the_platform_is_fixed(tmp_path):
+    """
+    A fixed platform's dropped profiles take the batch's stamp of its one
+    point; a moving platform's, or a fixed one the batch does not hold at
+    that point, stay unplaced.
+    """
+    columns = (
+        "platform_code\tn_profiles\tlongitude_min\tlongitude_max"
+        "\tlatitude_min\tlatitude_max\n"
+    )
+    before = (
+        "LAND\t5\t10.5\t10.5\t57.5\t57.5\n"  # fixed, on land, inland
+        "SEA\t4\t11.25\t11.25\t57.25\t57.25\n"  # fixed, at sea
+        "MOVE\t3\t10\t12\t56\t58\n"  # moving
+        "GONE\t2\t9.5\t9.5\t55.5\t55.5\n"  # fixed, every profile dropped
+        "AWAY\t2\t9.25\t9.25\t55.25\t55.25\n"  # fixed, batch elsewhere
+        "KEPT\t6\t9\t9\t55\t55\n"  # nothing dropped
+    )
+    after = "LAND\t3\nSEA\t3\nMOVE\t1\nAWAY\t1\nKEPT\t6\n"
+    reports = tmp_path / "report"
+    (reports / "convert").mkdir(parents=True)
+    (reports / "clean" / "dropqc").mkdir(parents=True)
+    (reports / "convert" / "src.parquet.tsv").write_text(columns + before)
+    (reports / "clean" / "dropqc" / "src.parquet.tsv").write_text(
+        "platform_code\tn_profiles\n" + after
+    )
+    pl.DataFrame(
+        {
+            "platform_code": ["LAND", "SEA", "MOVE", "AWAY", "KEPT"],
+            "longitude": [10.5, 11.25, 11.0, 9.75, 9.0],
+            "latitude": [57.5, 57.25, 57.0, 55.25, 55.0],
+            "bathymetry": [30.0, -20.0, -50.0, 5.0, -10.0],
+            "dist_to_coast": [8.0, 3.0, 10.0, 1.0, 2.0],
+        }
+    ).write_parquet(tmp_path / "input.parquet")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
+                ],
+                "datasets": [
+                    {
+                        "id": "one",
+                        "region": "R",
+                        "product": "P",
+                        "path": "input.parquet",
+                        "source": "src",
+                    }
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "analyses": {"out_dir": "analyses", "ctddump_reports": "report"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = read_config(str(config))
+    drops = dropped_platform_table(config, config.analyses.ctddump_reports)
+    assert drops.height == 6
+    tables = dropped_tables(drops, config, config.analyses)
+
+    platforms = tables["conversion_dropqc_platforms"]
+    status = dict(zip(platforms["platform_code"], platforms["status"]))
+    assert status == {
+        "AWAY": "not_stamped",
+        "GONE": "not_stamped",
+        "LAND": "land",
+        "MOVE": "moving",
+        "SEA": "sea",
+    }
+    cause = dict(zip(platforms["platform_code"], platforms["cause"]))
+    assert cause["LAND"] == "inland" and cause["SEA"] is None
+
+    summary = tables["conversion_dropqc"].row(0, named=True)
+    assert summary["n_profiles"] == 22
+    assert summary["n_dropped"] == 2 + 1 + 2 + 2 + 1
+    assert (
+        summary["n_moving"],
+        summary["n_not_stamped"],
+        summary["n_sea"],
+        summary["n_land"],
+    ) == (2, 3, 1, 2)
+    assert summary["n_land_inland"] == 2 and summary["n_land_shore"] == 0
