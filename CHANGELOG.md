@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-12
+
+### Added
+
+- **Frozen profile in `items_response`**: the test all three regional
+  centres list and nrtqclib does not run. Each NRT profile at sea is set
+  against the same platform's previous one at another time, and banded as
+  different, within the Argo test's limits, or an exact repeat, the one
+  clear failure. Only profiles inside the global range and not one value
+  throughout are measured, as for stuck value. The Flag differences in NRT
+  page shows it under the frozen profile row of the regional table and in
+  the `items_response` figure: none of the products flags an exact repeat.
+
 ## [0.12.0] - 2026-11-11
 
 ### Added

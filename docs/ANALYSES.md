@@ -222,6 +222,15 @@ observation.
   levels that pass the spike test, and stuck value and density inversion
   only on values inside the range. A stuck profile counts as flagged when
   the input flags at least 95% of its values.
+- **Frozen profile**, which nrtqclib does not run: each profile is set
+  against the same platform's previous one at another time (one at the
+  same time is a duplicate), across slices as well. The bands are
+  different, within the Argo test's limits on 50 dbar slab means
+  (`FROZEN_LIMITS`), and an exact repeat (the same pressures and values at
+  every level); only an exact repeat is a clear failure, since profiles
+  hours apart often pass Argo's limits. Only profiles inside the range and
+  not one value throughout are measured, and one counts as flagged as a
+  stuck profile does.
 - **Density** is EOS-80 density at zero pressure from the in situ
   temperature, not nrtqclib's TEOS-10 potential density: close enough to
   band an inversion, not to repeat the test exactly. The centres give
