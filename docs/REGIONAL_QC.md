@@ -115,11 +115,17 @@ The Arctic and Baltic centres give 0.05 kg/m³ per dbar; nrtqclib uses
 0.03 kg/m³ between consecutive levels. nrtqclib's default stays at 0.03
 (decided on 2026-11-10); this records what the flags show instead.
 
-Checked on the `test_nrt` batch on 2026-11-10, with throwaway scripts, not
-in `nrtqc-diff analyse`. Every consecutive pair of levels in the NRT
+Checked first on the `test_nrt` batch on 2026-11-10 with throwaway
+scripts; since nrtqc-diff 0.14.0 `nrtqc-diff analyse` writes the counts
+as `density_threshold` and `density_platforms`
+([`ANALYSES.md`](ANALYSES.md#whether-the-input-runs-a-test)), and the
+Flag differences in NRT page shows them. Where the two differ, the tables
+are right: the numbers below are theirs (EOS-80 density at zero pressure,
+a flag on either variable), except the TEOS-10 comparisons, which only
+the scripts made. The scripts Every consecutive pair of levels in the NRT
 profiles compared for both variables, with both values inside the global
-range, was taken with the input flags of both levels; "flagged" below means
-the input flags both temperature and salinity of the deeper level. To keep
+range, was taken with the input flags of both levels; "flagged" there
+meant the input flags both temperature and salinity of the deeper level. To keep
 the choice of platforms from making the step, the platforms were also
 chosen on their even profiles (most inversions of 0.1 kg/m³ or more
 flagged) and the step measured on their odd profiles; it is the same.
@@ -130,25 +136,29 @@ ice-tethered profilers only (platform codes `ITP-` and `TOP-`):
 
 | Inversion between levels, potential density (kg/m³) | Flagged, ice-tethered profilers |
 | --- | --- |
-| Under 0.0495 | 0.3% or less |
-| 0.0495 to 0.05 | 2% to 6% (by TEOS-10 or EOS-80 density) |
-| 0.05 to 0.0505 | 97% to 98% |
-| 0.0505 and above | 99.6% to 100% |
+| Under 0.0495 | 0.4% or less |
+| 0.0495 to 0.05 | 6% (2% to 6% in the scripts, by density) |
+| 0.05 to 0.0505 | 97% |
+| 0.0505 and above | 100% |
 
-- **Not per dbar.** Their levels are a median 2 dbar apart, so the test is
-  0.025 kg/m³ per dbar there; measured per dbar, the share flagged is flat
-  at 2% to 5% in every band.
+- **Not per dbar.** Their levels are 1 to 2 dbar apart (a median 2), so
+  the test is 0.025 to 0.05 kg/m³ per dbar there; measured per dbar, the
+  share flagged climbs from 32% at 0.02 to 0.03 to 80% to 86% up to 0.05,
+  with no step.
 - **Not in situ density.** With TEOS-10 in situ density (`gsw.rho` at each
   level's pressure), flagging starts at 0.04 to 0.045 kg/m³ and moves with
   the level spacing; with potential density it sits at 0.05 exactly.
 - **The deeper level only.** The upper level is flagged too in a quarter
-  to a half of the pairs, rising with the size of the inversion, not
-  always as a density test flagging both levels would.
-- **The other platforms flag none**, at any size: 23 platforms with ship
-  style codes (for example `LCLJ`, `3YAR`, `58S2`), at 0.1 to 2 dbar
-  spacing, holding about three quarters of the inversions of 0.05 kg/m³
-  or more. That is why only a quarter of the clear inversions are flagged
-  in `items_response`.
+  to over half of the pairs (25% to 57%), rising with the size of the
+  inversion, not always as a density test flagging both levels would.
+- **The other platforms flag almost none**: 25 platforms with a clear
+  inversion, with ship style codes (for example `LCLJ`, `3YAR`, `58JR`),
+  at a median 0.3 to 5 dbar spacing, holding three quarters of the
+  inversions above 0.05 kg/m³ (68,061 of 89,733). They flag 0.1% of those
+  up to 0.2 kg/m³ and 13% of the larger ones, which other tests can
+  account for; two (`58UO`, `58US`) flag nearly all of their 45 and 42.
+  That is why only a quarter of the clear inversions are flagged in
+  `items_response`.
 
 The data cannot say whether the Arctic centre runs the test on these
 platforms only or the flags come with the profiler data.
@@ -159,18 +169,23 @@ the same threshold.
 
 **Baltic regional.** No sign of the test on almost all of the data:
 
-- 99% of the inversions of 0.05 kg/m³ or more are on platforms that flag
-  none or nearly none of them, at any size up to more than 2 kg/m³,
-  measured between levels or per dbar. Over the whole product the share
-  flagged goes from 0.3% under 0.05 kg/m³ to 1% to 3% above.
-- The other 1% are on about a dozen platforms (13 chosen on even profiles)
-  that flag most inversions above about 0.06 kg/m³ (74% to 90% on odd
-  profiles) and few under 0.05 (5% or less). Counted here as a flag on
-  either variable of either level, since these mostly flag the upper level.
-  There are too few pairs to place the threshold closer than 0.05 to 0.06.
-  It is not 0.05 per dbar either: their levels are 0.1 to 0.5 dbar apart,
-  so that would flag inversions from 0.005 to 0.025 kg/m³ between levels,
-  which they leave alone.
+- 413 of the 521 platforms with an inversion above 0.05 kg/m³ flag none
+  of them, and hold 90% of them (53,635 of 59,522). Over the whole
+  product the share flagged goes from 0.3% or less under 0.045 kg/m³ to
+  1% to 2.4% above 0.05.
+- 61 platforms flag at least half of theirs and hold 1% (614, of which
+  they flag 595), at 0.1 to 1 dbar spacing. Most have only a few each:
+  seven have ten or more (`FYN8361`, `ARH230902`, `STR0101015`,
+  `STR0101023`, `FYN0018532`, `FYN0018752`, `MSI17`) and flag nearly all.
+  They flag 1.5% of their inversions up to 0.05 kg/m³, so they run a test
+  between levels near 0.05, but there are too few pairs to place it. It
+  is not 0.05 per dbar: at their spacing that would flag inversions from
+  0.005 to 0.05 kg/m³ between levels, which they leave alone. The "about
+  a dozen platforms" of the scripts were those with enough pairs to judge
+  on half of their profiles.
+- The remaining 47 flag some of theirs, 579 of 5,273 (11%), almost all
+  on platforms with `SMHI` codes: a test on some of their profiles, or
+  another test.
 
 So the Baltic threshold cannot be read from its flags; ask the centre
 which platforms the test runs on.

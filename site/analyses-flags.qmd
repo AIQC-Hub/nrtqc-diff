@@ -198,8 +198,9 @@ Read together, for the regional products whose centres answered:
   input flags the deeper level of nearly every pair of levels whose
   potential density falls by 0.05 kg/m³ or more, and almost none below,
   so the threshold is 0.05 between levels rather than per dbar. The other
-  platforms flag no inversion of any size, which is why only about a
-  quarter of the clear inversions are flagged. There are too few stuck
+  platforms flag almost none of their inversions, which is why only about
+  a quarter of the clear inversions are flagged
+  ([by platform](#density-inversion-by-platform)). There are too few stuck
   profiles to tell. The input flags none of the exact repeats of a
   platform's previous profile, so the frozen profile test it lists leaves
   no sign.
@@ -207,10 +208,10 @@ Read together, for the regional products whose centres answered:
   centre says it runs neither. Spike and density inversion, which it says
   it runs, leave almost none either: the input flags almost none of the
   clear salinity spikes (there are too few clear temperature spikes to
-  tell), and nearly all of its platforms flag no inversion of any size. A
-  few platforms, about 1% of the inversions, flag most of those above
-  about 0.05 to 0.06 kg/m³ between levels: too few to place the threshold,
-  and none of them show one per dbar. Salinity just under nrtqclib's lower
+  tell), and most of its platforms flag no inversion of any size. The
+  platforms that flag most of their clear inversions hold about 1% of
+  them, too few to place the threshold
+  ([by platform](#density-inversion-by-platform)). Salinity just under nrtqclib's lower
   bound of 2 is mostly flagged, which fits a range test with a bound near
   it. There are too few exact repeats of a platform's previous profile to
   tell whether its frozen profile test runs.
@@ -229,6 +230,105 @@ its test runs cannot be seen here. Of the global
 products, the Mediterranean one flags more than half of the repeated
 pressures, but in its pressure flag rather than in temperature or salinity,
 which this site compares.
+
+### Density inversion by platform
+
+A density test run on some platforms only shows in its flags on those
+platforms alone, so the inversions are counted again per platform group
+(ice-tethered profilers, whose codes start `ITP-` or `TOP-`, and the
+rest) in finer bands around 0.05 kg/m³, and per platform. The density is
+the same as above. Since a test flags the deeper or the upper level of a
+pair, the two are counted apart for the ice-tethered profilers; for the
+other platforms the table counts a flag at either level.
+
+- **Arctic NRT regional**: on the ice-tethered profilers the input flags
+  the deeper level of 6% of the inversions from 0.0495 to 0.05 kg/m³
+  between levels, 97% from 0.05 to 0.0505, and all of those above: a test
+  at 0.05 kg/m³ between levels. Per dbar there is no such step, since
+  their levels are 1 to 2 dbar apart. The upper level is flagged in a
+  quarter to over half of the pairs, more often the larger the inversion.
+  The other platforms, mostly ships, flag 0.1% of their inversions from
+  0.05 to 0.2 kg/m³ and 13% of the larger ones, which other tests can
+  account for; two of them flag nearly all of their few clear ones. They
+  hold three quarters of the clear inversions, which is why only about a
+  quarter of those are flagged over the whole product.
+- **Baltic NRT regional**: 413 of the 521 platforms with a clear inversion
+  flag none of them, and they hold 90% of the clear inversions. 61
+  platforms flag at least half of theirs, and they hold 1%: most have
+  fewer than ten each, too few to place a threshold, and only seven have
+  ten or more, which they nearly all flag. Of their inversions up to 0.05
+  kg/m³ they flag 1.5%.
+
+```{ojs}
+densityThreshold = meta ? app.loadAnalysisTable("density_threshold") : null
+densityPlatforms = meta ? app.loadAnalysisTable("density_platforms") : null
+densityGroupLabel = (g) => g === "ice_tethered" ? "Ice-tethered profilers" : "Other platforms"
+densityBand = (r) => r.upper === null ? `More than ${r.lower}` : `${r.lower} to ${r.upper}`
+viewof densityDataset = densityThreshold
+  ? Inputs.select([...new Set(densityThreshold.map((r) => r.dataset_id))], {
+      label: "Product", format: name,
+      value: densityThreshold.some((r) => r.dataset_id === "ar_ar") ? "ar_ar" : undefined
+    })
+  : html`<p class="nq-empty">This data release has no density by platform tables.</p>`
+viewof densityMeasure = densityThreshold
+  ? Inputs.radio(new Map([["Between levels", "level"], ["Per dbar", "dbar"]]), {
+      label: "Inversion", value: "level"
+    })
+  : html``
+```
+
+```{ojs}
+densityThreshold ? (() => {
+  const rows = densityThreshold.filter(
+    (r) => r.dataset_id === densityDataset && r.measure === densityMeasure
+  );
+  const bands = [...new Map(rows.map((r) => [r.band, r])).values()].sort((a, b) => a.band - b.band);
+  const cell = (band, group) => rows.find((r) => r.band === band && r.platform_group === group);
+  return table(
+    bands.map((b) => {
+      const tethered = cell(b.band, "ice_tethered");
+      const other = cell(b.band, "other");
+      return {
+        band: densityBand(b),
+        t_n: tethered?.n ?? 0,
+        t_deeper: tethered ? app.formatSmallShare(tethered.n_flagged_deeper, tethered.n) : "",
+        t_upper: tethered ? app.formatSmallShare(tethered.n_flagged_upper, tethered.n) : "",
+        o_n: other?.n ?? 0,
+        o_either: other ? app.formatSmallShare(other.n_flagged, other.n) : ""
+      };
+    }),
+    [
+      { key: "band", label: densityMeasure === "level" ? "Inversion, kg/m³" : "Inversion, kg/m³ per dbar", align: "left", format: (v) => v },
+      { key: "t_n", label: "Ice-tethered: pairs" },
+      { key: "t_deeper", label: "Deeper level flagged", format: (v) => v },
+      { key: "t_upper", label: "Upper level flagged", format: (v) => v },
+      { key: "o_n", label: "Other: pairs" },
+      { key: "o_either", label: "Either level flagged", format: (v) => v }
+    ]
+  );
+})() : html``
+```
+
+The platforms of the product with an inversion above 0.05 kg/m³ between
+levels, those with the most first.
+
+```{ojs}
+densityPlatforms ? table(
+  densityPlatforms
+    .filter((r) => r.dataset_id === densityDataset && r.n_clear > 0)
+    .sort((a, b) => b.n_clear - a.n_clear || a.platform_code.localeCompare(b.platform_code))
+    .map((r) => ({ ...r, group: densityGroupLabel(r.platform_group) })),
+  [
+    { key: "platform_code", label: "Platform", align: "left", format: (v) => v },
+    { key: "group", label: "Group", align: "left", format: (v) => v },
+    { key: "spacing_dbar", label: "Level spacing (dbar)", title: "The median pressure between consecutive levels" },
+    { key: "n_small", label: "Inversions up to 0.05" },
+    { key: "n_small_flagged", label: "Flagged", format: (v, r) => app.formatSmallShare(v, r.n_small) },
+    { key: "n_clear", label: "Above 0.05" },
+    { key: "n_clear_flagged", label: "Flagged", format: (v, r) => app.formatSmallShare(v, r.n_clear) }
+  ]
+) : html``
+```
 
 ## How often they disagree
 
