@@ -51,8 +51,9 @@ From the regional centres' answers, set out on
   shows in the input flags. Where one platform has identical profiles
   hours apart, the regional centres flag every copy or none, never only the
   repeat; and the exact repeats of a platform's previous profile left after
-  the duplicate step are hardly ever flagged. The test cannot explain the
-  whole profiles below.
+  the duplicate step are not flagged
+  ([What the input flags show](analyses-flags.qmd#what-the-input-flags-show)).
+  The test cannot explain the whole profiles below.
 - **The Baltic's checks on the whole profile**, run before the tests on
   each variable: negative pressure (a measurement in air), pressure
   increasing from the surface to the bottom, spikes in pressure, and a

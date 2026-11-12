@@ -77,7 +77,7 @@ export const REGIONAL_TESTS = [
   },
   {
     key: "frozen_profile", label: "Frozen profile", item: null,
-    nrtqclib: "no", claims: ALL("yes"), response: [],
+    nrtqclib: "no", claims: ALL("yes"), response: ["frozen_profile"],
   },
   {
     key: "whole_profile", label: "Negative pressure, pressure spikes, soaking depth left in", item: null,
