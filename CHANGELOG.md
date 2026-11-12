@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-12
+
+### Added
+
+- **`density_threshold` and `density_platforms`**: the density inversions
+  of `items_response` counted again by platform group (ice-tethered
+  profilers, `ITP-` and `TOP-`, against the rest), in finer bands around
+  0.05 kg/m³ with the deeper and upper level's flags apart, and per
+  platform with its level spacing. They show where a product runs its
+  density test on some platforms only, which throwaway scripts showed
+  before. The Flag differences in NRT page has a section on them.
+
 ## [0.13.0] - 2026-11-12
 
 ### Added

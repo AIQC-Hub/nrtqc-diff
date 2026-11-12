@@ -19,6 +19,7 @@ from nrtqc_diff.analyse import (
     overlap_table,
     probable_flag_table,
     response_table,
+    response_tables,
     run_analyses,
     shape_table,
 )
@@ -795,6 +796,105 @@ def test_failures_are_banded_by_how_far_past_the_threshold(tmp_path, monkeypatch
     assert rows[("density_inversion", "density", 0)] == (3, 1)
     assert rows[("pressure_increasing", "pres", 1)] == (1, 1)
     assert rows[("pressure_increasing", "temp", 1)] == (1, 0)
+
+
+def test_density_inversions_are_counted_by_platform_and_finer_band(
+    tmp_path, monkeypatch
+):
+    # Slices of four rows, so that ITP-1's two profiles fall in two slices
+    # and its counts have to be summed.
+    monkeypatch.setattr("nrtqc_diff.analyse.RESPONSE_CHUNK_ROWS", 4)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"},
+                    {"name": "psal", "flag": "psal_qc", "nrt_flag": "psal_nrt_flag"},
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    # At 10 degrees, 0.09 less salt at the deeper level is an inversion of
+    # 0.070 kg/m³ and 0.03 less one of 0.023. ITP-1, twice, 1 dbar apart:
+    # a clear inversion flagged at the deeper level, a stable pair and a
+    # small inversion left alone. SHIP, 0.5 dbar apart: a clear inversion
+    # left alone. C is not compared.
+    profiles = [
+        ("ITP-1", 1, [1.0, 2.0, 3.0, 4.0], [35.0, 34.91, 34.95, 34.92], 1),
+        ("ITP-1", 2, [1.0, 2.0, 3.0, 4.0], [35.0, 34.91, 34.95, 34.92], 1),
+        ("SHIP", 1, [0.5, 1.0, 1.5], [35.0, 34.91, 34.95], None),
+        ("C", 1, [1.0, 2.0], [35.0, 34.0], None),
+    ]
+    rows = []
+    for platform, number, pressures, salinities, flagged in profiles:
+        for level, (pres, psal) in enumerate(zip(pressures, salinities)):
+            rows.append(
+                {
+                    "platform_code": platform,
+                    "profile_no": number,
+                    "observation_no": level + 1,
+                    "pres": pres,
+                    "temp": 10.0,
+                    "psal": psal,
+                    "temp_qc": "4" if level == flagged else "1",
+                    "psal_qc": "1",
+                }
+            )
+    keep = {
+        name: pl.DataFrame(
+            {"platform_code": ["ITP-1", "ITP-1", "SHIP"], "profile_no": [1, 2, 1]}
+        )
+        for name in ["temp", "psal"]
+    }
+    tables = response_tables(pl.LazyFrame(rows), keep, spec.datasets[0], spec)
+
+    platforms = {
+        r["platform_code"]: r for r in tables["density_platforms"].iter_rows(named=True)
+    }
+    assert set(platforms) == {"ITP-1", "SHIP"}
+    itp = platforms["ITP-1"]
+    assert itp["platform_group"] == "ice_tethered"
+    assert itp["spacing_dbar"] == 1.0
+    assert (itp["n_pairs"], itp["n_inversions"]) == (6, 4)
+    assert (itp["n_small"], itp["n_small_flagged"]) == (2, 0)
+    assert (itp["n_clear"], itp["n_clear_flagged"], itp["n_clear_flagged_deeper"]) == (
+        2,
+        2,
+        2,
+    )
+    ship = platforms["SHIP"]
+    assert ship["platform_group"] == "other"
+    assert ship["spacing_dbar"] == 0.5
+    assert (ship["n_clear"], ship["n_clear_flagged"]) == (1, 0)
+
+    threshold = {
+        (r["platform_group"], r["measure"], r["lower"], r["upper"]): (
+            r["n"],
+            r["n_flagged_deeper"],
+            r["n_flagged_upper"],
+        )
+        for r in tables["density_threshold"].iter_rows(named=True)
+    }
+    assert threshold == {
+        ("ice_tethered", "level", 0.02, 0.03): (2, 0, 0),
+        ("ice_tethered", "level", 0.06, 0.08): (2, 2, 0),
+        ("ice_tethered", "dbar", 0.02, 0.03): (2, 0, 0),
+        ("ice_tethered", "dbar", 0.06, 0.08): (2, 2, 0),
+        ("other", "level", 0.06, 0.08): (1, 0, 0),
+        ("other", "dbar", 0.1, 0.2): (1, 0, 0),
+    }
+    # The response table is as before.
+    assert tables["items_response"].equals(
+        response_table(pl.LazyFrame(rows), keep, spec.datasets[0], spec)
+    )
 
 
 def test_dropped_profiles_are_placed_where_the_platform_is_fixed(tmp_path):

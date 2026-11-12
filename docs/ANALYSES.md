@@ -186,6 +186,8 @@ name or columns.
 | `items_platforms` | dataset, variable, platform | profiles, observations and agreement counts, over the variable's NRT profiles |
 | `items_shape` | dataset, variable, category (original only or nrtqclib only), place in the profile, input flag, negative pressure | observations, and the profiles they are in |
 | `items_response` | dataset, test, flag it is set against (a variable, `density` for either variable's flag, `pres` for the pressure flag), band of how far past nrtqclib's threshold | failures (`n`, as observations, pairs of levels or profiles) and how many the input flags (`n_flagged`) |
+| `density_threshold` | dataset, platform group (`ice_tethered` or `other`), measure (`level`: kg/m³ between levels; `dbar`: per dbar), band (`lower` exclusive, `upper` inclusive, empty for the last) | density inversions, and how many the input flags at either level (`n_flagged`), the deeper one (`n_flagged_deeper`) and the upper one (`n_flagged_upper`) |
+| `density_platforms` | dataset, platform, its group and median level spacing (`spacing_dbar`), for platforms with an inversion | pairs of levels, inversions, those up to 0.05 kg/m³ (`n_small`) and above it (`n_clear`), and how many the input flags |
 
 ### Where a one-sided flag sits
 
@@ -238,6 +240,19 @@ observation.
   pressure between the levels.
 - **Pressure** is set against the pressure flag and each variable's flag,
   since a producer can flag a repeated pressure in the pressure flag only.
+- **Density by platform.** The same pass counts the density inversions
+  again for two tables a product that runs its test on some platforms
+  only needs. `density_threshold` bands them finer around 0.05 kg/m³
+  (`DENSITY_EDGES`), between levels and per dbar, per platform group:
+  ice-tethered profilers, whose codes start `ITP-` or `TOP-`
+  (`ICE_TETHERED_PREFIXES`), and the rest. It also counts the deeper and
+  the upper level's flag apart, since a test flags one of the two.
+  `density_platforms` counts each platform's inversions, clear above
+  `DENSITY_CLEAR` (0.05 kg/m³ between levels, the clear bands of
+  `items_response`), with its median level spacing, rounded to 0.01 dbar.
+  Both count the pairs of `items_response`'s density inversion, and
+  `meta.json` has the edges, the clear limit and the prefixes under
+  `rules.density`.
 
 A test needs a level's neighbours, which the streaming engine cannot give,
 so the pass reads 2 million rows at a time, carries a profile cut by the
