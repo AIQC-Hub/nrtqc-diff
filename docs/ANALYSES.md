@@ -160,6 +160,8 @@ name or columns.
 | `conversion_coverage` | NRT dataset, CORA dataset of its region | CORA's period (first and last date) and the NRT profiles in each coverage class (see below) |
 | `conversion_coverage_years` | NRT dataset, CORA dataset, year, coverage class | NRT profiles |
 | `conversion_match` | NRT dataset, CORA dataset, coverage class | pairs of the same cast (`same_platform` or `other_platform`): how many, how many with the same number of observations, and on which side there are more |
+| `cora_pairs` | NRT dataset, CORA dataset, variable, coverage class | the pairs counted through each condition of the level by level comparison (see below): `n_pairs`, `n_same_obs`, `n_nrt` (the NRT profile is `nrt` for the variable), `n_aligned` (the levels line up), `n_pres_exact` (at the same pressures exactly), and the observations compared (`n_obs`) |
+| `cora_flags` | NRT dataset, CORA dataset, variable, coverage class, pressure band, the four flags | observations of the aligned pairs: the producer's NRT flag (`original_flag`), nrtqclib's on the NRT copy (`nrtqclib_flag`), CORA's (`cora_flag`) and nrtqclib's on the CORA copy (`cora_nrtqclib_flag`), as raw values, empty where missing |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
 | `depth_summary` | dataset | profiles, land profiles, and what the input flagged on them |
 | `depth_land_margin` | dataset, margin | land profiles at least that many metres up |
@@ -293,6 +295,26 @@ is often one instrument named two ways (an ice-tethered profiler by its own
 number in one product and a WMO number in the other), and its two versions
 are usually sampled at different levels, so `conversion_match` keeps the
 classes apart.
+
+### NRT flags against CORA's
+
+Machine learning trains on delayed mode flags, so `cora_flags` sets the NRT
+flags of a cast against CORA's for the same levels. A pair of the coverage
+is compared level by level when:
+
+1. the two copies hold the same number of observations;
+2. for the variable, the NRT profile is `nrt`, as in the `items_` tables
+   (delayed mode, estimated delayed mode, unknown and land profiles are
+   left out);
+3. every observation number of one copy is in the other, and the two
+   pressures of each level agree within 0.1 dbar (`rules.cora` in
+   `meta.json`), both missing counting as agreeing.
+
+`cora_pairs` counts the pairs left after each condition, so the
+observations compared can be traced back to the casts. The pairs are taken
+in platform order, about two million levels at a time, and both products are
+read for each chunk, keeping only its profiles' levels. The files are
+sorted by platform, so a chunk reads only the row groups of its platforms.
 
 ## The figures
 

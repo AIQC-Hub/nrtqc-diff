@@ -35,7 +35,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import polars as pl
 
@@ -255,7 +255,12 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     overlap = overlap_table(profiles, config)
     if overlap.height:
         tables["conversion_overlap"] = overlap
-    tables.update(match_tables(profiles, config))
+    comparisons = delayed_comparisons(profiles, config)
+    tables.update(match_tables(profiles, config, comparisons))
+    if comparisons:
+        if verbose:
+            print("[nrtqc-diff] comparing the flags of the casts paired with CORA")
+        tables.update(cora_tables(comparisons, profiles, config, spec))
 
     meta = _write(tables, config, spec)
     if verbose:
@@ -2698,8 +2703,47 @@ def cover_profiles(mine: pl.DataFrame, theirs: pl.DataFrame) -> Dict[str, pl.Dat
     return {"profiles": profiles, "pairs": pairs}
 
 
-def match_tables(
+def delayed_comparisons(
     profiles: pl.DataFrame, config: BuildConfig
+) -> List[Dict[str, Any]]:
+    """
+    Each NRT product set against the delayed mode product of its region.
+
+    :param profiles: One row per profile of every dataset, with ``n_obs``
+                     and positions.
+    :param config: The build configuration.
+    :return: One entry per pair of products: ``reference`` and ``other``
+             (their :class:`DatasetSpec`), ``theirs`` (the delayed mode
+             product's profiles, from :func:`_match_frame`) and ``covered``
+             (:func:`cover_profiles`). Empty without the columns to match on.
+    """
+    needed = {"profile_timestamp", "longitude", "latitude", "n_obs"}
+    if not needed <= set(profiles.columns):
+        return []
+    present = set(profiles["dataset_id"].unique().to_list())
+    comparisons = []
+    for reference, other in _region_pairs(config, present):
+        if reference.data_mode is not None or other.data_mode != DELAYED:
+            continue
+        theirs = _match_frame(profiles, other.id)
+        if theirs.height == 0:
+            continue
+        covered = cover_profiles(_match_frame(profiles, reference.id), theirs)
+        comparisons.append(
+            {
+                "reference": reference,
+                "other": other,
+                "theirs": theirs,
+                "covered": covered,
+            }
+        )
+    return comparisons
+
+
+def match_tables(
+    profiles: pl.DataFrame,
+    config: BuildConfig,
+    comparisons: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, pl.DataFrame]:
     """
     How much of an NRT product the reprocessed product of its region holds,
@@ -2715,31 +2759,19 @@ def match_tables(
     :param profiles: One row per profile of every dataset, with ``n_obs``
                      and positions.
     :param config: The build configuration.
+    :param comparisons: :func:`delayed_comparisons`, when already made.
     :return: ``conversion_coverage`` (one row per pair of products, with the
              profiles in each coverage class), ``conversion_coverage_years``
              (the same by year) and ``conversion_match`` (the pairs'
              numbers of observations, by coverage class).
     """
-    needed = {"profile_timestamp", "longitude", "latitude", "n_obs"}
-    if not needed <= set(profiles.columns):
-        return {}
-    present = set(profiles["dataset_id"].unique().to_list())
+    if comparisons is None:
+        comparisons = delayed_comparisons(profiles, config)
     coverage, years, summary = [], [], []
-    for reference, other in _region_pairs(config, present):
-        if reference.data_mode is not None or other.data_mode != DELAYED:
-            continue
-        theirs = _match_frame(profiles, other.id)
-        if theirs.height == 0:
-            continue
-        covered = cover_profiles(_match_frame(profiles, reference.id), theirs)
-        labels = [
-            pl.lit(reference.id).alias("dataset_id"),
-            pl.lit(reference.region).alias("region"),
-            pl.lit(reference.product).alias("product"),
-            pl.lit(reference.label).alias("label"),
-            pl.lit(other.id).alias("compared_id"),
-            pl.lit(other.label).alias("compared_label"),
-        ]
+    for comparison in comparisons:
+        reference, other = comparison["reference"], comparison["other"]
+        theirs, covered = comparison["theirs"], comparison["covered"]
+        labels = _comparison_labels(reference, other)
         filed = covered["profiles"]
         coverage.append(
             filed.select(
@@ -2782,6 +2814,335 @@ def match_tables(
         "conversion_coverage": stack(coverage),
         "conversion_coverage_years": stack(years),
         "conversion_match": stack(summary),
+    }
+    return {name: table for name, table in tables.items() if table.height}
+
+
+#: Two copies of a level are the same level when their pressures differ by no
+#: more than this, in dbar. A pair of profiles is compared level by level only
+#: when every level agrees: the same number of observations alone does not
+#: make the same levels.
+CORA_PRES_TOLERANCE_DBAR: float = 0.1
+
+#: How many levels of paired profiles :func:`cora_tables` reads at a time,
+#: on each side. Holding every paired level of the Arctic products at once
+#: took 2.5 GB on top of the rest; in chunks of this size it takes 1.3 GB,
+#: and no longer, since each chunk reads only the row groups of its
+#: platforms.
+CORA_CHUNK_LEVELS: int = 2_000_000
+
+#: The coverage classes whose pairs :func:`cora_tables` compares: the pairs
+#: of :func:`cover_profiles`.
+CORA_COVERAGE: List[str] = ["same_platform", "other_platform"]
+
+
+def _comparison_labels(reference: DatasetSpec, other: DatasetSpec) -> List[pl.Expr]:
+    """The columns naming an NRT product and the product it is compared with."""
+    return [
+        pl.lit(reference.id).alias("dataset_id"),
+        pl.lit(reference.region).alias("region"),
+        pl.lit(reference.product).alias("product"),
+        pl.lit(reference.label).alias("label"),
+        pl.lit(other.id).alias("compared_id"),
+        pl.lit(other.label).alias("compared_label"),
+    ]
+
+
+def _paired_levels(
+    scan: pl.LazyFrame, keys: pl.DataFrame, variables: List[VariableSpec]
+) -> pl.DataFrame:
+    """
+    The observations of the paired profiles of one product, compactly.
+
+    :param scan: The product.
+    :param keys: ``platform_code``, ``profile_no`` and ``_pair``, the pair
+                 each profile belongs to. Only the platforms from the first
+                 to the last of them, in code order, are read.
+    :param variables: The variables whose flags are kept.
+    :return: ``_pair``, ``observation_no``, ``pres`` and, per variable, the
+             input's flag (``{name}_qc``) and nrtqclib's (``{name}_nrt``).
+    """
+    flags = []
+    for v in variables:
+        flags += [
+            original_flag(v).cast(pl.Int8, strict=False).alias(f"{v.name}_qc"),
+            computed_flag(v).cast(pl.Int8, strict=False).alias(f"{v.name}_nrt"),
+        ]
+    # The files are written sorted by platform, so a range of platform codes
+    # lets the reader skip the row groups outside it.
+    codes = keys["platform_code"]
+    return (
+        scan.filter(
+            pl.col("platform_code").is_between(pl.lit(codes.min()), pl.lit(codes.max()))
+        )
+        .select(
+            pl.col("platform_code").cast(pl.Utf8),
+            pl.col("profile_no"),
+            pl.col("observation_no").cast(pl.Int32, strict=False),
+            pl.col("pres")
+            .cast(pl.Float64, strict=False)
+            .fill_nan(None)
+            .cast(pl.Float32),
+            *flags,
+        )
+        .join(keys.lazy(), on=PROFILE_KEYS, how="inner")
+        .drop(PROFILE_KEYS)
+        .collect(engine="streaming")
+    )
+
+
+def cora_tables(
+    comparisons: List[Dict[str, Any]],
+    profiles: pl.DataFrame,
+    config: BuildConfig,
+    spec: AnalysesSpec,
+) -> Dict[str, pl.DataFrame]:
+    """
+    The NRT flags of a cast against its delayed mode flags in CORA.
+
+    Machine learning trains on delayed mode flags, so the question is how
+    far the NRT flags are from them, and whether the producer's or
+    nrtqclib's come closer. Each pair of :func:`cover_profiles` is the same
+    cast in both products. A pair is compared level by level when the two
+    copies hold the same number of observations, every observation number
+    of one is in the other, and their pressures agree within
+    :data:`CORA_PRES_TOLERANCE_DBAR` at every level; and, for each variable,
+    only when the NRT profile is ``nrt`` for it, as in the item tables. Each
+    level then carries four flags: the producer's NRT flag, nrtqclib's on the
+    NRT copy, CORA's, and nrtqclib's on the CORA copy.
+
+    The pairs are taken in chunks of about :data:`CORA_CHUNK_LEVELS` levels:
+    for each, both products are read keeping only its profiles' levels, and
+    the two are joined.
+
+    :param comparisons: :func:`delayed_comparisons`.
+    :param profiles: The classified profiles, for each variable's group.
+    :param config: The build configuration.
+    :param spec: The analyses section.
+    :return: ``cora_flags``, the levels counted by variable, coverage,
+             pressure band and the four flags; and ``cora_pairs``, the pairs
+             counted through each condition.
+    """
+    variables = list(config.variables)
+    bands = {b["band"]: b["label"] for b in pres_band_labels()}
+    flag_tables, pair_tables = [], []
+    for comparison in comparisons:
+        reference, other = comparison["reference"], comparison["other"]
+        labels = _comparison_labels(reference, other)
+        groups = profiles.filter(pl.col("dataset_id") == reference.id).select(
+            *PROFILE_KEYS, *[f"{v.name}_group" for v in variables]
+        )
+        pairs = (
+            comparison["covered"]["pairs"]
+            .filter(pl.col("coverage").is_in(CORA_COVERAGE))
+            .join(groups, on=PROFILE_KEYS, how="left")
+            .with_columns(
+                (pl.col("n_obs") == pl.col("n_obs_c")).alias("_same_obs"),
+                *[
+                    (pl.col(f"{v.name}_group") == NRT)
+                    .fill_null(False)
+                    .alias(f"_nrt_{v.name}")
+                    for v in variables
+                ],
+            )
+            .with_row_index("_pair")
+        )
+        compared = pairs.filter(
+            pl.col("_same_obs")
+            & pl.any_horizontal([pl.col(f"_nrt_{v.name}") for v in variables])
+        )
+        nrt_scan, cora_scan = _scan(reference, spec), _scan(other, spec)
+        aligned, counts = [], []
+        # In platform order, each coverage class apart, so that a chunk spans
+        # few platforms on either side: the pairs under another code would
+        # stretch the range of every chunk they fell in.
+        chunk = (pl.col("n_obs").cum_sum() - 1) // CORA_CHUNK_LEVELS
+        chunked = compared.sort("coverage", *PROFILE_KEYS).with_columns(
+            chunk.over("coverage").alias("_chunk")
+        )
+        for _, pairs_part in chunked.group_by(
+            "coverage", "_chunk", maintain_order=True
+        ):
+            mine = _paired_levels(
+                nrt_scan, pairs_part.select(*PROFILE_KEYS, "_pair"), variables
+            )
+            theirs = _paired_levels(
+                cora_scan,
+                pairs_part.select(
+                    pl.col("platform_code_c").alias("platform_code"),
+                    pl.col("profile_no_c").alias("profile_no"),
+                    "_pair",
+                ),
+                variables,
+            )
+            joined = mine.join(
+                theirs, on=["_pair", "observation_no"], how="inner", suffix="_c"
+            )
+            del mine, theirs
+            difference = (pl.col("pres") - pl.col("pres_c")).abs()
+            both_missing = pl.col("pres").is_null() & pl.col("pres_c").is_null()
+            joined = joined.with_columns(
+                (both_missing | (difference <= CORA_PRES_TOLERANCE_DBAR))
+                .fill_null(False)
+                .alias("_close"),
+                (both_missing | (difference == 0)).fill_null(False).alias("_exact"),
+            )
+            per_pair = joined.group_by("_pair").agg(
+                pl.len().alias("_n_joined"),
+                pl.col("_close").all().alias("_close"),
+                pl.col("_exact").all().alias("_exact"),
+            )
+            aligned.append(per_pair)
+            good = (
+                per_pair.join(pairs_part.select("_pair", "n_obs"), on="_pair")
+                .filter((pl.col("_n_joined") == pl.col("n_obs")) & pl.col("_close"))
+                .select("_pair")
+            )
+            levels = joined.join(good, on="_pair", how="semi").join(
+                pairs_part.select(
+                    "_pair", "coverage", *[f"_nrt_{v.name}" for v in variables]
+                ),
+                on="_pair",
+            )
+            del joined
+            for v in variables:
+                counts.append(
+                    levels.filter(pl.col(f"_nrt_{v.name}"))
+                    .group_by(
+                        "coverage",
+                        pres_band().alias("pres_band"),
+                        pl.col(f"{v.name}_qc").cast(pl.Int64).alias("original_flag"),
+                        pl.col(f"{v.name}_nrt").cast(pl.Int64).alias("nrtqclib_flag"),
+                        pl.col(f"{v.name}_qc_c").cast(pl.Int64).alias("cora_flag"),
+                        pl.col(f"{v.name}_nrt_c")
+                        .cast(pl.Int64)
+                        .alias("cora_nrtqclib_flag"),
+                    )
+                    .agg(pl.len().cast(pl.Int64).alias("n_obs"))
+                    .with_columns(pl.lit(v.name).alias("variable"))
+                )
+
+        status = pairs.join(
+            pl.concat(aligned)
+            if aligned
+            else pl.DataFrame(
+                schema={
+                    "_pair": pl.UInt32,
+                    "_n_joined": pl.UInt32,
+                    "_close": pl.Boolean,
+                    "_exact": pl.Boolean,
+                }
+            ),
+            on="_pair",
+            how="left",
+        ).with_columns(
+            (
+                pl.col("_same_obs")
+                & (pl.col("_n_joined") == pl.col("n_obs")).fill_null(False)
+                & pl.col("_close").fill_null(False)
+            ).alias("_aligned"),
+        )
+        observed = (
+            pl.concat(counts)
+            if counts
+            else pl.DataFrame(
+                schema={"coverage": pl.Utf8, "n_obs": pl.Int64, "variable": pl.Utf8}
+            )
+        )
+        for v in variables:
+            nrt = pl.col("_same_obs") & pl.col(f"_nrt_{v.name}")
+            summary = (
+                status.group_by("coverage")
+                .agg(
+                    pl.len().cast(pl.Int64).alias("n_pairs"),
+                    pl.col("_same_obs").sum().cast(pl.Int64).alias("n_same_obs"),
+                    nrt.sum().cast(pl.Int64).alias("n_nrt"),
+                    (nrt & pl.col("_aligned")).sum().cast(pl.Int64).alias("n_aligned"),
+                    (nrt & pl.col("_aligned") & pl.col("_exact").fill_null(False))
+                    .sum()
+                    .cast(pl.Int64)
+                    .alias("n_pres_exact"),
+                )
+                .join(
+                    observed.filter(pl.col("variable") == v.name)
+                    .group_by("coverage")
+                    .agg(pl.col("n_obs").sum()),
+                    on="coverage",
+                    how="left",
+                )
+                .with_columns(
+                    pl.col("n_obs").fill_null(0),
+                    pl.lit(v.name).alias("variable"),
+                )
+            )
+            pair_tables.append(
+                summary.select(
+                    *labels,
+                    "variable",
+                    "coverage",
+                    "n_pairs",
+                    "n_same_obs",
+                    "n_nrt",
+                    "n_aligned",
+                    "n_pres_exact",
+                    "n_obs",
+                )
+            )
+        if counts:
+            flag_tables.append(
+                observed.group_by(
+                    "variable",
+                    "coverage",
+                    "pres_band",
+                    "original_flag",
+                    "nrtqclib_flag",
+                    "cora_flag",
+                    "cora_nrtqclib_flag",
+                )
+                .agg(pl.col("n_obs").sum())
+                .with_columns(
+                    pl.col("pres_band")
+                    .replace_strict(bands, return_dtype=pl.Utf8)
+                    .alias("pres_label")
+                )
+                .select(
+                    *labels,
+                    "variable",
+                    "coverage",
+                    "pres_band",
+                    "pres_label",
+                    "original_flag",
+                    "nrtqclib_flag",
+                    "cora_flag",
+                    "cora_nrtqclib_flag",
+                    "n_obs",
+                )
+            )
+
+    order = {name: i for i, name in enumerate(CORA_COVERAGE)}
+
+    def stack(frames: List[pl.DataFrame], by: List[str]) -> pl.DataFrame:
+        if not frames:
+            return pl.DataFrame()
+        frame = pl.concat(frames, how="diagonal_relaxed")
+        return (
+            frame.with_columns(pl.col("coverage").replace_strict(order).alias("_c"))
+            .sort(["dataset_id", "variable", "_c", *by], nulls_last=True)
+            .drop("_c")
+        )
+
+    tables = {
+        "cora_pairs": stack(pair_tables, []),
+        "cora_flags": stack(
+            flag_tables,
+            [
+                "pres_band",
+                "original_flag",
+                "nrtqclib_flag",
+                "cora_flag",
+                "cora_nrtqclib_flag",
+            ],
+        ),
     }
     return {name: table for name, table in tables.items() if table.height}
 
@@ -2889,6 +3250,10 @@ def _write(
                 "sensitivity": spec.estimated_sensitivity,
             },
             "position_bad_values": POSITION_BAD_VALUES,
+            "cora": {
+                "coverage": CORA_COVERAGE,
+                "pres_tolerance_dbar": CORA_PRES_TOLERANCE_DBAR,
+            },
             "density": {
                 "edges": DENSITY_EDGES,
                 "clear_above": DENSITY_CLEAR,

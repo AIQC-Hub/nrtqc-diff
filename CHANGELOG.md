@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-12
+
+### Added
+
+- **`cora_flags` and `cora_pairs`**: the NRT flags of a cast set against
+  CORA's for the same levels. For each pair of the NRT and CORA coverage
+  whose copies hold the same levels at the same pressures (within 0.1
+  dbar), on the NRT profiles of each variable, the observations are
+  counted by the producer's NRT flag, nrtqclib's on the NRT copy, CORA's,
+  and nrtqclib's on the CORA copy, by pressure band. `cora_pairs` counts
+  the pairs through each condition. The Flag differences in NRT page has a
+  section on them.
+
 ## [0.14.0] - 2026-11-12
 
 ### Added
