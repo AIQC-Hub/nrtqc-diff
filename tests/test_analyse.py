@@ -12,6 +12,8 @@ from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
     check_conversion_steps,
     classify,
+    cora_tables,
+    delayed_comparisons,
     dropped_tables,
     input_flag_table,
     land_causes,
@@ -576,6 +578,99 @@ def test_each_variable_is_estimated_on_its_own(tmp_path):
         "BOTH": ("estimated_delayed", "estimated_delayed"),
         "DM": ("delayed", "delayed"),
     }
+
+
+def test_paired_casts_are_compared_level_by_level_with_cora(tmp_path):
+    """
+    Five casts of platform P and one of Q, which CORA holds as X: only the
+    pairs with the same levels, at the same pressures, of an NRT profile are
+    counted, each level with its four flags.
+    """
+    when = datetime(2020, 1, 1, 6)
+    # platform, cora platform, longitude, group, NRT pressures, CORA
+    # pressures, (input, nrtqclib, cora, cora nrtqclib) flags per level.
+    casts = [
+        (
+            "P",
+            "P",
+            1.0,
+            "nrt",
+            [5, 20, 60],
+            [5, 20, 60],
+            [(1, 1, 1, 1), (4, 1, 4, 4), (1, 4, 1, 4)],
+        ),
+        (
+            "P",
+            "P",
+            2.0,
+            "nrt",
+            [5, 20, 60],
+            [5.05, 20, 60],
+            [(1, 1, 1, 1), (1, 1, 4, 1), (1, 1, 1, 1)],
+        ),
+        ("P", "P", 3.0, "nrt", [5, 20, 60], [5, 25, 60], [(1, 1, 1, 1)] * 3),
+        ("P", "P", 4.0, "nrt", [5, 20, 60], [5, 20], [(1, 1, 1, 1)] * 3),
+        ("P", "P", 5.0, "delayed", [5, 20, 60], [5, 20, 60], [(1, 1, 1, 1)] * 3),
+        ("Q", "X", 6.0, "nrt", [5, 20], [5, 20], [(3, 4, 4, 4)] * 2),
+    ]
+    rows = {"a": [], "b": []}
+    profiles = []
+    for number, (code, code_c, lon, group, pres, pres_c, flags) in enumerate(casts, 1):
+        for name, platform, levels in (("a", code, pres), ("b", code_c, pres_c)):
+            for level, value in enumerate(levels, 1):
+                flag = flags[level - 1]
+                t_qc, t_nrt = (flag[0], flag[1]) if name == "a" else (flag[2], flag[3])
+                rows[name].append(
+                    {
+                        "platform_code": platform,
+                        "profile_no": number,
+                        "observation_no": level,
+                        "pres": float(value),
+                        "t_qc": t_qc,
+                        "t_nrt": t_nrt,
+                        "bathymetry": -100.0,
+                    }
+                )
+            profiles.append(
+                {
+                    "dataset_id": name,
+                    "platform_code": platform,
+                    "profile_no": number,
+                    "profile_timestamp": when,
+                    "longitude": lon,
+                    "latitude": 50.0,
+                    "n_obs": len(levels),
+                    "t_group": group if name == "a" else "delayed",
+                }
+            )
+    for name, frame in rows.items():
+        pl.DataFrame(frame).write_parquet(tmp_path / name)
+    config = _two_dataset_config(tmp_path, delayed="b")
+    profiles = pl.DataFrame(profiles)
+    comparisons = delayed_comparisons(profiles, config)
+    tables = cora_tables(comparisons, profiles, config, config.analyses)
+
+    pairs = {r["coverage"]: r for r in tables["cora_pairs"].iter_rows(named=True)}
+    counts = ["n_pairs", "n_same_obs", "n_nrt", "n_aligned", "n_pres_exact", "n_obs"]
+    assert [pairs["same_platform"][c] for c in counts] == [5, 4, 3, 2, 1, 6]
+    assert [pairs["other_platform"][c] for c in counts] == [1, 1, 1, 1, 1, 2]
+
+    flags = tables["cora_flags"]
+    four = ["original_flag", "nrtqclib_flag", "cora_flag", "cora_nrtqclib_flag"]
+    same = flags.filter(pl.col("coverage") == "same_platform")
+    combos = same.group_by(four).agg(pl.col("n_obs").sum())
+    assert dict(zip(combos.select(four).rows(), combos["n_obs"])) == {
+        (1, 1, 1, 1): 3,
+        (4, 1, 4, 4): 1,
+        (1, 4, 1, 4): 1,
+        (1, 1, 4, 1): 1,
+    }
+    assert same.group_by("pres_label").agg(pl.col("n_obs").sum()).sort(
+        "pres_label"
+    ).rows() == [("10-50", 2), ("50-100", 2), ("< 10", 2)]
+    other = flags.filter(pl.col("coverage") == "other_platform")
+    assert other.select(four).unique().rows() == [(3, 4, 4, 4)]
+    assert other["compared_id"].unique().to_list() == ["b"]
 
 
 def _two_dataset_config(tmp_path, delayed=None):

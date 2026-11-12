@@ -409,3 +409,118 @@ meta && platforms ? table(
   { sortKey: `${meta.variables[0].name}_profiles`, descending: true }
 ) : html``
 ```
+
+## Against CORA's delayed mode flags
+
+Machine learning for QC trains on delayed mode flags, so the question for
+the NRT flags is how close they come to them. CORA holds many of the NRT
+products' casts again, with delayed mode flags, and the
+[Data conversion](analyses-conversion.qmd) page pairs them. Here a pair is
+compared level by level when both copies hold the same levels: the same
+number of observations, the same observation numbers, and pressures within
+0.1 dbar at every level. As everywhere on this page, a variable is counted
+only over the profiles that are NRT for it. Each level then carries four
+flags: the producer's NRT flag, nrtqclib's on the NRT copy, CORA's, and
+nrtqclib's on the CORA copy.
+
+The pairs, through each condition, for the casts under the same platform
+code in both products:
+
+```{ojs}
+coraPairs = meta ? app.loadAnalysisTable("cora_pairs") : null
+coraFlags = meta ? app.loadAnalysisTable("cora_flags") : null
+coraPairs ? table(
+  coraPairs.filter((r) => r.coverage === "same_platform").sort(byDatasetVariable),
+  [
+    { key: "dataset_id", label: "Product", align: "left", format: name },
+    { key: "variable", label: "Variable", align: "left", format: variableLabel },
+    { key: "n_pairs", label: "Pairs" },
+    { key: "n_same_obs", label: "Same number of levels" },
+    { key: "n_nrt", label: "NRT for the variable" },
+    { key: "n_aligned", label: "Same levels", title: "The same observation numbers, pressures within 0.1 dbar" },
+    { key: "n_obs", label: "Levels compared" }
+  ]
+) : html`<p class="nq-empty">This data release has no comparison with CORA.</p>`
+```
+
+How far each set of flags agrees with CORA's. An observation is counted
+when the producer's flag and CORA's both say something (neither missing,
+0 nor 9). Flags 3, 4, 6 and 7 are bad for the producer and CORA, as on the
+rest of the site, and any flag above 1 for nrtqclib. Kappa is Cohen's: 1
+when the two agree on every observation, 0 when they agree no more often
+than chance would. "Of CORA's" is the share of the observations CORA flags
+that the other source flags too.
+
+- **Baltic and Mediterranean NRT regional**: CORA's flags are the
+  producer's, value for value, on every level compared, and nrtqclib's flags
+  on the two copies agree as closely. CORA holds these casts with the NRT
+  flags unchanged, so they say nothing about how close the NRT flags come
+  to a delayed mode QC.
+- **Arctic NRT regional**: CORA flags far more than the producer, 12% of
+  the salinity against 1.4%, and nearly all the salinity the producer flags
+  CORA flags too. nrtqclib flags the two copies differently on about 1% of
+  their levels, so the CORA copy is not the NRT copy with new flags, and its
+  flags on the CORA copy come closer to CORA's, for temperature most.
+- **The global product**: the producer's flags are close to CORA's (kappa
+  0.64 to 0.88), and nrtqclib's are not (below 0.15), since it flags several
+  times more.
+
+```{ojs}
+coraAgreement = coraFlags ? (() => {
+  const bad = (flag, values) => flag !== null && values.includes(flag);
+  const groups = new Map();
+  for (const r of coraFlags) {
+    if (r.coverage !== "same_platform") continue;
+    const v = meta.variables.find((x) => x.name === r.variable);
+    const says = (f) => f !== null && !v.missing_flag_values.includes(f);
+    if (!says(r.original_flag) || !says(r.cora_flag)) continue;
+    const key = `${r.dataset_id}|${r.variable}`;
+    const g = groups.get(key) ?? {
+      dataset_id: r.dataset_id, variable: r.variable, n: 0, c: 0,
+      sources: { p: [0, 0], n: [0, 0], m: [0, 0] }
+    };
+    const c = bad(r.cora_flag, v.bad_flag_values);
+    const flagged = {
+      p: bad(r.original_flag, v.bad_flag_values),
+      n: r.nrtqclib_flag > 1,
+      m: r.cora_nrtqclib_flag > 1
+    };
+    g.n += r.n_obs;
+    if (c) g.c += r.n_obs;
+    // Per source: how many it flags, and how many of those CORA flags too.
+    for (const [s, f] of Object.entries(flagged)) {
+      if (f) g.sources[s][0] += r.n_obs;
+      if (f && c) g.sources[s][1] += r.n_obs;
+    }
+    groups.set(key, g);
+  }
+  const kappa = (n, c, f, both) => {
+    const observed = (both + (n - f - c + both)) / n;
+    const chance = (f * c + (n - f) * (n - c)) / (n * n);
+    return chance === 1 ? null : (observed - chance) / (1 - chance);
+  };
+  return [...groups.values()].map((g) => {
+    const row = { dataset_id: g.dataset_id, variable: g.variable, n: g.n, cora: (100 * g.c) / g.n };
+    for (const [s, [f, both]] of Object.entries(g.sources)) {
+      row[`${s}_share`] = (100 * f) / g.n;
+      row[`${s}_kappa`] = kappa(g.n, g.c, f, both);
+      row[`${s}_recall`] = g.c ? (100 * both) / g.c : null;
+    }
+    return row;
+  }).sort(byDatasetVariable);
+})() : []
+formatKappa = (v) => (v === null || v === undefined ? "" : v.toFixed(2))
+coraFlags ? table(coraAgreement, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "variable", label: "Variable", align: "left", format: variableLabel },
+  { key: "n", label: "Observations" },
+  { key: "cora", label: "CORA flags", format: app.formatPercent },
+  { key: "p_share", label: "Producer flags", format: app.formatPercent },
+  { key: "p_recall", label: "Of CORA's", format: app.formatPercent },
+  { key: "p_kappa", label: "Kappa", format: formatKappa },
+  { key: "n_share", label: "nrtqclib flags", format: app.formatPercent },
+  { key: "n_recall", label: "Of CORA's", format: app.formatPercent },
+  { key: "n_kappa", label: "Kappa", format: formatKappa },
+  { key: "m_kappa", label: "nrtqclib on CORA: kappa", format: formatKappa, title: "nrtqclib's flags on the CORA copy against CORA's" }
+]) : html``
+```
