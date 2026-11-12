@@ -1,5 +1,6 @@
 """The analyses: how profiles are grouped, and what the tables count."""
 
+import hashlib
 import json
 import os
 from datetime import datetime
@@ -20,6 +21,7 @@ from nrtqc_diff.analyse import (
     match_tables,
     overlap_table,
     probable_flag_table,
+    profile_coverage,
     response_table,
     response_tables,
     run_analyses,
@@ -167,10 +169,16 @@ def analysed(tmp_path):
                     "ctddump_dups": "ctddump/dups",
                     "seastamp_reports": "seastamp",
                 },
+                "provenance": {
+                    "tools": [{"name": "nrtqclib", "version": "0.1.7"}],
+                    "nrtqclib_config": "batch/nrt_qc_config.yaml",
+                },
             }
         ),
         encoding="utf-8",
     )
+    (tmp_path / "batch").mkdir()
+    (tmp_path / "batch" / "nrt_qc_config.yaml").write_bytes(b"qc: {}\n")
     run_analyses(read_config(str(config)))
     return tmp_path / "analyses"
 
@@ -696,6 +704,33 @@ def _two_dataset_config(tmp_path, delayed=None):
         encoding="utf-8",
     )
     return read_config(str(path))
+
+
+def test_meta_records_the_provenance_with_the_config_checksum(analysed):
+    meta = json.loads((analysed / "meta.json").read_text(encoding="utf-8"))
+    assert meta["provenance"]["tools"] == [{"name": "nrtqclib", "version": "0.1.7"}]
+    assert meta["provenance"]["nrtqclib_config"] == {
+        "file": "nrt_qc_config.yaml",
+        "sha256": hashlib.sha256(b"qc: {}\n").hexdigest(),
+    }
+    assert meta["provenance"]["products"] == []
+
+
+def test_coverage_is_the_first_and_last_profile_date():
+    profiles = pl.DataFrame(
+        {
+            "dataset_id": ["a", "a", "b"],
+            "profile_timestamp": [
+                datetime(2020, 1, 2, 23, 0),
+                datetime(2026, 6, 30, 20, 0),
+                None,
+            ],
+        }
+    )
+    assert profile_coverage(profiles) == {
+        "a": {"first_profile": "2020-01-02", "last_profile": "2026-06-30"}
+    }
+    assert profile_coverage(profiles.drop("profile_timestamp")) == {}
 
 
 def test_meta_lists_the_tables_and_rules(analysed):

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Provenance in `meta.json`**: an optional `provenance` section of the
+  configuration (the tools and their versions, the reference data, and the
+  Copernicus Marine products with their dataset versions and DOIs) is copied
+  into `meta.json`, with the nrtqclib configuration recorded as its SHA-256
+  checksum. Each dataset also gets the dates of its first and last profile.
+  `config/test_nrt.yaml` records the batch rerun with ctddump 0.37.2,
+  seastamp 0.19.1, nrtqclib 0.1.7 and aiqclib 0.15.2 (nrtqclib's dependency
+  that implements the QC tests).
+
+### Fixed
+
+- `config/test_nrt.yaml` pointed `ctddump_dups` at a folder that does not
+  exist, so the duplicate tables would have been left out without a
+  warning; it now reads `ctddump/dedup/markdup`, where ctddump writes them.
+
 ## [0.15.0] - 2026-11-12
 
 ### Added
