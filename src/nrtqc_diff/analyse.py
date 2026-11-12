@@ -31,6 +31,7 @@ groups; then in passes that keep only the profiles of one group and group the
 observations by a handful of small keys.
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -262,7 +263,7 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
             print("[nrtqc-diff] comparing the flags of the casts paired with CORA")
         tables.update(cora_tables(comparisons, profiles, config, spec))
 
-    meta = _write(tables, config, spec)
+    meta = _write(tables, config, spec, profile_coverage(profiles))
     if verbose:
         print(f"[nrtqc-diff] wrote {len(tables)} tables to {spec.out_dir}")
     return meta
@@ -3175,11 +3176,84 @@ def check_conversion_steps(steps: pl.DataFrame, profiles: pl.DataFrame) -> List[
     return messages
 
 
+def profile_coverage(profiles: pl.DataFrame) -> Dict[str, Dict[str, str]]:
+    """
+    The dates of each dataset's first and last profile.
+
+    They bound when the source was downloaded, which nothing in the files
+    records: the download came after the last profile.
+
+    :param profiles: The classified profiles of every dataset.
+    :return: ``{dataset_id: {"first_profile": date, "last_profile": date}}``
+             as ISO dates, empty when the profiles have no timestamp.
+    """
+    if "profile_timestamp" not in profiles.columns:
+        return {}
+    dates = (
+        profiles.group_by("dataset_id")
+        .agg(
+            pl.col("profile_timestamp").min().dt.date().alias("first"),
+            pl.col("profile_timestamp").max().dt.date().alias("last"),
+        )
+        .drop_nulls()
+    )
+    return {
+        row["dataset_id"]: {
+            "first_profile": row["first"].isoformat(),
+            "last_profile": row["last"].isoformat(),
+        }
+        for row in dates.iter_rows(named=True)
+    }
+
+
+def provenance_meta(config: BuildConfig) -> Optional[Dict[str, Any]]:
+    """
+    The ``provenance`` entry of ``meta.json``.
+
+    It is the configuration's ``provenance`` section as written, with the
+    nrtqclib configuration replaced by its file name and SHA-256 checksum,
+    so the record says which configuration ran without publishing its paths.
+
+    :param config: The build configuration.
+    :return: The entry, or None when the configuration has no section.
+    :raises FileNotFoundError: If the named nrtqclib configuration is missing,
+                               since a checksum of nothing would mislead.
+    """
+    spec = config.provenance
+    if spec is None:
+        return None
+    entry: Dict[str, Any] = {}
+    if spec.note:
+        entry["note"] = spec.note
+    entry["tools"] = spec.tools
+    if spec.nrtqclib_config:
+        if not os.path.isfile(spec.nrtqclib_config):
+            raise FileNotFoundError(
+                f"provenance.nrtqclib_config: {spec.nrtqclib_config} not found."
+            )
+        with open(spec.nrtqclib_config, "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+        entry["nrtqclib_config"] = {
+            "file": os.path.basename(spec.nrtqclib_config),
+            "sha256": digest,
+        }
+    entry["reference_data"] = spec.reference_data
+    entry["products"] = spec.products
+    return entry
+
+
 def _write(
-    tables: Dict[str, pl.DataFrame], config: BuildConfig, spec: AnalysesSpec
+    tables: Dict[str, pl.DataFrame],
+    config: BuildConfig,
+    spec: AnalysesSpec,
+    coverage: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
     Write the tables as CSV and ``meta.json`` beside them.
+
+    ``meta.json`` gains a ``provenance`` entry when the configuration has the
+    section (see :func:`provenance_meta`), and each dataset its first and
+    last profile date when ``coverage`` has them.
 
     A table directory left over from an earlier run is emptied first, so a
     table that is no longer made cannot linger and be published.
@@ -3206,6 +3280,7 @@ def _write(
                 "label": d.label,
                 "source": d.source,
                 "data_mode": d.data_mode,
+                **(coverage or {}).get(d.id, {}),
             }
             for d in config.datasets
         ],
@@ -3261,6 +3336,9 @@ def _write(
             },
         },
     }
+    provenance = provenance_meta(config)
+    if provenance is not None:
+        meta["provenance"] = provenance
     with open(os.path.join(spec.out_dir, "meta.json"), "w", encoding="utf-8") as handle:
         json.dump(meta, handle, indent=2)
         handle.write("\n")

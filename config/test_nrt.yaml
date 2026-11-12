@@ -86,7 +86,8 @@ analyses:
   out_dir: ../site/data/analyses
   ctddump_reports: ../data/../ctddump/report
   ctddump_headers: ../data/../ctddump/header
-  ctddump_dups: ../data/../ctddump/dups
+  # The duplicate lists sit where ctddump's dedup_data.sh writes them.
+  ctddump_dups: ../data/../ctddump/dedup/markdup
   seastamp_reports: ../data/../seastamp/report/stamp
   # seastamp's bathymetry is GEBCO elevation, negative under water. A
   # position at or above sea level is on land, as nrtqclib's RTQC4 has it.
@@ -101,10 +102,77 @@ analyses:
   estimated_delayed:
     sensitivity: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
+# Where the batch came from, which neither ctddump's nor nrtqclib's parquet
+# records. `nrtqc-diff analyse` copies this into meta.json as written, with
+# the nrtqclib configuration replaced by its file name and SHA-256 checksum.
+# DOIs: Zenodo version DOIs for the tools; the Copernicus Marine product
+# metadata (`sci:doi`) for the products. See docs/ANALYSES.md.
+provenance:
+  note: >-
+    ctddump 0.37.2 ran from the merge on; the per-file NetCDF to Parquet
+    conversion was reused from ctddump 0.36.0, whose conversion code 0.37.2
+    does not change. The products' download date is taken from the
+    downloaded files' timestamps.
+  tools:
+    - name: ctddump
+      version: "0.37.2"
+      doi: 10.5281/zenodo.24093111
+    - name: seastamp
+      version: "0.19.1"
+      doi: 10.5281/zenodo.24094203
+    - name: nrtqclib
+      version: "0.1.7"
+      doi: 10.5281/zenodo.24167919
+    - name: aiqclib
+      version: "0.15.2"
+      note: >-
+        nrtqclib's dependency, which implements the QC tests nrtqclib runs.
+  nrtqclib_config: ../data/config/nrt_qc_config.yaml
+  reference_data:
+    - name: GEBCO 2024 Grid, sub-ice topography
+      version: "2024"
+      doi: 10.5285/1c44ce99-0a0d-5f4f-e063-7086abc0ea0f
+    - name: "GSHHG: Global Self-consistent Hierarchical High-resolution Geography"
+      version: "2.3.7"
+  # The GL_ files (`ar_gl`, `mo_gl`) come from the regional product's folder,
+  # as ctddump's workflow reads them, not from the global product.
+  # The download date comes from the downloaded files' timestamps; nothing
+  # else records it. It falls after the last NRT profile (2026-06-30).
+  products:
+    - product: INSITU_ARC_PHYBGCWAV_DISCRETE_MYNRT_013_031
+      dataset: cmems_obs-ins_arc_phybgcwav_mynrt_na_irr_202311
+      part: history
+      files: AR_PR_CT_*.nc, GL_PR_CT_*.nc
+      doi: 10.48670/moi-00031
+      downloaded: "2026-07-12"
+      datasets: [ar_ar, ar_gl]
+    - product: INSITU_BAL_PHYBGCWAV_DISCRETE_MYNRT_013_032
+      dataset: cmems_obs-ins_bal_phybgcwav_mynrt_na_irr_202311
+      part: history
+      files: BO_PR_CT_*.nc
+      doi: 10.48670/moi-00032
+      downloaded: "2026-07-12"
+      datasets: [bo_bo]
+    - product: INSITU_MED_PHYBGCWAV_DISCRETE_MYNRT_013_035
+      dataset: cmems_obs-ins_med_phybgcwav_mynrt_na_irr_202311
+      part: history
+      files: MO_PR_CT_*.nc, GL_PR_CT_*.nc
+      doi: 10.48670/moi-00044
+      downloaded: "2026-07-12"
+      datasets: [mo_mo, mo_gl]
+    - product: INSITU_GLO_PHY_TS_DISCRETE_MY_013_001
+      dataset: cmems_obs-ins_glo_phy-temp-sal_my_cora_irr_202511
+      part: arctic, baltic, mediterrane
+      files: "*_PR_CT.nc"
+      doi: 10.17882/46219
+      downloaded: "2026-07-12"
+      datasets: [cora_ar, cora_bo, cora_mo]
+
 # The eight datasets of the batch are a region by product grid. `ar`, `bo` and
 # `mo` are the Copernicus codes for the Arctic, the Baltic and the
-# Mediterranean; `gl` is the global product covering the same region, and
-# `cora` is the reprocessed one. The Baltic has no global entry, which the
+# Mediterranean; `gl` is the global NRT product's platforms in the same
+# region, distributed in the regional product, and `cora` is the reprocessed
+# one. The Baltic has no global entry, which the
 # tree handles: products are derived from what was built.
 datasets:
   - id: ar_ar
