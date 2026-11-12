@@ -231,9 +231,9 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
             shapes = shape_table(scan, nrt, dataset, config)
             if shapes.height:
                 item_tables.setdefault("items_shape", []).append(shapes)
-            response = response_table(scan, nrt, dataset, config)
-            if response.height:
-                item_tables.setdefault("items_response", []).append(response)
+            for name, table in response_tables(scan, nrt, dataset, config).items():
+                if table.height:
+                    item_tables.setdefault(name, []).append(table)
 
     if land_flags:
         tables["depth_land_flags"] = pl.concat(land_flags, how="diagonal_relaxed")
@@ -1688,6 +1688,25 @@ RESPONSE_TESTS: List[Dict[str, Any]] = [
     },
 ]
 
+#: Platforms whose codes start with one of these are ice-tethered profilers
+#: (Woods Hole's ITP and their TOP successors); :func:`platform_group` sets
+#: them apart from the rest, which in the Arctic are mostly ships.
+ICE_TETHERED_PREFIXES: List[str] = ["ITP-", "TOP-"]
+
+#: The edges of the finer bands of ``density_threshold``, in kg/m³ between
+#: levels (or per dbar), each band holding the inversions above the edge
+#: before it and up to its own; the last band holds those above the last
+#: edge. They are close around 0.05, where the regional products' tests
+#: start flagging, so that a step there shows.
+DENSITY_EDGES: List[float] = [
+    0.0, 0.01, 0.02, 0.03, 0.04, 0.045, 0.0495,
+    0.05, 0.0505, 0.055, 0.06, 0.08, 0.1, 0.2,
+]  # fmt: skip
+
+#: An inversion between levels of more than this many kg/m³ is a clear one
+#: in ``density_platforms``, as in the clear bands of ``items_response``.
+DENSITY_CLEAR: float = 0.05
+
 
 def sigma0_eos80(temp: pl.Expr, psal: pl.Expr) -> pl.Expr:
     """
@@ -1855,25 +1874,8 @@ def _response_chunk(
     # Both variables' tests run over the profiles compared for every variable.
     names = [v.name for v in variables]
     both = frame.filter(pl.all_horizontal([pl.col(f"keep_{n}") for n in names]))
-    any_bad = pl.any_horizontal([pl.col(f"bad_{n}") for n in names])
     if "temp" in in_range and "psal" in in_range:
-        ok = in_range["temp"] & in_range["psal"]
-        pairs = both.with_columns(
-            sigma0_eos80(pl.col("temp"), pl.col("psal")).alias("_sigma"),
-            ok.alias("_ok"),
-            any_bad.alias("_bad"),
-        ).with_columns(
-            pl.when(
-                pl.col("_sp")
-                & pl.col("_ok")
-                & pl.col("_ok").shift(1)
-                & (pres > pres.shift(1))
-            )
-            .then(pl.col("_sigma").shift(1) - pl.col("_sigma"))
-            .alias("_inversion"),
-            (pres - pres.shift(1)).alias("_dp"),
-            (pl.col("_bad") | pl.col("_bad").shift(1)).alias("_pair_bad"),
-        )
+        pairs = _density_pairs(both, names)
         banded(
             "density_inversion",
             "density",
@@ -1904,6 +1906,215 @@ def _response_chunk(
             pl.col(f"bad_{name}"),
         )
     return pl.collect_all(out)
+
+
+def platform_group(code: pl.Expr) -> pl.Expr:
+    """
+    ``"ice_tethered"`` for a platform code starting with one of
+    :data:`ICE_TETHERED_PREFIXES`, ``"other"`` for any other.
+    """
+    tethered = pl.any_horizontal(
+        [code.str.starts_with(p) for p in ICE_TETHERED_PREFIXES]
+    )
+    return pl.when(tethered).then(pl.lit("ice_tethered")).otherwise(pl.lit("other"))
+
+
+def _density_pairs(rows: pl.LazyFrame, names: List[str]) -> pl.LazyFrame:
+    """
+    ``rows`` with each level set against the one recorded before it.
+
+    ``_inversion`` is how much lighter the level is than the one above it
+    (positive for an inversion), in kg/m³ by :func:`sigma0_eos80`, where
+    both are of the same profile, have both variables inside the global
+    range, and the level is deeper; otherwise it is missing. ``_dp`` is
+    the pressure between them, ``_bad`` and ``_bad_upper`` whether the
+    input flags either variable at the level and at the one above, and
+    ``_pair_bad`` whether it flags either.
+
+    :param rows: Whole profiles in recorded order, with ``_sp`` (the level
+                 before is of the same profile), the values and the
+                 ``bad_<name>`` flags.
+    :param names: The variables, which must include ``temp`` and ``psal``.
+    """
+    pres = pl.col("pres")
+    ok = pl.all_horizontal(
+        [
+            pl.col(n).cast(pl.Float64).is_between(*RESPONSE_GLOBAL_RANGE[n])
+            for n in ["temp", "psal"]
+        ]
+    )
+    bad = pl.any_horizontal([pl.col(f"bad_{n}") for n in names])
+    return rows.with_columns(
+        sigma0_eos80(pl.col("temp"), pl.col("psal")).alias("_sigma"),
+        ok.alias("_ok"),
+        bad.alias("_bad"),
+    ).with_columns(
+        pl.when(
+            pl.col("_sp")
+            & pl.col("_ok")
+            & pl.col("_ok").shift(1)
+            & (pres > pres.shift(1))
+        )
+        .then(pl.col("_sigma").shift(1) - pl.col("_sigma"))
+        .alias("_inversion"),
+        (pres - pres.shift(1)).alias("_dp"),
+        pl.col("_bad").shift(1).alias("_bad_upper"),
+        (pl.col("_bad") | pl.col("_bad").shift(1)).alias("_pair_bad"),
+    )
+
+
+def _density_chunk(
+    frame: pl.DataFrame, variables: List[VariableSpec]
+) -> Dict[str, pl.DataFrame]:
+    """
+    The density inversions of one slice of whole profiles, counted for
+    ``density_threshold`` and ``density_platforms``.
+
+    :param frame: As :func:`_response_chunk` takes it.
+    :return: Partial counts, summed over the slices by
+             :func:`_density_tables`: ``threshold`` per platform group,
+             measure and band; ``platforms`` per platform; ``spacing`` per
+             platform and level spacing (rounded to 0.01 dbar), for the
+             median. Empty without temperature and salinity.
+    """
+    names = [v.name for v in variables]
+    if "temp" not in names or "psal" not in names:
+        return {}
+    rows = (
+        frame.lazy()
+        .filter(pl.all_horizontal([pl.col(f"keep_{n}") for n in names]))
+        .with_columns(
+            (pl.col("_pid") == pl.col("_pid").shift(1)).fill_null(False).alias("_sp")
+        )
+    )
+    pairs = _density_pairs(rows, names).filter(pl.col("_inversion").is_not_null())
+    flags = [
+        pl.col("_pair_bad").sum().cast(pl.Int64).alias("n_flagged"),
+        pl.col("_bad").sum().cast(pl.Int64).alias("n_flagged_deeper"),
+        pl.col("_bad_upper").sum().cast(pl.Int64).alias("n_flagged_upper"),
+    ]
+    threshold = []
+    for measure, value in [
+        ("level", pl.col("_inversion")),
+        ("dbar", pl.col("_inversion") / pl.col("_dp")),
+    ]:
+        band = pl.sum_horizontal([(value > edge) for edge in DENSITY_EDGES])
+        threshold.append(
+            pairs.with_columns(
+                platform_group(pl.col("platform_code")).alias("platform_group"),
+                band.cast(pl.Int64).alias("band"),
+            )
+            .filter(pl.col("band") > 0)
+            .group_by("platform_group", "band")
+            .agg(pl.len().cast(pl.Int64).alias("n"), *flags)
+            .with_columns(pl.lit(measure).alias("measure"))
+        )
+    inversion = pl.col("_inversion")
+    small = (inversion > 0) & (inversion <= DENSITY_CLEAR)
+    clear = inversion > DENSITY_CLEAR
+    platforms = pairs.group_by("platform_code").agg(
+        pl.len().cast(pl.Int64).alias("n_pairs"),
+        (inversion > 0).sum().cast(pl.Int64).alias("n_inversions"),
+        small.sum().cast(pl.Int64).alias("n_small"),
+        (small & pl.col("_pair_bad")).sum().cast(pl.Int64).alias("n_small_flagged"),
+        clear.sum().cast(pl.Int64).alias("n_clear"),
+        (clear & pl.col("_pair_bad")).sum().cast(pl.Int64).alias("n_clear_flagged"),
+        (clear & pl.col("_bad")).sum().cast(pl.Int64).alias("n_clear_flagged_deeper"),
+    )
+    spacing = pairs.group_by("platform_code", pl.col("_dp").round(2)).agg(
+        pl.len().cast(pl.Int64).alias("n")
+    )
+    threshold_counts, platform_counts, spacing_counts = pl.collect_all(
+        [pl.concat(threshold), platforms, spacing]
+    )
+    return {
+        "threshold": threshold_counts,
+        "platforms": platform_counts,
+        "spacing": spacing_counts,
+    }
+
+
+def _density_tables(
+    parts: List[Dict[str, pl.DataFrame]], label: List[pl.Expr]
+) -> Dict[str, pl.DataFrame]:
+    """
+    ``density_threshold`` and ``density_platforms`` from the counts of
+    :func:`_density_chunk`, labelled with the dataset columns ``label``.
+    """
+    parts = [p for p in parts if p]
+    if not parts:
+        return {}
+    uppers = DENSITY_EDGES + [None]
+    threshold = (
+        pl.concat([p["threshold"] for p in parts])
+        .group_by("platform_group", "measure", "band")
+        .agg(pl.col("n", "n_flagged", "n_flagged_deeper", "n_flagged_upper").sum())
+        .with_columns(
+            pl.col("band")
+            .replace_strict(
+                {b: DENSITY_EDGES[b - 1] for b in range(1, len(uppers))},
+                return_dtype=pl.Float64,
+            )
+            .alias("lower"),
+            pl.col("band")
+            .replace_strict(
+                {b: uppers[b] for b in range(1, len(uppers))}, return_dtype=pl.Float64
+            )
+            .alias("upper"),
+        )
+        .sort("platform_group", "measure", "band", descending=[False, True, False])
+        .select(
+            label
+            + [
+                "platform_group",
+                "measure",
+                "band",
+                "lower",
+                "upper",
+                "n",
+                "n_flagged",
+                "n_flagged_deeper",
+                "n_flagged_upper",
+            ]
+        )
+    )
+    spacing = (
+        pl.concat([p["spacing"] for p in parts])
+        .group_by("platform_code", "_dp")
+        .agg(pl.col("n").sum())
+        .sort("platform_code", "_dp")
+        .with_columns(
+            pl.col("n").cum_sum().over("platform_code").alias("_cum"),
+            pl.col("n").sum().over("platform_code").alias("_total"),
+        )
+        .group_by("platform_code")
+        .agg(
+            pl.col("_dp")
+            .filter(pl.col("_cum") * 2 >= pl.col("_total"))
+            .first()
+            .alias("spacing_dbar")
+        )
+    )
+    counts = [
+        "n_pairs",
+        "n_inversions",
+        "n_small",
+        "n_small_flagged",
+        "n_clear",
+        "n_clear_flagged",
+        "n_clear_flagged_deeper",
+    ]
+    platforms = (
+        pl.concat([p["platforms"] for p in parts])
+        .group_by("platform_code")
+        .agg(pl.col(counts).sum())
+        .filter(pl.col("n_inversions") > 0)
+        .join(spacing, on="platform_code", how="left")
+        .with_columns(platform_group(pl.col("platform_code")).alias("platform_group"))
+        .sort("platform_code")
+        .select(label + ["platform_code", "platform_group", "spacing_dbar"] + counts)
+    )
+    return {"density_threshold": threshold, "density_platforms": platforms}
 
 
 def _frozen_chunk(
@@ -2038,6 +2249,18 @@ def response_table(
     dataset: DatasetSpec,
     config: BuildConfig,
 ) -> pl.DataFrame:
+    """The ``items_response`` table of :func:`response_tables`, or an empty one."""
+    return response_tables(scan, keep, dataset, config).get(
+        "items_response", pl.DataFrame()
+    )
+
+
+def response_tables(
+    scan: pl.LazyFrame,
+    keep: Dict[str, pl.DataFrame],
+    dataset: DatasetSpec,
+    config: BuildConfig,
+) -> Dict[str, pl.DataFrame]:
     """
     How often the input flags the failures of each of nrtqclib's tests, by
     how far past the threshold they are.
@@ -2052,17 +2275,24 @@ def response_table(
     :func:`item_tables_for`; a test of both variables or of pressure takes
     the profiles compared for every variable.
 
+    The same pass counts the density inversions finer, around the 0.05
+    kg/m³ the regional products' tests start at, and per platform, for
+    ``density_threshold`` and ``density_platforms`` (:func:`_density_tables`):
+    a product that runs the test on some platforms only shows it there.
+
     :param scan: The dataset.
     :param keep: Per variable name, the keys of the profiles compared for it.
     :param dataset: The dataset's configuration.
     :param config: The build configuration.
-    :return: One row per test, variable (``density`` for the density tests,
-             ``pres`` for the input's pressure flag) and band, with how many
-             there are (``n``) and how many the input flags (``n_flagged``).
+    :return: The tables by name, those with nothing to count left out.
+             ``items_response`` has one row per test, variable (``density``
+             for the density tests, ``pres`` for the input's pressure flag)
+             and band, with how many there are (``n``) and how many the
+             input flags (``n_flagged``).
     """
     variables = list(config.variables)
     if not any(keep[v.name].height for v in variables):
-        return pl.DataFrame()
+        return {}
     schema = scan.collect_schema().names()
     has_pres_flag = "pres_qc" in schema
     columns = [
@@ -2103,6 +2333,7 @@ def response_table(
 
     total = scan.select(pl.len()).collect().item()
     counts: List[pl.DataFrame] = []
+    density: List[Dict[str, pl.DataFrame]] = []
     carry = None
     # The last whole profile of the slice before, which the frozen profile
     # test compares the first profile of the next slice with.
@@ -2148,8 +2379,9 @@ def response_table(
         if not part.height:
             continue
         counts.extend(_response_chunk(part, variables, has_pres_flag))
+        density.append(_density_chunk(part, variables))
     if not counts:
-        return pl.DataFrame()
+        return {}
     label = [
         pl.lit(dataset.id).alias("dataset_id"),
         pl.lit(dataset.region).alias("region"),
@@ -2157,7 +2389,7 @@ def response_table(
         pl.lit(dataset.label).alias("label"),
     ]
     order = {t["key"]: i for i, t in enumerate(RESPONSE_TESTS)}
-    return (
+    response = (
         pl.concat(counts)
         .group_by("test", "variable", "band")
         .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
@@ -2165,6 +2397,7 @@ def response_table(
         .sort("_order", "variable", "band")
         .select(label + ["test", "variable", "band", "n", "n_flagged"])
     )
+    return {"items_response": response, **_density_tables(density, label)}
 
 
 #: Two profiles of different products are the same cast when they share a
@@ -2656,6 +2889,11 @@ def _write(
                 "sensitivity": spec.estimated_sensitivity,
             },
             "position_bad_values": POSITION_BAD_VALUES,
+            "density": {
+                "edges": DENSITY_EDGES,
+                "clear_above": DENSITY_CLEAR,
+                "ice_tethered_prefixes": ICE_TETHERED_PREFIXES,
+            },
         },
     }
     with open(os.path.join(spec.out_dir, "meta.json"), "w", encoding="utf-8") as handle:
