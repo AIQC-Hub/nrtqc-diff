@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-12
+
 ### Added
 
 - **Provenance in `meta.json`**: an optional `provenance` section of the
