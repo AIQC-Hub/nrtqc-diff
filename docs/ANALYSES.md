@@ -73,7 +73,7 @@ analyses:
   out_dir: ../site/data/analyses
   ctddump_reports: ../data/../ctddump/report
   ctddump_headers: ../data/../ctddump/header
-  ctddump_dups: ../data/../ctddump/dups
+  ctddump_dups: ../data/../ctddump/dedup/markdup
   seastamp_reports: ../data/../seastamp/report/stamp
   land:
     column: bathymetry      # the sea floor depth column of the NRT QC output
@@ -96,6 +96,38 @@ The report folders are resolved through symbolic links before `..`: they sit
 next to the batch, which is reached through the `data` link, so
 `../data/../ctddump` means the folder beside where the link points. A report
 folder left out of the section only leaves its tables out.
+
+### Provenance
+
+Neither ctddump's nor nrtqclib's parquet records which version wrote it, so
+an optional top-level `provenance` section says where the batch came from,
+and `nrtqc-diff analyse` copies it into `meta.json` under `provenance`:
+
+```yaml
+provenance:
+  note: free text about the batch
+  tools:            # name, version; optional doi, note
+    - {name: ctddump, version: "0.37.2", doi: 10.5281/zenodo.24093111}
+  nrtqclib_config: ../data/config/nrt_qc_config.yaml
+  reference_data:   # name; optional version, doi, note
+    - {name: "GSHHG", version: "2.3.7"}
+  products:         # product, dataset, datasets; optional part, files, doi, downloaded, note
+    - product: INSITU_BAL_PHYBGCWAV_DISCRETE_MYNRT_013_032
+      dataset: cmems_obs-ins_bal_phybgcwav_mynrt_na_irr_202311
+      doi: 10.48670/moi-00032
+      datasets: [bo_bo]
+```
+
+Values are kept as text, as written. An unknown key, a missing required one,
+or a product naming a dataset the configuration lacks is an error, so a typo
+cannot drop a line from the record. `nrtqclib_config` is resolved like the
+report folders and recorded as its file name and SHA-256 checksum, not its
+path; a missing file is an error. Each dataset in `meta.json` also gets
+`first_profile` and `last_profile`, the dates of its first and last profile,
+which bound the download date when nothing else records it.
+
+Keep the section current whenever the batch is rerun: it is the only record
+of the versions behind the tables.
 
 ## The groups
 
@@ -136,9 +168,10 @@ threshold.
 
 All are CSV under `tables/`, with `dataset_id`, `region`, `product` and
 `label` leading each row where they apply. `meta.json` lists the tables
-written, the datasets, the variables with their flag value lists, the
-agreement categories with their colours, the groups, the pressure bands and
-the rules above. `analyses_format` is raised with any change to a table's
+written, the datasets with their first and last profile dates, the
+variables with their flag value lists, the agreement categories with their
+colours, the groups, the pressure bands, the rules above and, when the
+configuration has one, the provenance of the batch. `analyses_format` is raised with any change to a table's
 name or columns.
 
 | Table | One row per | Holds |

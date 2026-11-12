@@ -210,3 +210,47 @@ def test_a_dataset_data_mode_must_be_a_group(tmp_path):
     }
     with pytest.raises(ValueError, match="cora"):
         read_config(str(write_config(tmp_path, datasets=[entry])))
+
+
+PROVENANCE = {
+    "note": "The test batch",
+    "tools": [{"name": "ctddump", "version": 0.37, "doi": "10.5281/zenodo.1"}],
+    "reference_data": [{"name": "GSHHG", "version": "2.3.7"}],
+    "products": [
+        {
+            "product": "INSITU_X",
+            "dataset": "cmems_x_202311",
+            "doi": "10.48670/x",
+            "datasets": ["one"],
+        }
+    ],
+}
+
+
+def test_provenance_is_optional(tmp_path):
+    assert read_config(str(write_config(tmp_path))).provenance is None
+
+
+def test_provenance_keeps_values_as_written(tmp_path):
+    config = read_config(str(write_config(tmp_path, provenance=PROVENANCE)))
+    assert config.provenance.tools == [
+        {"name": "ctddump", "version": "0.37", "doi": "10.5281/zenodo.1"}
+    ]
+    assert config.provenance.products[0]["datasets"] == ["one"]
+    assert config.provenance.note == "The test batch"
+    assert config.provenance.nrtqclib_config is None
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        ({"tools": [{"name": "ctddump"}]}, "has no 'version'"),
+        ({"tools": [{"name": "a", "version": "1", "url": "x"}]}, "unknown key 'url'"),
+        ({"products": [{**PROVENANCE["products"][0], "datasets": ["two"]}]}, "'two'"),
+        ({"tool": []}, "unknown key 'tool'"),
+    ],
+)
+def test_provenance_rejects_typos_and_unknown_datasets(tmp_path, change, message):
+    path = write_config(tmp_path, provenance={**PROVENANCE, **change})
+    with pytest.raises(ValueError, match=message):
+        read_config(str(path))

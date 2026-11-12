@@ -228,6 +228,49 @@ class AnalysesSpec:
     )
 
 
+#: The keys each kind of ``provenance`` entry may have. A key outside these
+#: is a typo, so it is an error rather than something silently dropped.
+PROVENANCE_KEYS: Dict[str, Dict[str, List[str]]] = {
+    "tools": {"required": ["name", "version"], "optional": ["doi", "note"]},
+    "reference_data": {"required": ["name"], "optional": ["version", "doi", "note"]},
+    "products": {
+        "required": ["product", "dataset", "datasets"],
+        "optional": ["part", "files", "doi", "downloaded", "note"],
+    },
+}
+
+
+@dataclass(frozen=True)
+class ProvenanceSpec:
+    """
+    Where the batch came from: what the input files cannot say for themselves.
+
+    Neither ctddump's nor nrtqclib's parquet records a version, so the
+    versions and sources are written into the configuration by hand and
+    copied into ``meta.json``. Only the checksum of the nrtqclib
+    configuration is computed, when the analyses are written.
+
+    :ivar tools: One mapping per tool that made the batch: ``name``,
+                 ``version`` and optionally ``doi`` and ``note``.
+    :ivar reference_data: One mapping per reference dataset, such as the
+                          GEBCO grid: ``name`` and optionally ``version``,
+                          ``doi`` and ``note``.
+    :ivar products: One mapping per Copernicus Marine product: ``product``,
+                    ``dataset`` (with its version), the ``datasets`` of this
+                    configuration it feeds, and optionally ``part``,
+                    ``files``, ``doi``, ``downloaded`` and ``note``.
+    :ivar nrtqclib_config: The nrtqclib configuration the batch ran with, or
+                           None.
+    :ivar note: A free text line about the batch, or None.
+    """
+
+    tools: List[Dict[str, Any]] = field(default_factory=list)
+    reference_data: List[Dict[str, Any]] = field(default_factory=list)
+    products: List[Dict[str, Any]] = field(default_factory=list)
+    nrtqclib_config: Optional[str] = None
+    note: Optional[str] = None
+
+
 @dataclass(frozen=True)
 class BuildConfig:
     """
@@ -242,6 +285,8 @@ class BuildConfig:
                           See :data:`DEFAULT_ROW_GROUP_SIZE`.
     :ivar analyses: The ``analyses`` section, or None when the configuration
                     has none; only ``nrtqc-diff analyse`` needs it.
+    :ivar provenance: The ``provenance`` section, or None. ``nrtqc-diff
+                      analyse`` copies it into ``meta.json``.
     """
 
     title: str
@@ -251,6 +296,7 @@ class BuildConfig:
     datasets: List[DatasetSpec]
     row_group_size: int = DEFAULT_ROW_GROUP_SIZE
     analyses: Optional[AnalysesSpec] = None
+    provenance: Optional[ProvenanceSpec] = None
 
     def variable(self, name: str) -> VariableSpec:
         """
@@ -381,6 +427,9 @@ def read_config(file_name: str) -> BuildConfig:
         datasets=datasets,
         row_group_size=row_group_size,
         analyses=_analyses(raw.get("analyses"), base_dir),
+        provenance=_provenance(
+            raw.get("provenance"), base_dir, [d.id for d in datasets]
+        ),
     )
 
 
@@ -502,6 +551,83 @@ def _analyses(raw: Any, base_dir: str) -> Optional[AnalysesSpec]:
             "at most 1."
         )
     return spec
+
+
+def _provenance(
+    raw: Any, base_dir: str, dataset_ids: List[str]
+) -> Optional[ProvenanceSpec]:
+    """
+    Read the optional ``provenance`` section.
+
+    Values are kept as text: YAML reads ``0.37`` as a number and an unquoted
+    date as a date, and both belong in ``meta.json`` as written. The
+    nrtqclib configuration is resolved like the ``analyses`` directories,
+    through symbolic links first, since it sits in the batch folder that the
+    ``data`` link points at.
+
+    :param raw: The section as parsed from YAML, or None.
+    :param base_dir: The directory holding the configuration file.
+    :param dataset_ids: The ids of the configured datasets.
+    :return: The parsed section, or None when there is none.
+    :raises ValueError: If an entry lacks a required key, has an unknown
+                        one, or names a dataset the configuration lacks.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("The 'provenance' section must be a mapping.")
+    known = set(PROVENANCE_KEYS) | {"nrtqclib_config", "note"}
+    unknown = sorted(set(raw) - known)
+    if unknown:
+        raise ValueError(f"provenance has an unknown key '{unknown[0]}'.")
+
+    lists: Dict[str, List[Dict[str, Any]]] = {}
+    for kind, keys in PROVENANCE_KEYS.items():
+        entries = raw.get(kind) or []
+        if not isinstance(entries, list):
+            raise ValueError(f"provenance.{kind} must be a list.")
+        parsed = []
+        for number, entry in enumerate(entries, 1):
+            where = f"provenance.{kind} entry {number}"
+            if not isinstance(entry, dict):
+                raise ValueError(f"{where} must be a mapping.")
+            missing = [k for k in keys["required"] if entry.get(k) in (None, "")]
+            if missing:
+                raise ValueError(f"{where} has no '{missing[0]}'.")
+            extra = sorted(set(entry) - set(keys["required"]) - set(keys["optional"]))
+            if extra:
+                raise ValueError(f"{where} has an unknown key '{extra[0]}'.")
+            item: Dict[str, Any] = {}
+            for key, value in entry.items():
+                if key == "datasets":
+                    names = [str(v) for v in value] if isinstance(value, list) else []
+                    if not names:
+                        raise ValueError(f"{where}: 'datasets' must list dataset ids.")
+                    absent = [n for n in names if n not in dataset_ids]
+                    if absent:
+                        raise ValueError(
+                            f"{where} names dataset '{absent[0]}', which the "
+                            "configuration does not have."
+                        )
+                    item[key] = names
+                elif value is not None:
+                    item[key] = str(value)
+            parsed.append(item)
+        lists[kind] = parsed
+
+    config_file = raw.get("nrtqclib_config")
+    note = raw.get("note")
+    return ProvenanceSpec(
+        tools=lists["tools"],
+        reference_data=lists["reference_data"],
+        products=lists["products"],
+        nrtqclib_config=(
+            os.path.realpath(_resolve(str(config_file), base_dir, textual=False))
+            if config_file
+            else None
+        ),
+        note=str(note) if note is not None else None,
+    )
 
 
 def _resolve(path: str, base_dir: str, textual: bool = True) -> str:

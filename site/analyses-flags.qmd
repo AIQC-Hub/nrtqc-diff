@@ -462,7 +462,7 @@ that the other source flags too.
   their levels, so the CORA copy is not the NRT copy with new flags, and its
   flags on the CORA copy come closer to CORA's, for temperature most.
 - **The global product**: the producer's flags are close to CORA's (kappa
-  0.64 to 0.88), and nrtqclib's are not (below 0.15), since it flags several
+  0.68 to 0.99), and nrtqclib's are not (below 0.15), since it flags several
   times more.
 
 ```{ojs}

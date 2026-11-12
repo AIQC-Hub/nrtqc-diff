@@ -23,7 +23,7 @@ and nothing outside it, so the file is never published as a page.
 
 | Side | What was read |
 | --- | --- |
-| `nrtqclib` | Version 0.1.6: its documentation (one page per QC item) and the item classes it runs, which live in `aiqclib` 0.15.2 (`prepare/features/qc_*.py`) |
+| `nrtqclib` | Version 0.1.7: its documentation (one page per QC item) and the item classes it runs, which live in `aiqclib` 0.15.2 (`prepare/features/qc_*.py`) |
 | Our runs | The `nrtqclib` configuration the published data was built with, which sets the parameters per region set (Arctic, Baltic, Mediterranean), and the `nrtqclib` output itself |
 | `nc2parquet` | A copy of the scripts without git history. The tests are in `source/ctd_nrtqc.py`; two drivers run them, `source/set_nrtqc.py` and `source/process_profiles.py`. Their threshold tables and region mask are in `data/NRTQC/` of the same repository, copied separately |
 
