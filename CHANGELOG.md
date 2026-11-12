@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   seastamp 0.19.1, nrtqclib 0.1.7 and aiqclib 0.15.2 (nrtqclib's dependency
   that implements the QC tests).
 
+### Changed
+
+- The Flag differences in NRT page gives the global products' agreement
+  with CORA from the rerun: the producer's kappa is 0.68 to 0.99, where it
+  was 0.64 to 0.88. With tied pressures kept in source order, the NRT and
+  CORA copies of a cast line up level for level, and most of the earlier
+  disagreement in the Mediterranean global product goes.
+
 ### Fixed
 
 - `config/test_nrt.yaml` pointed `ctddump_dups` at a folder that does not
