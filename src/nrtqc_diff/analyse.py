@@ -1572,6 +1572,17 @@ RESPONSE_CHUNK_ROWS: int = 2_000_000
 #: left unflagged does not hide it.
 RESPONSE_WHOLE_SHARE: float = 0.95
 
+#: The frozen profile test of the Argo real time QC manual, which nrtqclib
+#: does not run: a profile and the platform's previous one are averaged in
+#: slabs of this many dbar, and the profile is frozen when the absolute
+#: differences of the slab means are all under ``max``, at least one under
+#: ``min``, and on average under ``mean``.
+FROZEN_SLAB_DBAR: float = 50.0
+FROZEN_LIMITS: Dict[str, Dict[str, float]] = {
+    "temp": {"mean": 0.02, "max": 0.3, "min": 0.001},
+    "psal": {"mean": 0.004, "max": 0.3, "min": 0.001},
+}
+
 #: The tests :func:`response_table` measures, in the order the pages show
 #: them. Each failure is put in a band by how far it is past the test's
 #: threshold, ``uppers`` being the upper edge of each band (included) and
@@ -1617,6 +1628,20 @@ RESPONSE_TESTS: List[Dict[str, Any]] = [
         "bands": ["Not stuck", "2 to 4 values", "5 to 9 values", "10 values or more"],
         "uppers": [0.0, 4.0, 9.0, None],
         "clear": [2, 3],
+    },
+    {
+        "key": "frozen_profile",
+        "label": "Frozen profile",
+        "unit": "profiles",
+        "measure": (
+            "How the profile compares with the platform's previous one, at "
+            "another time: by the Argo frozen profile test's limits on "
+            "50 dbar slabs, or the same pressures and values at every level. "
+            "Only profiles inside the range and not one value throughout"
+        ),
+        "bands": ["Different", "Within Argo's limits", "Exact repeat"],
+        "uppers": [0.0, 1.0, None],
+        "clear": [2],
     },
     {
         "key": "density_inversion",
@@ -1881,6 +1906,132 @@ def _response_chunk(
     return pl.collect_all(out)
 
 
+def _frozen_chunk(
+    frame: pl.DataFrame, variables: List[VariableSpec], context: int
+) -> List[pl.DataFrame]:
+    """
+    The frozen profile test over one slice of whole profiles.
+
+    Each profile is set against the profile before it, when that one is of
+    the same platform and at another time (one at the same time is a
+    duplicate, not a frozen profile), whatever its data mode. It is an
+    exact repeat when it has the same pressures and values at every level,
+    in order; otherwise it is within Argo's limits when the slab means pass
+    :data:`FROZEN_LIMITS`. A profile counts as flagged when the input flags
+    :data:`RESPONSE_WHOLE_SHARE` of its values or more. As for stuck value,
+    only profiles all of whose values are inside the global range are
+    measured, and not those that are one value throughout, so that a range
+    or stuck value test is not taken for this one.
+
+    :param frame: Whole profiles, numbered by ``_pid``, with
+                  ``profile_time``, the values, ``bad_<name>`` and
+                  ``keep_<name>``, every profile of the slice whether
+                  compared or not.
+    :param variables: The variables to test.
+    :param context: How many profiles at the start of ``frame`` are only
+                    there to be compared with: the end of the slice before.
+    :return: Counts as :func:`_response_chunk` gives them.
+    """
+    test = next(t for t in RESPONSE_TESTS if t["key"] == "frozen_profile")
+    out: List[pl.DataFrame] = []
+    pres = pl.col("pres")
+    for variable in variables:
+        name = variable.name
+        if name not in FROZEN_LIMITS:
+            continue
+        limits = FROZEN_LIMITS[name]
+        low, high = RESPONSE_GLOBAL_RANGE[name]
+        x = pl.col(name)
+        rows = frame.filter(x.is_not_null() & pres.is_not_null())
+        profiles = (
+            rows.group_by("_pid", maintain_order=True)
+            .agg(
+                pl.col("platform_code").first(),
+                pl.col("profile_time").first(),
+                pl.col(f"keep_{name}").first(),
+                pl.len().alias("_n"),
+                pres.alias("_p"),
+                x.alias("_x"),
+                x.cast(pl.Float64).is_between(low, high).all().alias("_in"),
+                x.n_unique().alias("_unique"),
+                pl.col(f"bad_{name}").mean().alias("_bad"),
+            )
+            .sort("_pid")
+            .with_columns(pl.col("_pid").shift(1).alias("_prev"))
+            .with_columns(
+                (
+                    (pl.col("platform_code") == pl.col("platform_code").shift(1))
+                    & (pl.col("profile_time") != pl.col("profile_time").shift(1))
+                )
+                .fill_null(False)
+                .alias("_paired"),
+                (
+                    (pl.col("_n") == pl.col("_n").shift(1))
+                    & (pl.col("_p") == pl.col("_p").shift(1))
+                    & (pl.col("_x") == pl.col("_x").shift(1))
+                )
+                .fill_null(False)
+                .alias("_exact"),
+            )
+        )
+        slabs = rows.group_by(
+            "_pid", (pres / FROZEN_SLAB_DBAR).floor().alias("_slab")
+        ).agg(x.mean().alias("_m"))
+        differences = (
+            profiles.filter(pl.col("_paired"))
+            .select("_pid", "_prev")
+            .join(slabs, on="_pid")
+            .join(
+                slabs.rename({"_pid": "_prev", "_m": "_m_prev"}),
+                on=["_prev", "_slab"],
+            )
+            .group_by("_pid")
+            .agg(
+                (pl.col("_m") - pl.col("_m_prev")).abs().mean().alias("_mean"),
+                (pl.col("_m") - pl.col("_m_prev")).abs().max().alias("_max"),
+                (pl.col("_m") - pl.col("_m_prev")).abs().min().alias("_min"),
+            )
+        )
+        frozen = (
+            (pl.col("_mean") < limits["mean"])
+            & (pl.col("_max") < limits["max"])
+            & (pl.col("_min") < limits["min"])
+        ).fill_null(False)
+        measured = (
+            profiles.filter(
+                pl.col("_paired")
+                & pl.col(f"keep_{name}")
+                & (pl.col("_n") >= 2)
+                & pl.col("_in")
+                & (pl.col("_unique") > 1)
+                & (pl.col("_pid") >= context)
+            )
+            .join(differences, on="_pid", how="left")
+            .select(
+                _response_band(
+                    test,
+                    pl.when(pl.col("_exact"))
+                    .then(2.0)
+                    .when(frozen)
+                    .then(1.0)
+                    .otherwise(0.0),
+                ).alias("band"),
+                (pl.col("_bad") >= RESPONSE_WHOLE_SHARE).alias("flagged"),
+            )
+        )
+        out.append(
+            measured.group_by("band")
+            .agg(
+                pl.len().cast(pl.Int64).alias("n"),
+                pl.col("flagged").sum().cast(pl.Int64).alias("n_flagged"),
+            )
+            .with_columns(
+                pl.lit("frozen_profile").alias("test"), pl.lit(name).alias("variable")
+            )
+        )
+    return out
+
+
 def response_table(
     scan: pl.LazyFrame,
     keep: Dict[str, pl.DataFrame],
@@ -1918,6 +2069,13 @@ def response_table(
         pl.col("platform_code").cast(pl.Utf8),
         pl.col("profile_no"),
         pl.col("observation_no"),
+        # The frozen profile test leaves out a previous profile at the same
+        # time; without a time, it pairs nothing.
+        (
+            pl.col("profile_time").cast(pl.Float64, strict=False)
+            if "profile_time" in schema
+            else pl.lit(None, pl.Float64)
+        ).alias("profile_time"),
         # A NaN would fail every comparison and land in the last band, so it
         # is read as missing, as the tests treat it.
         pl.col("pres").cast(pl.Float64, strict=False).fill_nan(None),
@@ -1946,6 +2104,9 @@ def response_table(
     total = scan.select(pl.len()).collect().item()
     counts: List[pl.DataFrame] = []
     carry = None
+    # The last whole profile of the slice before, which the frozen profile
+    # test compares the first profile of the next slice with.
+    previous = None
     for start in range(0, total, RESPONSE_CHUNK_ROWS):
         part = scan.slice(start, RESPONSE_CHUNK_ROWS).select(columns).collect()
         if carry is not None:
@@ -1961,9 +2122,15 @@ def response_table(
             carry = None
         if not part.height:
             continue
+        context = 0
+        if previous is not None:
+            part = pl.concat([previous, part])
+            context = 1
         # Whether each profile is compared for each variable, looked up once
         # per profile and spread to its rows by the profile number.
         part = _with_profile_ids(part)
+        last_pid = part["_pid"].max()
+        previous = part.filter(pl.col("_pid") == last_pid).drop("_pid")
         profiles = part.filter(
             (pl.col("_pid") != pl.col("_pid").shift(1)).fill_null(True)
         ).select("_pid", *PROFILE_KEYS)
@@ -1973,7 +2140,11 @@ def response_table(
             ).with_columns(pl.col(f"keep_{name}").fill_null(False))
         part = part.with_columns(
             [profiles[f"keep_{v.name}"].gather(part["_pid"]) for v in variables]
-        ).filter(pl.any_horizontal([pl.col(f"keep_{v.name}") for v in variables]))
+        )
+        counts.extend(_frozen_chunk(part, variables, context))
+        part = part.filter(pl.col("_pid") >= context).filter(
+            pl.any_horizontal([pl.col(f"keep_{v.name}") for v in variables])
+        )
         if not part.height:
             continue
         counts.extend(_response_chunk(part, variables, has_pres_flag))

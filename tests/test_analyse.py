@@ -882,3 +882,82 @@ def test_dropped_profiles_are_placed_where_the_platform_is_fixed(tmp_path):
         summary["n_land"],
     ) == (2, 3, 1, 2)
     assert summary["n_land_inland"] == 2 and summary["n_land_shore"] == 0
+
+
+def test_a_profile_is_set_against_the_platform_s_previous_one(tmp_path, monkeypatch):
+    """
+    The frozen profile test: an exact repeat, one within Argo's limits and
+    one that differs; a repeat at the same time is a duplicate and one of
+    another platform is not compared, nor are a stuck profile and one
+    outside the range, even repeated. Slices of four rows cut between the
+    profiles, so the previous profile has to come from the slice before.
+    """
+    monkeypatch.setattr("nrtqc_diff.analyse.RESPONSE_CHUNK_ROWS", 4)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"},
+                    {"name": "psal", "flag": "psal_qc", "nrt_flag": "psal_nrt_flag"},
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    # (platform, profile, time, temperatures, temperature flag)
+    profiles = [
+        ("A", 1, 0.0, [10.0, 9.0, 8.0], "1"),
+        ("A", 2, 1.0, [10.0, 9.0, 8.0], "4"),  # exact repeat, flagged
+        ("A", 3, 2.0, [10.005, 9.0005, 8.0], "1"),  # within Argo's limits
+        ("A", 4, 3.0, [12.0, 9.0, 8.0], "1"),  # different
+        ("A", 5, 3.0, [12.0, 9.0, 8.0], "1"),  # same time: a duplicate
+        ("B", 1, 4.0, [12.0, 9.0, 8.0], "1"),  # another platform
+        ("B", 2, 5.0, [5.0, 5.0, 5.0], "1"),  # stuck
+        ("B", 3, 6.0, [5.0, 5.0, 5.0], "4"),  # stuck, repeated
+        ("B", 4, 7.0, [-5.6, -5.6, -4.0], "4"),  # outside the range
+        ("B", 5, 8.0, [-5.6, -5.6, -4.0], "4"),  # outside, repeated
+    ]
+    rows = []
+    for i, (platform, number, time, temps, flag) in enumerate(profiles):
+        for level, temp in enumerate(temps):
+            rows.append(
+                {
+                    "platform_code": platform,
+                    "profile_no": number,
+                    "profile_time": time,
+                    "observation_no": level + 1,
+                    "pres": [10.0, 60.0, 110.0][level],
+                    "temp": temp,
+                    # Salinity changes from one profile to the next.
+                    "psal": 30.0 + i + 0.1 * level,
+                    "temp_qc": flag,
+                    "psal_qc": "1",
+                }
+            )
+    keep = {
+        name: pl.DataFrame(
+            {
+                "platform_code": [p[0] for p in profiles],
+                "profile_no": [p[1] for p in profiles],
+            }
+        )
+        for name in ["temp", "psal"]
+    }
+    table = response_table(pl.LazyFrame(rows), keep, spec.datasets[0], spec)
+    frozen = {
+        (r["variable"], r["band"]): (r["n"], r["n_flagged"])
+        for r in table.filter(pl.col("test") == "frozen_profile").iter_rows(named=True)
+    }
+    assert frozen == {
+        ("temp", 0): (1, 0),
+        ("temp", 1): (1, 0),
+        ("temp", 2): (1, 1),
+        ("psal", 0): (7, 0),
+    }

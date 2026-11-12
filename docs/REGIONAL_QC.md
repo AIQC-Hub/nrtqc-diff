@@ -26,23 +26,33 @@ Each answer covers temperature and salinity alike. nrtqclib has no frozen
 profile test; `nc2parquet` has one, described in
 [`NC2PARQUET.md`](NC2PARQUET.md#only-in-nc2parquet-the-frozen-profile-test).
 
-The data shows no sign of the centres' frozen profile test (checked on the
-`test_nrt` batch on 2026-11-08, with throwaway scripts, not in
-`nrtqc-diff analyse`):
+The data shows no sign of the centres' frozen profile test:
 
 - ctddump's own parquet keeps every copy ctddump's duplicate step later
   removes, so repeats within a platform can be checked. Among copies of one
   platform with identical values taken an hour or more apart (19 groups in
   the Arctic, 1,571 in the Baltic, most of them exactly 12 hours apart,
   none in the Mediterranean), the input flags every copy or none, never
-  only one.
-- After the duplicate step, an exact repeat of the same platform's previous
-  profile an hour or more later is rare (22 in the Arctic regional product,
-  9 in the Baltic, none in the Mediterranean) and the input flags almost
-  none of them (4 in the Arctic).
+  only one (checked on the `test_nrt` batch on 2026-11-08, with throwaway
+  scripts, not in `nrtqc-diff analyse`).
+- After the duplicate step, `items_response` sets each NRT profile at sea
+  against the same platform's previous one (the `frozen_profile` test, see
+  [`ANALYSES.md`](ANALYSES.md#whether-the-input-runs-a-test)). Exact
+  repeats are few, and the input flags none of the Arctic regional
+  product's (38 for temperature, 41 for salinity), none of the Baltic's
+  (10 or 11, too few to tell), and the Mediterranean regional product has
+  none.
 
 So the test cannot explain the whole profiles only the input flags. The
-site says so on the Flagged only by the input page, without the counts.
+site says so on the Flag differences in NRT and Flagged only by the input
+pages.
+
+An exact repeat counts only on profiles inside the global range and not
+one value throughout. Without that rule, three Arctic platforms whose
+temperature reads one value outside the range at nearly every level
+(TOP-9 and TOP-17 about -6.0 and -5.6 °C, TOP-1 a fill value of 999.9),
+flagged by the range test on both sides, make about 2,000 flagged exact
+repeats that say nothing about a frozen profile test.
 
 The sources are beside this note: the table the centres filled in,
 [`nrtqc_items.xlsx`](nrtqc_items.xlsx), and the replies that came with it
