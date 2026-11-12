@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-12
+
 ### Added
 
 - **`density_threshold` and `density_platforms`**: the density inversions
