@@ -195,7 +195,11 @@ if (!is.null(response)) {
   band_label <- function(test, band) {
     mapply(function(t, b) tests$bands[[match(t, tests$key)]]$label[b + 1], test, band)
   }
+  # Summed over how the profiles were stored (pres_order): the figure is the
+  # whole product, the table on the page splits it.
   panels <- response |>
+    group_by(dataset_id, test, variable, band) |>
+    summarise(n = sum(n), n_flagged = sum(n_flagged), .groups = "drop") |>
     filter(n >= min_n) |>
     with_datasets() |>
     mutate(

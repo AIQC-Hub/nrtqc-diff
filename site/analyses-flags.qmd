@@ -170,7 +170,8 @@ meta && response ? table(
       const test = meta.response_tests.find((t) => t.key === r.test);
       return {
         ...r,
-        key: `${r.test}|${r.variable}|${r.band}`,
+        key: `${r.test}|${r.variable}|${r.pres_order}|${r.band}`,
+        stored: meta.rules.pres_order?.labels?.[r.pres_order] ?? "",
         test_label: test.label,
         flag: app.responseFlagLabel(meta, r.variable),
         band_label: test.bands[r.band].label,
@@ -181,6 +182,7 @@ meta && response ? table(
   [
     { key: "test_label", label: "Test", align: "left", format: (v) => v },
     { key: "flag", label: "Set against", align: "left", format: (v) => v },
+    { key: "stored", label: "Profile stored", align: "left", format: (v) => v, title: "How the profile's pressure was stored in its source file, before ctddump sorted the levels" },
     { key: "band_label", label: "How far past", align: "left", format: (v) => v },
     { key: "clear", label: "Clear failure", align: "left", format: (v) => v },
     { key: "n", label: "Failures", title: "Observations, pairs of levels or profiles, as the test counts them" },

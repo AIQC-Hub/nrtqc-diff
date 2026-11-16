@@ -254,6 +254,40 @@ def pressure_order_table(config: BuildConfig, reports: str) -> pl.DataFrame:
     return _concat(frames)
 
 
+def pressure_order_profiles(spec: DatasetSpec, reports: str) -> Optional[pl.DataFrame]:
+    """
+    The profiles ctddump's ``checkpres`` found stepping down in pressure.
+
+    ``convert/checkpres/<stem>.profiles.tsv`` lists each profile whose
+    pressure decreases somewhere in the order the source file stores it,
+    before ``concat convert`` sorts the levels. Its ``profile_no`` counts
+    within one source file, so the profile is told by its file, platform,
+    time and position instead.
+
+    :param spec: The dataset.
+    :param reports: The ctddump ``report`` directory.
+    :return: ``filename``, ``platform_code``, ``profile_time`` (days, as
+             nrtqclib's output has it), ``longitude``, ``latitude`` and
+             ``kind`` (``reversed`` or ``non_monotonic``) and ``n_obs``, one
+             row per listed profile; None when the dataset has no list, as before
+             ctddump 0.37.
+    """
+    if not spec.source:
+        return None
+    path = os.path.join(reports, "convert", "checkpres", f"{spec.source}.profiles.tsv")
+    if not os.path.isfile(path):
+        return None
+    return _read_tsv(path).select(
+        pl.col("filename"),
+        pl.col("platform_code"),
+        _number("profile_time").alias("profile_time"),
+        _number("longitude").alias("longitude"),
+        _number("latitude").alias("latitude"),
+        pl.col("kind"),
+        _number("n_obs").cast(pl.Int64).alias("n_obs"),
+    )
+
+
 def dropped_platform_table(config: BuildConfig, reports: str) -> pl.DataFrame:
     """
     The profiles ctddump's ``dropqc`` step dropped, per platform.
