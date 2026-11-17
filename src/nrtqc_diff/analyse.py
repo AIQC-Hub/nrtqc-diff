@@ -3846,8 +3846,8 @@ def region_inside(region: Dict[str, Any]) -> pl.Expr:
     ctddump's ``filter`` keeps it: inside an ``include`` box and no
     ``exclude`` box, edges included, a missing position outside. Positions
     and edges are compared in single precision, as the positions are
-    stored: widened to double, a longitude stored at 35.567 reads as
-    35.5670013, just past the Mediterranean box's edge.
+    stored: widened to double, a latitude stored at 45.755 reads as
+    45.755001, just past the Mediterranean box's edge.
     """
 
     def edge(value: float) -> pl.Expr:
