@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-17
+
 ### Added
 
 - **The stored pressure order** (`analyses_format` 13): `items_cube` and
