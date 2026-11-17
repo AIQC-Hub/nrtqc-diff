@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-17
+
+### Added
+
+- **The stored pressure order** (`analyses_format` 13): `items_cube` and
+  `items_response` gain `pres_order`, how each profile nrtqclib tested was
+  stored in its source files before ctddump merged and sorted it by
+  pressure (`monotonic`, `reversed`, `non_monotonic`, or `merged` from
+  several source profiles). It comes from matching ctddump's `checkpres`
+  profile list to nrtqclib's output on file, platform, time and position.
+  Summed over `pres_order`, both tables are unchanged.
+- `conversion_pressure_order` gains `n_reversed_matched`,
+  `n_non_monotonic_matched` and `n_merged`.
+- New tables `pressure_repeats` and `pressure_repeat_platforms`: the
+  repeated pressures behind band 1 of `pressure_increasing`, split into
+  copied levels and repeats with other values, by stored order, with the
+  profiles and platforms holding them.
+- The bands table of the Flag differences page shows how each row's
+  profiles were stored.
+- **The duplicate groups checked against time and values**: new table
+  `conversion_dup_checks` classes each of ctddump's duplicate groups by the
+  spread of its timestamps, whether its members hold the same number of
+  levels, how their pressure, temperature and salinity compare level by
+  level (`identical`, `close`, `near`, `different`), whether their positions are
+  equal, and whether they sit at whole degrees. `conversion_dup_kinds` and
+  `conversion_dup_sizes` gain `match` (`confirmed`, `same_time`,
+  `candidate`); summed over it they are unchanged. The cuts are in
+  `meta.json` under `rules.duplicates`.
+- New table `conversion_overlap_checks`: the casts two NRT products of one
+  region share, checked the same way from nrtqclib's output.
+- New table `conversion_records`: why ctddump's `checkpres` counts more
+  profiles than `convert`. Each record of a source file is a profile until
+  `concat convert` joins the records of one platform, time and position;
+  the table gives the records, those checked, the profiles after the merge
+  and the records joined.
+- **Results by platform**: `items_platforms` gains `pres_order` and the
+  observations nrtqclib flags only through the checks set aside
+  (`n_agree_bad_set_aside`, `n_nrtqclib_only_set_aside`; the checks are in
+  `rules.set_aside` of `meta.json`); summed over `pres_order`, the other
+  columns are unchanged. New tables `items_response_platforms` (the clear
+  failures of each test per platform), `cora_pairs_platforms` and
+  `cora_flags_platforms` (the CORA comparison per NRT platform).
+- New table `conversion_dates`: the dates each product covers either side
+  of ctddump's `convert`, which records none: the first date the source
+  files declare (and the last, for CORA's daily files) and the first and
+  last profile in the region before `dedup`.
+- New table `conversion_dup_kept`: which member of each duplicate group
+  reached nrtqclib's output, against ctddump's rule (most observations,
+  then first to appear).
+- `meta.json` gains `nrtqc_parameters`: the tests and parameters of each
+  nrtqclib `qc_item_set` a dataset ran and which set each ran, read from
+  the batch's nrtqclib configuration without its paths; and ctddump's
+  region boxes, from the new `provenance.regions` section, with the
+  profiles of each dataset outside its region (none expected; `analyse`
+  warns otherwise).
+
 ## [0.16.0] - 2026-11-12
 
 ### Added

@@ -91,6 +91,9 @@ variable is estimated, while the analyses keep the variables apart.
 `ctddump_dups` holds the duplicate lists ctddump's `markdup` writes beside
 its data (`output/dedup/markdup/<stem>.dups.tsv`), not under `report/`: they
 are what tells a duplicate within one platform from one across platforms.
+When `markdup`'s parquet (`<stem>.parquet`) is beside a list, each group is
+also checked against time and values (see
+[Checking the duplicate groups](#checking-the-duplicate-groups)).
 
 The report folders are resolved through symbolic links before `..`: they sit
 next to the batch, which is reached through the `data` link, so
@@ -116,6 +119,11 @@ provenance:
       dataset: cmems_obs-ins_bal_phybgcwav_mynrt_na_irr_202311
       doi: 10.48670/moi-00032
       datasets: [bo_bo]
+  regions:          # region, include; optional exclude, source
+    - region: Baltic Sea
+      source: ctddump 0.37.2, scripts/clean_data.sh
+      include: [{min_lon: 6, max_lon: 30, min_lat: 53, max_lat: 66}]
+      exclude: [{min_lon: 6, max_lon: 15, min_lat: 60, max_lat: 66}]
 ```
 
 Values are kept as text, as written. An unknown key, a missing required one,
@@ -128,6 +136,29 @@ which bound the download date when nothing else records it.
 
 Keep the section current whenever the batch is rerun: it is the only record
 of the versions behind the tables.
+
+### Test parameters and regions
+
+`meta.json` also gets `nrtqc_parameters`, the parameters a reader needs to
+know what ran, without the files they came from:
+
+- `nrtqclib.qc_item_sets`: each `qc_item_set` of the nrtqclib
+  configuration that some dataset ran, its tests in order, each with its
+  `params` as written there (an empty mapping when it has none): global
+  and regional range, spike and gradient (`shallow`, `deep` and the
+  `depth_threshold` between them), digit rollover, density inversion.
+- `nrtqclib.datasets`: the set each dataset ran. A dataset is matched to an
+  `nrt_qc_sets` entry by its `source` and the entry's input file name, or
+  else by the entry's dataset folder among the parts of its `path`.
+  Nothing else of the configuration is copied: no paths, folders or steps.
+- `ctddump_regions`: `provenance.regions` as configured, ctddump's boxes
+  per region (its step 4, `filter`), which no ctddump report records. A
+  profile is kept inside an `include` box and outside every `exclude` box,
+  edges included, a missing position outside. Each region gains `outside`,
+  the profiles of each of its datasets in nrtqclib's output that lie
+  outside it: there should be none, and `analyse` warns otherwise. A region
+  name must be one a dataset has, and a box needs all four edges, its
+  minimum at most its maximum.
 
 ## The groups
 
@@ -179,22 +210,29 @@ name or columns.
 | `conversion_steps` | dataset, ctddump step | platforms, profiles and observations left. The last step is what nrtqclib checked: `analyse` warns if an output holds anything else |
 | `conversion_data_mode` | dataset, step, variable, mode | observations per data mode, as converted and as kept; the mode is empty where ctddump found none, missing levels included |
 | `conversion_duplicates` | dataset | profiles ctddump marked as duplicates (every member of a group, the one kept too), and the platforms they are on |
-| `conversion_dup_kinds` | dataset, kind | duplicate groups `within` one platform, `across` platforms (one profile each), or `both` (several platforms, one repeating the cast): groups, profiles in them, profiles removed |
-| `conversion_dup_sizes` | dataset, kind, group size | groups of that many profiles; above 10 pooled as `11+` |
+| `conversion_dup_kinds` | dataset, kind, match | duplicate groups `within` one platform, `across` platforms (one profile each), or `both` (several platforms, one repeating the cast): groups, profiles in them, profiles removed. `match` (`confirmed`, `same_time`, `candidate`) only when the groups were checked; summed over it the counts are the same |
+| `conversion_dup_sizes` | dataset, kind, match, group size | groups of that many profiles; above 10 pooled as `11+`. `match` as above |
+| `conversion_dup_checks` | dataset, kind, time, levels, values, position, whole degree, match | duplicate groups, the profiles in them and the profiles removed, by every check (see [Checking the duplicate groups](#checking-the-duplicate-groups)) |
+| `conversion_dup_kept` | dataset, kept by | duplicate groups and the profiles in them, by which member reached nrtqclib's output (see [Checking the duplicate groups](#checking-the-duplicate-groups)) |
 | `conversion_dup_platforms` | dataset, platform set | the 15 commonest sets of platform codes sharing casts, over groups `across` and `both`, then the rest in one row |
 | `conversion_files` | dataset, variable | source files carrying it |
-| `conversion_pressure_order` | dataset | ctddump's `checkpres` summary (`convert/checkpres/<stem>.summary.tsv`, ctddump 0.37 or later): profiles, platforms and files checked before the merge sorts by pressure, profiles without pressure, and those whose pressure steps down, `reversed` and `non_monotonic`, with the platforms and files holding them |
+| `conversion_pressure_order` | dataset | ctddump's `checkpres` summary (`convert/checkpres/<stem>.summary.tsv`, ctddump 0.37 or later): profiles, platforms and files checked before the merge sorts by pressure, profiles without pressure, and those whose pressure steps down, `reversed` and `non_monotonic`, with the platforms and files holding them. Then from the profile list beside it (see [The stored pressure order](#the-stored-pressure-order)): the listed profiles found in nrtqclib's output (`n_reversed_matched`, `n_non_monotonic_matched`) and the output's profiles merged from several source profiles (`n_merged`) |
+| `conversion_records` | dataset | why `checkpres` counts more profiles than `convert` (see [Records and profiles](#records-and-profiles)): source files and their records from the header (`n_files`, `n_records`), records checked and without pressure from `checkpres` (`n_checked`, `n_no_pres`), profiles after the merge (`n_converted`), the records the merge joined to another (`n_merged_records`, checked less converted) and records neither checked nor without pressure (`n_unchecked`) |
+| `conversion_dates` | dataset | the dates each product covers either side of `convert`, which records none (see [Product dates](#product-dates)): the source files and those dated from the header (`n_files`, `n_files_dated`), how they are dated (`date_source`: `time_coverage_start`, `file_name` or both), the first date declared and, when every file is a daily file dated by its name, the last (`declared_first`, `declared_last`), and the first and last profile inside the region before `dedup` (`region_first`, `region_last`), as ISO dates |
 | `conversion_dropqc` | dataset | the profiles ctddump's `dropqc` dropped (time or position flag neither good nor missing), from the platform reports before and after it, and where they were as far as the reports tell: `n_moving` on a platform that moved, so unplaced; on a fixed platform (one point before the step) the batch stamped there, `n_sea` or `n_land`, the land ones by cause as on the Depth page; `n_not_stamped` on a fixed platform the batch holds nowhere at that point. seastamp runs after `dropqc`, so a dropped profile has no stamp of its own |
 | `conversion_dropqc_platforms` | dataset, platform that lost a profile | its profiles before the step and dropped, its status as above, and for a fixed platform its point, the elevation and distance to the coast stamped there, and the land cause |
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
 | `conversion_extra_parameters` | dataset, parameter | source files carrying a parameter ctddump does not read |
 | `conversion_compare` | reference, compared dataset | ctddump's profile matching between products of one region, with the platform code in the key |
 | `conversion_overlap` | dataset, compared dataset of its region | its profiles the other also has, matched on the date and positions within 0.001° (see below), with the platform code and without. The page shows the NRT products' rows |
+| `conversion_overlap_checks` | NRT dataset, the NRT dataset of its region after it in the configuration, platform (`same` or `other`), time, levels, values, position, match | pairs of `n_matched_any_platform`, checked as a duplicate group of two would be, from nrtqclib's output |
 | `conversion_coverage` | NRT dataset, CORA dataset of its region | CORA's period (first and last date) and the NRT profiles in each coverage class (see below) |
 | `conversion_coverage_years` | NRT dataset, CORA dataset, year, coverage class | NRT profiles |
 | `conversion_match` | NRT dataset, CORA dataset, coverage class | pairs of the same cast (`same_platform` or `other_platform`): how many, how many with the same number of observations, and on which side there are more |
 | `cora_pairs` | NRT dataset, CORA dataset, variable, coverage class | the pairs counted through each condition of the level by level comparison (see below): `n_pairs`, `n_same_obs`, `n_nrt` (the NRT profile is `nrt` for the variable), `n_aligned` (the levels line up), `n_pres_exact` (at the same pressures exactly), and the observations compared (`n_obs`) |
 | `cora_flags` | NRT dataset, CORA dataset, variable, coverage class, pressure band, the four flags | observations of the aligned pairs: the producer's NRT flag (`original_flag`), nrtqclib's on the NRT copy (`nrtqclib_flag`), CORA's (`cora_flag`) and nrtqclib's on the CORA copy (`cora_nrtqclib_flag`), as raw values, empty where missing |
+| `cora_pairs_platforms` | as `cora_pairs`, and NRT platform | `cora_pairs` per platform of the NRT profile (see [By platform](#by-platform)) |
+| `cora_flags_platforms` | as `cora_flags` without the pressure band, and NRT platform | `cora_flags` per platform of the NRT profile, summed over the pressure bands |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
 | `depth_summary` | dataset | profiles, land profiles, and what the input flagged on them |
 | `depth_land_margin` | dataset, margin | land profiles at least that many metres up |
@@ -212,15 +250,18 @@ name or columns.
 | `dm_estimated_profiles` | profile estimated for either variable | its counts, and per variable its share and whether it is estimated |
 | `dm_probable_obs` | dataset, variable, input flag 2 or 3, the observation's own data mode, group, nrtqclib bad | observations at sea, and how many each nrtqclib check failed (`fail_{item}`) |
 | `dm_probable_profiles` | dataset, variable, input flag 2 or 3, group | profiles at sea carrying it, with it on one observation, and with it on most of the profile (the estimate's share and minimum) |
-| `items_cube` | dataset, variable, pressure band, input flag, nrtqclib flag, failing checks | observations: every `items_` table below is a sum over this |
+| `items_cube` | dataset, variable, stored pressure order (`pres_order`), pressure band, input flag, nrtqclib flag, failing checks | observations: every `items_` table below is a sum over this |
 | `items_status` | dataset, variable, category | observations of NRT profiles |
 | `items_by_item` | dataset, variable, check | failures, with the input too, only nrtqclib, and that check alone |
 | `items_combinations` | dataset, variable, category, set of failing checks | observations |
 | `items_depth` | dataset, variable, pressure band, category | observations |
 | `items_original_flags` | dataset, variable, input flag, nrtqclib bad | observations |
-| `items_platforms` | dataset, variable, platform | profiles, observations and agreement counts, over the variable's NRT profiles |
+| `items_platforms` | dataset, variable, platform, stored pressure order (`pres_order`) | profiles, observations and agreement counts, over the variable's NRT profiles, and the observations of `agree_bad` and `nrtqclib_only` that nrtqclib flags only through the checks set aside (`n_agree_bad_set_aside`, `n_nrtqclib_only_set_aside`; see [By platform](#by-platform)) |
 | `items_shape` | dataset, variable, category (original only or nrtqclib only), place in the profile, input flag, negative pressure | observations, and the profiles they are in |
-| `items_response` | dataset, test, flag it is set against (a variable, `density` for either variable's flag, `pres` for the pressure flag), band of how far past nrtqclib's threshold | failures (`n`, as observations, pairs of levels or profiles) and how many the input flags (`n_flagged`) |
+| `items_response` | dataset, test, flag it is set against (a variable, `density` for either variable's flag, `pres` for the pressure flag), stored pressure order (`pres_order`), band of how far past nrtqclib's threshold | failures (`n`, as observations, pairs of levels or profiles) and how many the input flags (`n_flagged`) |
+| `items_response_platforms` | as `items_response`, the clear bands only, and platform | `items_response`'s clear failures per platform (see [By platform](#by-platform)) |
+| `pressure_repeats` | dataset, flag it is set against (as in `items_response`), `pres_order`, kind (`copied`: the level above has the same pressure and values, both missing counting as equal; `other`) | the repeated pressures of `items_response`'s band 1 of `pressure_increasing` (`n`), how many the input flags, and the profiles and platforms holding them |
+| `pressure_repeat_platforms` | dataset, flag, `pres_order`, platform with a repeated pressure | its profiles with one, its repeats, the copied ones, and how many of each the input flags |
 | `density_threshold` | dataset, platform group (`ice_tethered` or `other`), measure (`level`: kg/m³ between levels; `dbar`: per dbar), band (`lower` exclusive, `upper` inclusive, empty for the last) | density inversions, and how many the input flags at either level (`n_flagged`), the deeper one (`n_flagged_deeper`) and the upper one (`n_flagged_upper`) |
 | `density_platforms` | dataset, platform, its group and median level spacing (`spacing_dbar`), for platforms with an inversion | pairs of levels, inversions, those up to 0.05 kg/m³ (`n_small`) and above it (`n_clear`), and how many the input flags |
 
@@ -295,6 +336,79 @@ end of a slice over to the next, and numbers the profiles of a slice so
 that it compares and groups on integers. NaN values are read as missing.
 It adds about a minute to the run.
 
+### The stored pressure order
+
+ctddump's `concat convert` merges the source profiles of one platform,
+time and position into one profile, from one file or several, and sorts
+its levels by pressure before nrtqclib runs. A cast stored down and up again, or a
+downcast and an upcast stored as two profiles, is then interleaved, and its
+spikes, gradients and density inversions may come from the sort rather than
+the water. `pres_order` in `items_cube`, `items_response` and the pressure
+repeat tables says how each profile was stored, so the results can be read
+with and without them. Summed over it, the tables are what they were
+without it.
+
+ctddump's `checkpres` lists each source profile whose pressure steps down
+(`convert/checkpres/<stem>.profiles.tsv`). Its profile number counts within
+one source file, so a listed profile is matched to nrtqclib's output on its
+file, platform and `profile_time` exactly and its position within 0.0001°
+(`rules.pres_order` in `meta.json`); one listed profile matching two of the
+output's is an error. Several listed profiles can match one: those are the
+merges.
+
+| `pres_order` | Rule |
+| --- | --- |
+| `reversed` | One listed source profile, stored bottom up, and all of the profile's levels are its own. |
+| `non_monotonic` | The same, stored down and up again. |
+| `merged` | Two or more listed source profiles, or one with fewer levels than the profile: the rest came from a source profile the list does not hold. |
+| `monotonic` | No listed source profile. It never steps down, though it may repeat a pressure, and it may still be a merge of parts each stored in order, which the list cannot show. |
+| empty | The dataset has no list (ctddump before 0.37). |
+
+A listed profile that matches nothing was dropped by a later ctddump step:
+outside the region, `dropqc`, `dropna`, `filter` or `dedup`. After the
+sort, `pressure_increasing` can only find repeated pressures (band 1);
+`pressure_repeats` tells a level written twice (`copied`) from a repeat with
+other values.
+
+### Records and profiles
+
+ctddump converts each source file to parquet keeping every record (one
+`TIME` index in the NRT products, one `N_PROF` index in CORA) as a profile,
+and `checkpres` counts those. `concat convert` then drops the observations
+without a pressure, and numbers profiles by the dense rank of
+`platform_code`, `profile_timestamp`, `longitude` and `latitude` within the
+platform (ctddump 0.37.2, `src/concat.rs`): records of one platform with the
+same time and position become one profile, whichever files they came from.
+So `n_checked` less `n_converted` is the number of records joined to an
+earlier one, as long as `n_no_pres` is 0. Nothing else is dropped at this
+step.
+
+`n_records` sums the record dimension each file's header lists
+(`header/<stem>.yaml`, `N_PROF` before `TIME`). A record the per-file
+conversion writes no row for (every observation missing) is in
+`n_records` but neither checked nor without pressure: `n_unchecked`.
+
+### Product dates
+
+No ctddump report records the dates of the profiles `concat convert`
+writes, and its parquet is not kept, so `conversion_dates` gives the dates
+either side of it.
+
+- **Declared** (`header/<stem>.yaml`). An NRT file states where it starts,
+  in its `time_coverage_start` global attribute, and nothing where it ends;
+  `declared_first` is the earliest. A CORA daily file is dated by its name
+  (`CO_DMQCGL01_<YYYYMMDD>_PR_CT`), which gives both ends. A file with the
+  attribute is dated by it, and a file with neither is not dated.
+- **In the region** (`markdup`'s `<stem>.parquet` in `ctddump_dups`). The
+  first and last profile after `clean` (`dropqc`, `dropna`, then the
+  region's boxes) and before `dedup`.
+
+The kept dates, `first_profile` and `last_profile` of each dataset in
+`meta.json`, come from nrtqclib's output. A declared start earlier than the
+region's first profile means the earliest profiles were dropped at
+`clean`: a global file reaches outside the region, or a file's earliest
+profiles fail `dropqc` or `dropna`.
+
 ### Matching profiles across products
 
 Two profiles of different products are the same cast when they share a
@@ -305,6 +419,46 @@ side of a rounding boundary is missed: the tolerance finds 4% to 11% more
 pairs than the rounding on this batch. Each profile is paired at most once,
 closest in time first, and when the platform code is not part of the match
 a partner on the same platform is preferred.
+
+### Checking the duplicate groups
+
+ctddump's `markdup` groups profiles on the date and positions within
+0.001° alone. Each group is checked further, from the list and from the
+observations in `markdup`'s parquet, where `is_dup` marks every member:
+
+| Check | Values | Rule |
+| --- | --- | --- |
+| `time` | `same_second`, `within_minute`, `within_hour`, `same_date` | the spread of the members' `profile_timestamp`: 0 s, under 60 s, under 3600 s, more |
+| `levels` | `same`, `differ` | whether every member has the same number of observations |
+| `values` | `identical`, `close`, `near`, `different`, `not_compared` | members with the same number of levels, level by level in stored order (ctddump's sort by pressure): the spread (largest minus smallest) of pressure, temperature and salinity at each level. `identical`: every spread 0, a value missing in every member counting as equal; `close`: within 0.1 dbar, 0.001 °C and 0.001, allowing 1% for single precision; `near`: within 0.1 dbar, 0.01 °C and 0.01, as when one copy holds temperature or salinity to two decimals and another to three (products, regions and CORA may each round differently); `different`: more, or a value missing in some members only. `not_compared` when the levels differ |
+| `position` | `equal`, `within` | whether every member has the same longitude and latitude |
+| `whole_degree` | true, false | every member at whole degrees in both coordinates |
+| `match` | `confirmed`, `same_time`, `candidate` | `confirmed`: `time` is `same_second` or `within_minute`, `values` `identical` or `close`; `same_time`: the rest at those times, `near` among them; `candidate`: the rest |
+
+A group of three or more counts as `identical` or `close` only if all its
+members agree. The classes and cuts are in `meta.json` under
+`rules.duplicates`. The groups are read in chunks of about 5 million
+observations, which keeps CORA Arctic's near 1.7 GB.
+
+`conversion_dup_kept` says which member of each group reached nrtqclib's
+output. ctddump states that `dedup` keeps the member with the most
+observation rows in `markdup`'s parquet, ties going to the first to appear
+there (ctddump 0.37.2, `src/dedup.rs`), and it keeps `platform_code` and
+`profile_no`. The member's rows and first row are read from the parquet:
+
+| `kept_by` | Rule |
+| --- | --- |
+| `most_obs` | The one member with the most observations. |
+| `first_of_tied` | Of members tied on the most, the first in `markdup`'s row order. |
+| `other` | Any other member: the stated rule did not hold. |
+| `none` | No member is in the output. |
+| `several` | More than one member is in the output. |
+
+`conversion_overlap_checks` applies the same checks to the casts two NRT
+products of one region share (`n_matched_any_platform` of
+`conversion_overlap`), each pair of products once: `time` from the time
+between the two, `values` from nrtqclib's output, and `platform` whether
+the two carry the same code.
 
 ### NRT and CORA
 
@@ -348,6 +502,30 @@ observations compared can be traced back to the casts. The pairs are taken
 in platform order, about two million levels at a time, and both products are
 read for each chunk, keeping only its profiles' levels. The files are
 sorted by platform, so a chunk reads only the row groups of its platforms.
+
+### By platform
+
+A few platforms can carry a product's result, so the tables behind the
+agreement, the response to each test and the comparison with CORA are also
+given per platform. Summed over the platforms, each gives its table again
+(the response table over its clear bands).
+
+- **`items_platforms`** holds, per platform and stored pressure order, the
+  four agreement counts as run. A two by two table without nrtqclib's
+  design choices needs, besides, the observations nrtqclib flags only
+  through the checks in `rules.set_aside` of `meta.json` (density
+  inversion, the temperature flag carried over to salinity, pressure
+  increasing): at least one of them failed and no other check did. An
+  observation flagged with no failing check recorded is never set aside.
+  Leaving those out turns `n_agree_bad` into `n_agree_bad` less
+  `n_agree_bad_set_aside`, and `n_nrtqclib_only` likewise; the other
+  counts stay.
+- **`items_response_platforms`** gives the failures of the clear bands of
+  each test (`clear` in `response_tests` of `meta.json`) per platform,
+  stored pressure order and band, and how many the input flags.
+- **`cora_pairs_platforms` and `cora_flags_platforms`** split the CORA
+  comparison by the NRT profile's platform. The flags are summed over the
+  pressure bands to keep the table small.
 
 ## The figures
 

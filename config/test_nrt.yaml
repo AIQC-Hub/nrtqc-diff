@@ -128,6 +128,30 @@ provenance:
       note: >-
         nrtqclib's dependency, which implements the QC tests nrtqclib runs.
   nrtqclib_config: ../data/config/nrt_qc_config.yaml
+  # ctddump's region boxes (its step 4, `filter`), which no ctddump report
+  # records: a profile is kept inside an `include` box and outside every
+  # `exclude` box, edges included. Copied from ctddump 0.37.2's
+  # scripts/clean_data.sh (filter_box_arctic, _baltic, _mediterranean).
+  # `analyse` publishes them in meta.json and counts the profiles of each
+  # dataset outside its region, which should be none.
+  regions:
+    - region: Arctic Ocean
+      source: ctddump 0.37.2, scripts/clean_data.sh
+      include:
+        - {min_lon: -180, max_lon: 180, min_lat: 60, max_lat: 90}
+    - region: Baltic Sea
+      source: ctddump 0.37.2, scripts/clean_data.sh
+      include:
+        - {min_lon: 6, max_lon: 30, min_lat: 53, max_lat: 66}
+      exclude:
+        - {min_lon: 6, max_lon: 15, min_lat: 60, max_lat: 66}
+    - region: Mediterranean Sea
+      source: ctddump 0.37.2, scripts/clean_data.sh
+      include:
+        - {min_lon: -5.61, max_lon: 35.567, min_lat: 28.378, max_lat: 45.755}
+      exclude:
+        - {min_lon: 27, max_lon: 36, min_lat: 41, max_lat: 46}
+        - {min_lon: -5.61, max_lon: 0, min_lat: 42, max_lat: 46}
   reference_data:
     - name: GEBCO 2024 Grid, sub-ice topography
       version: "2024"

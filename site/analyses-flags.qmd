@@ -170,7 +170,8 @@ meta && response ? table(
       const test = meta.response_tests.find((t) => t.key === r.test);
       return {
         ...r,
-        key: `${r.test}|${r.variable}|${r.band}`,
+        key: `${r.test}|${r.variable}|${r.pres_order}|${r.band}`,
+        stored: meta.rules.pres_order?.labels?.[r.pres_order] ?? "",
         test_label: test.label,
         flag: app.responseFlagLabel(meta, r.variable),
         band_label: test.bands[r.band].label,
@@ -181,6 +182,7 @@ meta && response ? table(
   [
     { key: "test_label", label: "Test", align: "left", format: (v) => v },
     { key: "flag", label: "Set against", align: "left", format: (v) => v },
+    { key: "stored", label: "Profile stored", align: "left", format: (v) => v, title: "How the profile's pressure was stored in its source file, before ctddump sorted the levels" },
     { key: "band_label", label: "How far past", align: "left", format: (v) => v },
     { key: "clear", label: "Clear failure", align: "left", format: (v) => v },
     { key: "n", label: "Failures", title: "Observations, pairs of levels or profiles, as the test counts them" },
@@ -380,18 +382,22 @@ viewof platformDataset = meta && platforms
 ```
 
 ```{ojs}
-// One row per platform, each variable's counts over its own NRT profiles.
-// The shares are kept as percentages so the columns sort by value.
+// One row per platform, each variable's counts over its own NRT profiles,
+// summed over the stored pressure orders. The shares are kept as
+// percentages so the columns sort by value.
 share = (part, whole) => (whole > 0 ? (100 * part) / whole : null)
 platformRows = platforms
   ? [...platforms
       .filter((r) => r.dataset_id === platformDataset)
       .reduce((m, r) => {
         const row = m.get(r.platform_code) ?? { key: r.platform_code, platform_code: r.platform_code };
-        row[`${r.variable}_profiles`] = r.n_profiles;
-        row[`${r.variable}_obs`] = r.n_obs;
-        row[`${r.variable}_oo`] = share(r.n_original_only, r.n_obs);
-        row[`${r.variable}_no`] = share(r.n_nrtqclib_only, r.n_obs);
+        const add = (k, v) => { row[`${r.variable}_${k}`] = (row[`${r.variable}_${k}`] ?? 0) + v; };
+        add("profiles", r.n_profiles);
+        add("obs", r.n_obs);
+        add("oo_n", r.n_original_only);
+        add("no_n", r.n_nrtqclib_only);
+        row[`${r.variable}_oo`] = share(row[`${r.variable}_oo_n`], row[`${r.variable}_obs`]);
+        row[`${r.variable}_no`] = share(row[`${r.variable}_no_n`], row[`${r.variable}_obs`]);
         m.set(r.platform_code, row);
         return m;
       }, new Map()).values()]

@@ -80,6 +80,52 @@ meta ? table(stepRows, [
 ]) : html``
 ```
 
+Converted counts profiles after ctddump merges its per-file conversions.
+Before that, each record of a source file is a profile; the merge drops
+observations without a pressure and joins the records of one platform with
+the same time and position into one profile, from one file or several.
+Nothing else is dropped there, so the records joined are the whole
+difference between the profiles checked for their
+[pressure order](#pressure-order) and those converted.
+
+```{ojs}
+records = meta ? app.loadAnalysisTable("conversion_records") : null
+meta && records ? table(
+  records.map((r) => ({ ...r, key: r.dataset_id })).sort(byDataset),
+  [
+    { key: "dataset_id", label: "Product", align: "left", format: name },
+    { key: "n_files", label: "Source files" },
+    { key: "n_checked", label: "Records", title: "Records of the source files with a pressure, each a profile before the merge" },
+    { key: "n_merged_records", label: "Joined to another", title: "Records sharing platform, time and position with an earlier one", format: (v, r) => `${app.formatCount(v)} (${app.formatSmallShare(v, r.n_checked)})` },
+    { key: "n_converted", label: "Converted", title: "Profiles after the merge" }
+  ]
+) : html``
+```
+
+No report gives the dates of the profiles converted. The source files
+declare where they start: an NRT file in an attribute, which gives no end,
+and a CORA daily file in its name, which gives both. A product's first
+profile in the region can be later than the start its files declare,
+because `clean` drops the earliest profiles: those of a global file outside
+the region, or those that fail its checks.
+
+```{ojs}
+dates = meta ? app.loadAnalysisTable("conversion_dates") : null
+kept = (id) => (meta?.datasets ?? []).find((d) => d.id === id) ?? {}
+span = (a, b) => (!a ? "" : b ? `${a} to ${b}` : `from ${a}`)
+meta && dates ? table(
+  dates.map((r) => ({ ...r, key: r.dataset_id, kept_first: kept(r.dataset_id).first_profile, kept_last: kept(r.dataset_id).last_profile })).sort(byDataset),
+  [
+    { key: "dataset_id", label: "Product", align: "left", format: name },
+    { key: "n_files", label: "Source files" },
+    { key: "date_source", label: "Dated by", align: "left", format: (v) => ({ time_coverage_start: "Start attribute", file_name: "File name" })[v] ?? (v ?? "") },
+    { key: "declared_first", label: "Declared", align: "left", title: "The first date the source files declare, and the last when every file is a daily file named by its date", format: (v, r) => span(v, r.declared_last) },
+    { key: "region_first", label: "In the region", align: "left", title: "The first and last profile after clean, before duplicates are removed", format: (v, r) => span(v, r.region_last) },
+    { key: "kept_first", label: "Kept", align: "left", title: "The first and last profile nrtqclib checked", format: (v, r) => span(v, r.kept_last) }
+  ]
+) : html``
+```
+
 ## The source files
 
 How many files each product has, how many carry each variable ctddump reads,
@@ -267,8 +313,27 @@ a group of duplicates is one of three kinds:
 - **Both:** the group spans two or more platform codes, and at least one of
   them reports the cast more than once. The cast was repeated and renamed.
 
-Of each group ctddump keeps the profile with the most observations and
-removes the rest, so a group of two loses one profile.
+Of each group ctddump keeps the profile with the most observations, the
+first to appear when several have as many, and removes the rest, so a
+group of two loses one profile. nrtqclib's output holds exactly that
+member of every group.
+
+```{ojs}
+dupKept = meta ? app.loadAnalysisTable("conversion_dup_kept") : null
+keptRows = dupKept && dupKept.length
+  ? app.widen(dupKept, { index: ["dataset_id"], column: "kept_by", value: "n_groups" })
+      .map((r) => ({ ...r, key: r.dataset_id, n_groups: ["most_obs", "first_of_tied", "other", "none", "several"].reduce((s, k) => s + (r[k] ?? 0), 0) }))
+      .map((r) => ({ ...r, off: (r.other ?? 0) + (r.none ?? 0) + (r.several ?? 0) }))
+      .sort(byDataset)
+  : []
+meta && keptRows.length ? table(keptRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "n_groups", label: "Groups" },
+  { key: "most_obs", label: "Most observations", format: (v, r) => `${app.formatCount(v ?? 0)} (${app.formatShare(v ?? 0, r.n_groups)})`, title: "One member has more observations than any other" },
+  { key: "first_of_tied", label: "First of the tied", format: (v, r) => `${app.formatCount(v ?? 0)} (${app.formatShare(v ?? 0, r.n_groups)})`, title: "Several members share the most observations; the first in ctddump's order is kept" },
+  { key: "off", label: "Otherwise", title: "Another member, none or several reached the output" }
+]) : html``
+```
 
 The match is on the day, not the time. A platform that stays in one place,
 such as a fixed station or a profiler drifting slowly with the ice, can
@@ -309,6 +374,38 @@ meta ? table(dupRows, [
   { key: "across_removed", label: "Across platforms", title: "Removed from groups whose profiles each carry a different platform code" },
   { key: "both_removed", label: "Both", title: "Removed from groups spanning two or more platforms, one of them repeating the cast" },
   { key: "n_platforms_with_duplicates", label: "Platforms with any", format: (v, r) => `${app.formatCount(v)} of ${app.formatCount(r.n_platforms)}` }
+]) : html``
+```
+
+ctddump groups profiles on the date and the position alone. Each group is
+checked further against the time and the values of its members: a group is
+confirmed when its members lie under a minute apart and hold the same
+values at every level (within 0.1 dbar, 0.001 °C and 0.001 in salinity);
+same time when they lie under a minute apart but their values differ or
+their numbers of levels do; and a candidate otherwise. Of the same time
+groups, those within 0.01 °C and 0.01 in salinity are counted as near:
+one copy holds the values to two decimals where another holds three, so
+they are likely the same cast rounded differently. Groups whose
+members all sit at whole degrees are counted on their own: such positions
+are often rounded, so the date and the position say less.
+
+```{ojs}
+dupMatchRows = dupKinds && dupKinds.some((r) => "match" in r)
+  ? app.widen(dupKinds, { index: ["dataset_id"], column: "match", value: "n_groups" })
+      .map((r) => ({ ...r, key: r.dataset_id, n_groups: (r.confirmed ?? 0) + (r.same_time ?? 0) + (r.candidate ?? 0) }))
+      .sort(byDataset)
+  : []
+dupChecks = meta ? app.loadAnalysisTable("conversion_dup_checks") : null
+wholeOf = (id) => (dupChecks ?? []).filter((r) => r.dataset_id === id && (r.whole_degree === true || r.whole_degree === "true")).reduce((s, r) => s + r.n_groups, 0)
+nearOf = (id) => (dupChecks ?? []).filter((r) => r.dataset_id === id && r.match === "same_time" && r.values === "near").reduce((s, r) => s + r.n_groups, 0)
+meta && dupMatchRows.length ? table(dupMatchRows.map((r) => ({ ...r, near: nearOf(r.dataset_id), whole: wholeOf(r.dataset_id) })), [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "n_groups", label: "Groups" },
+  { key: "confirmed", label: "Confirmed", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "Under a minute apart, the same values at every level" },
+  { key: "same_time", label: "Same time", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "Under a minute apart, but other values or another number of levels" },
+  { key: "near", label: "Of which near", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "Same time, with values within 0.01 °C and 0.01 in salinity: rounded to two decimals in one copy" },
+  { key: "candidate", label: "Candidate", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "A minute or more apart" },
+  { key: "whole", label: "At whole degrees", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "Every member at whole degrees of longitude and latitude" }
 ]) : html``
 ```
 

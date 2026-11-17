@@ -36,9 +36,10 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import polars as pl
+import yaml
 
 from nrtqc_diff.config import (
     DEFAULT_BAD_FLAG_VALUES,
@@ -74,12 +75,24 @@ from nrtqc_diff.flags import (
     status_predicates,
     usable_flag,
 )
-from nrtqc_diff.reports import dropped_platform_table, report_tables
+from nrtqc_diff.reports import (
+    DUP_TIME_CLASSES,
+    DUP_VALUE_CLASSES,
+    dropped_platform_table,
+    duplicate_rules,
+    match_class,
+    pressure_order_profiles,
+    report_tables,
+    time_class,
+    value_classes,
+    value_columns,
+    value_floats,
+)
 
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 12
+ANALYSES_FORMAT: int = 13
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -170,6 +183,43 @@ POSITION_BAD_VALUES: List[int] = list(DEFAULT_BAD_FLAG_VALUES)
 #: Profile columns copied from the input when present.
 OPTIONAL_FIRST_COLUMNS: List[str] = ["profile_timestamp", "longitude", "latitude"]
 
+#: The kinds ctddump's ``checkpres`` lists a source profile under: its
+#: pressure steps down somewhere, ``reversed`` (stored bottom up) or
+#: ``non_monotonic`` (down and up again).
+LISTED_KINDS: List[str] = ["reversed", "non_monotonic"]
+
+#: How each profile nrtqclib tested was stored in its source files, before
+#: ctddump's ``concat convert`` merged and sorted it by pressure
+#: (``pres_order`` in ``items_cube``, ``items_response`` and the pressure
+#: repeat tables). ``reversed`` and ``non_monotonic``: one listed source
+#: profile, all of it. ``merged``: more than one source profile at the same
+#: file, platform, time and position, at least one of them listed, merged
+#: into one and interleaved by the sort (a downcast and an upcast stored
+#: apart). ``monotonic``: no listed source profile; it never steps down,
+#: though it may repeat a pressure, and it may still be a merge of parts each
+#: stored in order, which the list cannot show. Empty where the dataset has
+#: no ``checkpres`` list to say.
+PRES_ORDERS: List[str] = ["monotonic", *LISTED_KINDS, "merged"]
+
+#: The :data:`PRES_ORDERS` in words, for meta.json.
+PRES_ORDER_LABELS: Dict[str, str] = {
+    "monotonic": "Stored in order",
+    "reversed": "Stored bottom up",
+    "non_monotonic": "Stored down and up",
+    "merged": "Merged from several",
+}
+
+#: How close (degrees) a listed profile's position must be to the output's,
+#: in longitude and in latitude. The list writes the position as a double
+#: and nrtqclib's output keeps it as a float, which differ in the sixth
+#: decimal.
+PRES_ORDER_POSITION_TOLERANCE: float = 1e-4
+
+#: What a repeated pressure carries (``pressure_repeats``): ``copied`` when
+#: every variable equals the level above's too, both missing counting as
+#: equal (a level written twice); ``other`` when a value differs.
+REPEAT_KINDS: List[str] = ["copied", "other"]
+
 
 def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     """
@@ -190,6 +240,11 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
         )
 
     tables: Dict[str, pl.DataFrame] = {}
+    # The reports first: the duplicate checks scan ctddump's observations,
+    # and done here they do not add to what the profiles and items hold.
+    if verbose:
+        print("[nrtqc-diff] reading the ctddump and seastamp reports")
+    reports = report_tables(config)
     summaries: List[pl.DataFrame] = []
     for dataset in config.datasets:
         if verbose:
@@ -197,6 +252,7 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
         scan = _scan(dataset, spec)
         summaries.append(profile_summary(scan, dataset, config, spec))
     profiles = classify(pl.concat(summaries, how="diagonal_relaxed"), config, spec)
+    profiles, pres_matched = with_pressure_orders(profiles, config, spec)
 
     tables.update(depth_tables(profiles, config, spec))
     tables.update(data_mode_tables(profiles, config, spec))
@@ -217,7 +273,9 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
             land_flags.append(land_flag_table(scan, land, dataset, config))
 
         nrt = {
-            v.name: mine.filter(pl.col(f"{v.name}_group") == NRT).select(PROFILE_KEYS)
+            v.name: mine.filter(pl.col(f"{v.name}_group") == NRT).select(
+                *PROFILE_KEYS, "pres_order"
+            )
             for v in config.variables
         }
         if any(keys.height for keys in nrt.values()):
@@ -244,10 +302,13 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     for name, frames in item_tables.items():
         tables[name] = pl.concat(frames, how="diagonal_relaxed")
 
-    reports = report_tables(config)
     if "conversion_steps" in reports:
         for message in check_conversion_steps(reports["conversion_steps"], profiles):
             print(f"[nrtqc-diff] warning: {message}", file=sys.stderr)
+    if "conversion_pressure_order" in reports and pres_matched.height:
+        reports["conversion_pressure_order"] = reports[
+            "conversion_pressure_order"
+        ].join(pres_matched, on="dataset_id", how="left")
     tables.update(reports)
     if spec.ctddump_reports:
         drops = dropped_platform_table(config, spec.ctddump_reports)
@@ -256,6 +317,11 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     overlap = overlap_table(profiles, config)
     if overlap.height:
         tables["conversion_overlap"] = overlap
+    if verbose:
+        print("[nrtqc-diff] checking the casts NRT products of a region share")
+    overlap_checked = overlap_checks(profiles, config, spec)
+    if overlap_checked.height:
+        tables["conversion_overlap_checks"] = overlap_checked
     comparisons = delayed_comparisons(profiles, config)
     tables.update(match_tables(profiles, config, comparisons))
     if comparisons:
@@ -263,7 +329,16 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
             print("[nrtqc-diff] comparing the flags of the casts paired with CORA")
         tables.update(cora_tables(comparisons, profiles, config, spec))
 
-    meta = _write(tables, config, spec, profile_coverage(profiles))
+    regions = region_parameters(config, profiles)
+    for region in regions or []:
+        for dataset_id, count in region["outside"].items():
+            if count:
+                print(
+                    f"[nrtqc-diff] warning: {dataset_id}: {count} profiles lie "
+                    f"outside {region['region']} as configured",
+                    file=sys.stderr,
+                )
+    meta = _write(tables, config, spec, profile_coverage(profiles), regions)
     if verbose:
         print(f"[nrtqc-diff] wrote {len(tables)} tables to {spec.out_dir}")
     return meta
@@ -438,6 +513,176 @@ def classify(
             group.alias(f"{name}_group"),
         ]
     return profiles.with_columns(land.alias("land")).with_columns(per_variable)
+
+
+def pressure_orders(
+    profiles: pl.DataFrame, listed: Optional[pl.DataFrame]
+) -> Tuple[pl.DataFrame, Dict[str, int]]:
+    """
+    How each profile of one dataset was stored, from ctddump's ``checkpres``
+    list of the source profiles whose pressure steps down.
+
+    The list numbers profiles within a source file, before the merge, so a
+    listed profile is matched on its file, platform and ``profile_time``
+    exactly, and its position within
+    :data:`PRES_ORDER_POSITION_TOLERANCE`. Several listed profiles can match
+    one profile of the output: ctddump merges the source profiles of one
+    file, platform, time and position. A profile is ``merged`` when it
+    matches more than one, or has more levels than the one it matches (the
+    rest came from a source profile the list does not hold). A listed
+    profile that matches nothing was dropped by a later ctddump step
+    (outside the region, ``dropqc``, ``dropna``, ``filter`` or ``dedup``).
+
+    :param profiles: One dataset's profiles, from :func:`profile_summary`,
+                     with ``n_obs``.
+    :param listed: The list, from
+                   :func:`~nrtqc_diff.reports.pressure_order_profiles`, or
+                   None.
+    :return: The profile keys with ``pres_order`` (one of
+             :data:`PRES_ORDERS`, or null for every profile without a
+             list), and the counts: listed profiles matched, per kind
+             (``reversed``, ``non_monotonic``), and profiles of the output
+             filed ``merged``.
+    :raises ValueError: If the list has a kind not in :data:`LISTED_KINDS`,
+                        the output lacks the columns to match on, or a
+                        listed profile matches more than one profile of the
+                        output.
+    """
+    keys = profiles.select(PROFILE_KEYS)
+    if listed is None:
+        return keys.with_columns(pl.lit(None, pl.Utf8).alias("pres_order")), {}
+    unknown = sorted(set(listed["kind"].drop_nulls().to_list()) - set(LISTED_KINDS))
+    if unknown:
+        raise ValueError(
+            f"The checkpres list has kinds {unknown}; expected one of {LISTED_KINDS}."
+        )
+    needed = ["filename", "profile_time", "longitude", "latitude", "n_obs"]
+    missing = [c for c in needed if c not in profiles.columns]
+    if missing:
+        raise ValueError(
+            f"The NRT QC output lacks {missing}, which matching ctddump's "
+            "checkpres list needs."
+        )
+    tolerance = PRES_ORDER_POSITION_TOLERANCE
+    output = profiles.select(
+        *PROFILE_KEYS,
+        pl.col("filename").cast(pl.Utf8),
+        pl.col("profile_time").cast(pl.Float64),
+        pl.col("longitude").cast(pl.Float64).alias("_lon"),
+        pl.col("latitude").cast(pl.Float64).alias("_lat"),
+        pl.col("n_obs").alias("_n_out"),
+    )
+    pairs = (
+        listed.with_row_index("_row")
+        .join(output, on=["filename", "platform_code", "profile_time"], how="inner")
+        .filter(
+            ((pl.col("_lon") - pl.col("longitude")).abs() <= tolerance)
+            & ((pl.col("_lat") - pl.col("latitude")).abs() <= tolerance)
+        )
+    )
+    if pairs["_row"].is_duplicated().any():
+        raise ValueError(
+            "A profile of ctddump's checkpres list matches more than one "
+            "profile of the NRT QC output; the file, platform, time and "
+            "position do not tell them apart."
+        )
+    per_profile = (
+        pairs.group_by(PROFILE_KEYS)
+        .agg(
+            pl.len().alias("_k"),
+            pl.col("kind").first(),
+            pl.col("n_obs").sum().alias("_n_listed"),
+            pl.col("_n_out").first(),
+        )
+        .select(
+            *PROFILE_KEYS,
+            pl.when((pl.col("_k") > 1) | (pl.col("_n_out") > pl.col("_n_listed")))
+            .then(pl.lit("merged"))
+            .otherwise(pl.col("kind"))
+            .alias("pres_order"),
+        )
+    )
+    orders = keys.join(per_profile, on=PROFILE_KEYS, how="left").with_columns(
+        pl.col("pres_order").fill_null(PRES_ORDERS[0])
+    )
+    counts = {k: int((pairs["kind"] == k).sum()) for k in LISTED_KINDS}
+    counts["merged"] = int((per_profile["pres_order"] == "merged").sum())
+    return orders, counts
+
+
+def _match_columns(scan: pl.LazyFrame, listed: pl.DataFrame) -> pl.DataFrame:
+    """
+    What :func:`pressure_orders` matches on, for the profiles of the
+    platforms ``listed`` names only: a pass of its own, so that the profile
+    summary does not carry the file name of every profile.
+    """
+    names = scan.collect_schema().names()
+    needed = ["filename", "profile_time", "longitude", "latitude"]
+    missing = [c for c in needed if c not in names]
+    if missing:
+        raise ValueError(
+            f"The NRT QC output lacks {missing}, which matching ctddump's "
+            "checkpres list needs."
+        )
+    platforms = listed["platform_code"].unique().to_list()
+    return (
+        scan.filter(pl.col("platform_code").is_in(platforms))
+        .group_by(PROFILE_KEYS)
+        .agg(*[pl.col(c).first() for c in needed], pl.len().alias("n_obs"))
+        .collect(engine="streaming")
+        .with_columns(
+            pl.col("platform_code").cast(pl.Utf8),
+            pl.col("n_obs").cast(pl.Int64),
+        )
+    )
+
+
+def with_pressure_orders(
+    profiles: pl.DataFrame, config: BuildConfig, spec: AnalysesSpec
+) -> Tuple[pl.DataFrame, pl.DataFrame]:
+    """
+    ``profiles`` with ``pres_order`` (:func:`pressure_orders`) for every
+    dataset, and how many of each dataset's listed profiles were matched.
+
+    :param profiles: The output of :func:`classify`, datasets stacked.
+    :param config: The build configuration.
+    :param spec: The analyses section, for the ctddump reports.
+    :return: The profiles, and one row per dataset with a list:
+             ``dataset_id``, the listed profiles matched in the output
+             (``n_reversed_matched``, ``n_non_monotonic_matched``), and the
+             output's profiles filed ``merged`` (``n_merged``).
+    """
+    orders, counts = [], []
+    for dataset in config.datasets:
+        listed = (
+            pressure_order_profiles(dataset, spec.ctddump_reports)
+            if spec.ctddump_reports
+            else None
+        )
+        mine = profiles.filter(pl.col("dataset_id") == dataset.id).select(PROFILE_KEYS)
+        if listed is not None:
+            mine = mine.join(
+                _match_columns(_scan(dataset, spec), listed),
+                on=PROFILE_KEYS,
+                how="left",
+            )
+        order, matched = pressure_orders(mine, listed)
+        orders.append(order.with_columns(pl.lit(dataset.id).alias("dataset_id")))
+        if listed is not None:
+            counts.append(
+                {
+                    "dataset_id": dataset.id,
+                    **{f"n_{k}_matched": matched[k] for k in LISTED_KINDS},
+                    "n_merged": matched["merged"],
+                }
+            )
+    joined = profiles.join(
+        pl.concat(orders), on=["dataset_id", *PROFILE_KEYS], how="left"
+    )
+    schema = {"dataset_id": pl.Utf8}
+    schema.update({f"n_{k}_matched": pl.Int64 for k in LISTED_KINDS})
+    schema["n_merged"] = pl.Int64
+    return joined, pl.DataFrame(counts, schema=schema)
 
 
 def by_variable(profiles: pl.DataFrame, config: BuildConfig) -> pl.DataFrame:
@@ -1168,6 +1413,57 @@ def pres_band_labels() -> List[Dict[str, Any]]:
     return bands
 
 
+#: nrtqclib's checks behind most of what only nrtqclib flags, which the
+#: agreement can be measured without: its density inversion test, the
+#: temperature flag carried over to salinity, and pressure increasing.
+SET_ASIDE_ITEMS: List[str] = [
+    "density_inversion",
+    "temp_to_psal",
+    "pressure_increasing",
+]
+
+
+def only_set_aside(columns: List[str], variable: VariableSpec) -> pl.Expr:
+    """
+    Whether an observation failed only checks of :data:`SET_ASIDE_ITEMS`.
+
+    True when at least one of them failed and no other check did; an
+    observation with no failing check recorded is never set aside, so a
+    flag no check explains keeps counting.
+
+    :param columns: The variable's per-item columns (``temp_qc_spike``).
+    :param variable: The variable.
+    :return: A boolean expression, never null.
+    """
+    fails = {
+        item_name(c, variable): (
+            pl.col(c).cast(pl.Int64, strict=False) > FLAG_GOOD
+        ).fill_null(False)
+        for c in columns
+    }
+    aside = [f for name, f in fails.items() if name in SET_ASIDE_ITEMS]
+    other = [f for name, f in fails.items() if name not in SET_ASIDE_ITEMS]
+    if not aside:
+        return pl.lit(False)
+    expression = pl.any_horizontal(aside)
+    if other:
+        expression = expression & ~pl.any_horizontal(other)
+    return expression
+
+
+def _with_pres_order(keys: pl.DataFrame) -> pl.DataFrame:
+    """
+    ``keys`` as profile keys and ``pres_order``, the order null where the
+    frame does not carry one.
+    """
+    order = (
+        pl.col("pres_order").cast(pl.Utf8)
+        if "pres_order" in keys.columns
+        else pl.lit(None, pl.Utf8).alias("pres_order")
+    )
+    return keys.select(pl.col("platform_code").cast(pl.Utf8), "profile_no", order)
+
+
 def item_tables_for(
     scan: pl.LazyFrame,
     keep: Dict[str, pl.DataFrame],
@@ -1195,8 +1491,11 @@ def item_tables_for(
     names = scan.collect_schema().names()
     variable_names = [v.name for v in config.variables]
 
-    def kept_for(variable: VariableSpec) -> pl.LazyFrame:
-        return scan.join(keep[variable.name].lazy(), on=PROFILE_KEYS, how="semi")
+    def ordered_for(variable: VariableSpec) -> pl.LazyFrame:
+        """The profiles kept for ``variable``, each row with its ``pres_order``."""
+        return scan.join(
+            _with_pres_order(keep[variable.name]).lazy(), on=PROFILE_KEYS, how="inner"
+        )
 
     bands = {b["band"]: b["label"] for b in pres_band_labels()}
 
@@ -1216,6 +1515,7 @@ def item_tables_for(
             for c in columns
         ]
         keys = [
+            pl.col("pres_order"),
             pres_band().alias("pres_band"),
             original_flag(variable).alias(variable.flag),
             pl.col(variable.nrt_flag)
@@ -1223,18 +1523,20 @@ def item_tables_for(
             .alias(variable.nrt_flag),
         ] + fails
         queries.append(
-            kept_for(variable)
+            ordered_for(variable)
             .select(keys)
             .group_by(pl.all())
             .agg(pl.len().cast(pl.Int64).alias("n_obs"))
         )
 
-    # Per platform, each variable over its own profiles.
-    for variable in config.variables:
+    # Per platform and stored pressure order, each variable over its own
+    # profiles, with what nrtqclib flags only through the checks set aside.
+    for variable, columns in zip(config.variables, item_lists):
         predicates = status_predicates(variable)
+        set_aside = only_set_aside(columns, variable)
         queries.append(
-            kept_for(variable)
-            .group_by(pl.col("platform_code").cast(pl.Utf8))
+            ordered_for(variable)
+            .group_by(pl.col("platform_code").cast(pl.Utf8), "pres_order")
             .agg(
                 pl.col("profile_no").n_unique().cast(pl.Int64).alias("n_profiles"),
                 pl.len().cast(pl.Int64).alias("n_obs"),
@@ -1244,6 +1546,13 @@ def item_tables_for(
                     .cast(pl.Int64)
                     .alias(f"n_{status['key']}")
                     for status in STATUSES
+                ],
+                *[
+                    (predicates[key] & set_aside)
+                    .sum()
+                    .cast(pl.Int64)
+                    .alias(f"n_{key}_set_aside")
+                    for key in (AGREE_BAD, NRTQCLIB_ONLY)
                 ],
             )
             .with_columns(pl.lit(variable.name).alias("variable"))
@@ -1282,6 +1591,7 @@ def item_tables_for(
             cube.select(
                 head
                 + [
+                    "pres_order",
                     "pres_band",
                     "pres_label",
                     pl.col(variable.flag).alias("original_flag"),
@@ -1364,7 +1674,9 @@ def item_tables_for(
         ),
         "items_platforms": pl.concat(platform_results)
         .select(label + ["variable", pl.all().exclude("variable")])
-        .sort("variable", "platform_code"),
+        .with_columns(_pres_order_index().alias("_pres_order"))
+        .sort("variable", "platform_code", "_pres_order")
+        .drop("_pres_order"),
     }
     if by_item:
         tables["items_by_item"] = pl.concat(by_item)
@@ -1784,18 +2096,23 @@ def _with_profile_ids(frame: pl.DataFrame) -> pl.DataFrame:
 
 def _response_chunk(
     frame: pl.DataFrame, variables: List[VariableSpec], has_pres_flag: bool
-) -> List[pl.DataFrame]:
+) -> Tuple[List[pl.DataFrame], List[pl.DataFrame]]:
     """
     The banded failures of one slice of whole profiles, per test.
 
     :param frame: Whole profiles, in recorded order, numbered by ``_pid``
                   (:func:`_with_profile_ids`), with the values, a
                   ``bad_<name>`` input flag per variable, ``keep_<name>``
-                  saying the profile is compared for that variable, and
-                  ``bad_pres`` when the input has a pressure flag.
+                  saying the profile is compared for that variable,
+                  ``pres_order``, and ``bad_pres`` when the input has a
+                  pressure flag.
     :return: One frame per test and variable: ``test``, ``variable``,
-             ``band``, how many fall in it (``n``) and how many of those
-             the input flags (``n_flagged``).
+             ``pres_order``, ``band``, ``platform_code``, how many fall in it
+             (``n``) and how many of those the input flags (``n_flagged``). Then the
+             repeated pressures (band 1 of ``pressure_increasing``) per
+             variable it is set against, profile and :data:`REPEAT_KINDS`
+             (``kind``), with ``n`` and ``n_flagged``, for
+             :func:`_repeat_tables`.
     """
     tests = {t["key"]: t for t in RESPONSE_TESTS}
     frame = frame.lazy().with_columns(
@@ -1811,9 +2128,11 @@ def _response_chunk(
             rows.select(
                 _response_band(tests[test], margin).alias("band"),
                 flagged.fill_null(False).alias("flagged"),
+                pl.col("pres_order"),
+                pl.col("platform_code"),
             )
             .filter(pl.col("band").is_not_null())
-            .group_by("band")
+            .group_by("band", "pres_order", "platform_code")
             .agg(
                 pl.len().cast(pl.Int64).alias("n"),
                 pl.col("flagged").sum().cast(pl.Int64).alias("n_flagged"),
@@ -1864,6 +2183,8 @@ def _response_chunk(
                 x.n_unique().alias("_unique"),
                 in_range[name].all().alias("_in"),
                 bad.mean().alias("_bad"),
+                pl.col("pres_order").first(),
+                pl.col("platform_code").first(),
             )
             .filter((pl.col("_n") >= 2) & pl.col("_in"))
         )
@@ -1901,17 +2222,37 @@ def _response_chunk(
     # against the pressure flag and each variable's flag in turn.
     deepest = pl.when(pl.col("_sp")).then(pres.cum_max().over("_pid").shift(1))
     margin = deepest - pres
+    against = [(name, frame.filter(pl.col(f"keep_{name}")), name) for name in names]
     if has_pres_flag:
-        banded("pressure_increasing", "pres", both, margin, pl.col("bad_pres"))
-    for name in names:
-        banded(
-            "pressure_increasing",
-            name,
-            frame.filter(pl.col(f"keep_{name}")),
-            margin,
-            pl.col(f"bad_{name}"),
+        against.insert(0, ("pres", both, "pres"))
+    # A repeated pressure (band 1) is a copied level when the level above,
+    # of the same profile, has the same pressure and the same values.
+    repeated = _response_band(tests["pressure_increasing"], margin) == 1
+    copied = pl.col("_sp") & pl.all_horizontal(
+        [pl.col(c).eq_missing(pl.col(c).shift(1)) for c in ["pres", *names]]
+    )
+    repeats: List[pl.LazyFrame] = []
+    for variable, rows, flag in against:
+        banded("pressure_increasing", variable, rows, margin, pl.col(f"bad_{flag}"))
+        repeats.append(
+            rows.with_columns(
+                repeated.fill_null(False).alias("_repeated"),
+                pl.when(copied)
+                .then(pl.lit(REPEAT_KINDS[0]))
+                .otherwise(pl.lit(REPEAT_KINDS[1]))
+                .alias("kind"),
+                pl.col(f"bad_{flag}").fill_null(False).alias("_flagged"),
+            )
+            .filter(pl.col("_repeated"))
+            .group_by("pres_order", "platform_code", "profile_no", "kind")
+            .agg(
+                pl.len().cast(pl.Int64).alias("n"),
+                pl.col("_flagged").sum().cast(pl.Int64).alias("n_flagged"),
+            )
+            .with_columns(pl.lit(variable).alias("variable"))
         )
-    return pl.collect_all(out)
+    results = pl.collect_all(out + repeats)
+    return results[: len(out)], results[len(out) :]
 
 
 def platform_group(code: pl.Expr) -> pl.Expr:
@@ -2172,6 +2513,7 @@ def _frozen_chunk(
                 x.cast(pl.Float64).is_between(low, high).all().alias("_in"),
                 x.n_unique().alias("_unique"),
                 pl.col(f"bad_{name}").mean().alias("_bad"),
+                pl.col("pres_order").first(),
             )
             .sort("_pid")
             .with_columns(pl.col("_pid").shift(1).alias("_prev"))
@@ -2234,10 +2576,12 @@ def _frozen_chunk(
                     .otherwise(0.0),
                 ).alias("band"),
                 (pl.col("_bad") >= RESPONSE_WHOLE_SHARE).alias("flagged"),
+                pl.col("pres_order"),
+                pl.col("platform_code"),
             )
         )
         out.append(
-            measured.group_by("band")
+            measured.group_by("band", "pres_order", "platform_code")
             .agg(
                 pl.len().cast(pl.Int64).alias("n"),
                 pl.col("flagged").sum().cast(pl.Int64).alias("n_flagged"),
@@ -2247,6 +2591,94 @@ def _frozen_chunk(
             )
         )
     return out
+
+
+def _pres_order_index() -> pl.Expr:
+    """``pres_order``'s place in :data:`PRES_ORDERS`, for sorting."""
+    return pl.col("pres_order").replace_strict(
+        {k: i for i, k in enumerate(PRES_ORDERS)}, default=None, return_dtype=pl.Int8
+    )
+
+
+def _repeat_tables(
+    parts: List[pl.DataFrame], variables: List[VariableSpec], label: List[pl.Expr]
+) -> Dict[str, pl.DataFrame]:
+    """
+    ``pressure_repeats`` and ``pressure_repeat_platforms`` from the repeated
+    pressures :func:`_response_chunk` lists per profile, labelled with the
+    dataset columns ``label``.
+
+    A repeated pressure is band 1 of ``pressure_increasing`` in
+    ``items_response``: no shallower and no deeper than the deepest level
+    above it, which after ctddump's sort is the level above. Each row counts
+    the same values as that band, over the same profiles, per flag it is set
+    against.
+    """
+    parts = [p for p in parts if p.height]
+    if not parts:
+        return {}
+    rows = pl.concat(parts)
+    flag_order = {n: i for i, n in enumerate(["pres", *[v.name for v in variables]])}
+    sort = [
+        pl.col("variable").replace_strict(flag_order, default=None).alias("_v"),
+        _pres_order_index().alias("_pres_order"),
+    ]
+    profile = pl.struct("platform_code", "profile_no")
+    summary = (
+        rows.group_by("variable", "pres_order", "kind")
+        .agg(
+            pl.col("n").sum(),
+            pl.col("n_flagged").sum(),
+            profile.n_unique().cast(pl.Int64).alias("n_profiles"),
+            pl.col("platform_code").n_unique().cast(pl.Int64).alias("n_platforms"),
+        )
+        .with_columns(
+            *sort,
+            pl.col("kind")
+            .replace_strict({k: i for i, k in enumerate(REPEAT_KINDS)})
+            .alias("_kind"),
+        )
+        .sort("_v", "_pres_order", "_kind", nulls_last=True)
+        .select(
+            label
+            + [
+                "variable",
+                "pres_order",
+                "kind",
+                "n",
+                "n_flagged",
+                "n_profiles",
+                "n_platforms",
+            ]
+        )
+    )
+    copied = pl.col("kind") == REPEAT_KINDS[0]
+    platforms = (
+        rows.group_by("variable", "pres_order", "platform_code")
+        .agg(
+            pl.col("n").sum(),
+            pl.col("n_flagged").sum(),
+            pl.col("n").filter(copied).sum().alias("n_copied"),
+            pl.col("n_flagged").filter(copied).sum().alias("n_copied_flagged"),
+            pl.col("profile_no").n_unique().cast(pl.Int64).alias("n_profiles"),
+        )
+        .with_columns(*sort)
+        .sort("_v", "_pres_order", "platform_code", nulls_last=True)
+        .select(
+            label
+            + [
+                "variable",
+                "pres_order",
+                "platform_code",
+                "n_profiles",
+                "n",
+                "n_flagged",
+                "n_copied",
+                "n_copied_flagged",
+            ]
+        )
+    )
+    return {"pressure_repeats": summary, "pressure_repeat_platforms": platforms}
 
 
 def response_table(
@@ -2336,9 +2768,15 @@ def response_tables(
         .with_columns(pl.lit(True).alias(f"keep_{v.name}"))
         for v in variables
     }
+    # The frozen profile test also reads profiles compared for no variable,
+    # as the previous profile; their order is never counted.
+    orders = pl.concat([_with_pres_order(keep[v.name]) for v in variables]).unique(
+        PROFILE_KEYS
+    )
 
     total = scan.select(pl.len()).collect().item()
     counts: List[pl.DataFrame] = []
+    repeats: List[pl.DataFrame] = []
     density: List[Dict[str, pl.DataFrame]] = []
     carry = None
     # The last whole profile of the slice before, which the frozen profile
@@ -2375,8 +2813,12 @@ def response_tables(
             profiles = profiles.join(
                 mark, on=PROFILE_KEYS, how="left", maintain_order="left"
             ).with_columns(pl.col(f"keep_{name}").fill_null(False))
+        profiles = profiles.join(
+            orders, on=PROFILE_KEYS, how="left", maintain_order="left"
+        )
         part = part.with_columns(
             [profiles[f"keep_{v.name}"].gather(part["_pid"]) for v in variables]
+            + [profiles["pres_order"].gather(part["_pid"])]
         )
         counts.extend(_frozen_chunk(part, variables, context))
         part = part.filter(pl.col("_pid") >= context).filter(
@@ -2384,7 +2826,9 @@ def response_tables(
         )
         if not part.height:
             continue
-        counts.extend(_response_chunk(part, variables, has_pres_flag))
+        banded, repeated = _response_chunk(part, variables, has_pres_flag)
+        counts.extend(banded)
+        repeats.extend(repeated)
         density.append(_density_chunk(part, variables))
     if not counts:
         return {}
@@ -2395,15 +2839,54 @@ def response_tables(
         pl.lit(dataset.label).alias("label"),
     ]
     order = {t["key"]: i for i, t in enumerate(RESPONSE_TESTS)}
+    counted = pl.concat(counts)
     response = (
-        pl.concat(counts)
-        .group_by("test", "variable", "band")
+        counted.group_by("test", "variable", "pres_order", "band")
         .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
-        .with_columns(pl.col("test").replace_strict(order).alias("_order"))
-        .sort("_order", "variable", "band")
-        .select(label + ["test", "variable", "band", "n", "n_flagged"])
+        .with_columns(
+            pl.col("test").replace_strict(order).alias("_order"),
+            _pres_order_index().alias("_pres_order"),
+        )
+        .sort("_order", "variable", "_pres_order", "band", nulls_last=True)
+        .select(label + ["test", "variable", "pres_order", "band", "n", "n_flagged"])
     )
-    return {"items_response": response, **_density_tables(density, label)}
+    clear = pl.concat(
+        [
+            pl.DataFrame(
+                {"test": t["key"], "band": t["clear"]},
+                schema={"test": pl.Utf8, "band": counted.schema["band"]},
+            )
+            for t in RESPONSE_TESTS
+        ]
+    )
+    platforms = (
+        counted.join(clear, on=["test", "band"], how="semi")
+        .group_by("test", "variable", "pres_order", "band", "platform_code")
+        .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
+        .with_columns(
+            pl.col("test").replace_strict(order).alias("_order"),
+            _pres_order_index().alias("_pres_order"),
+        )
+        .sort(
+            "_order",
+            "variable",
+            "platform_code",
+            "_pres_order",
+            "band",
+            nulls_last=True,
+        )
+        .select(
+            label
+            + ["test", "variable", "pres_order", "band", "platform_code"]
+            + ["n", "n_flagged"]
+        )
+    )
+    return {
+        "items_response": response,
+        "items_response_platforms": platforms,
+        **_repeat_tables(repeats, variables, label),
+        **_density_tables(density, label),
+    }
 
 
 #: Two profiles of different products are the same cast when they share a
@@ -2614,6 +3097,157 @@ def overlap_table(profiles: pl.DataFrame, config: BuildConfig) -> pl.DataFrame:
             }
         )
     return pl.DataFrame(rows) if rows else pl.DataFrame()
+
+
+#: How many levels of paired profiles :func:`overlap_checks` reads at a
+#: time, on each side, for the same reason as
+#: :data:`~nrtqc_diff.reports.DUP_CHUNK_LEVELS`.
+OVERLAP_CHUNK_LEVELS: int = 5_000_000
+
+
+def _pair_levels(
+    scan: pl.LazyFrame, keys: pl.DataFrame, variables: List[str]
+) -> pl.LazyFrame:
+    """
+    The levels of one side's paired profiles, as :func:`value_classes` reads
+    them.
+
+    :param scan: The product.
+    :param keys: ``platform_code``, ``profile_no``, ``_gid`` (the pair) and
+                 ``_size`` (2).
+    :param variables: The variables to compare.
+    """
+    return (
+        scan.select(
+            pl.col("platform_code").cast(pl.Utf8),
+            pl.col("profile_no").cast(pl.Int64),
+            pl.col("observation_no").cast(pl.UInt32).alias("_level"),
+            *value_floats(variables),
+        )
+        .join(keys.lazy(), on=PROFILE_KEYS)
+        .drop(PROFILE_KEYS)
+    )
+
+
+def overlap_checks(
+    profiles: pl.DataFrame, config: BuildConfig, spec: AnalysesSpec
+) -> pl.DataFrame:
+    """
+    The casts two NRT products of one region share, checked as duplicates.
+
+    The pairs are those :func:`overlap_table` counts on date and position
+    alone (``n_matched_any_platform``), between NRT products only, each pair
+    of products once, the first in configuration order as the reference.
+    Each pair is classed as a duplicate group of two would be
+    (:func:`~nrtqc_diff.reports.duplicate_checks`): by the time between the
+    two, whether they hold the same number of levels, how their values
+    compare level by level in nrtqclib's output, and whether the positions
+    are equal; and by whether the platform code is the same.
+
+    :param profiles: One row per profile of every dataset.
+    :param config: The build configuration.
+    :param spec: The analyses section.
+    :return: One row per pair of products and combination of classes, with
+             ``n_pairs``. Empty without the columns to match on.
+    """
+    needed = {"profile_timestamp", "longitude", "latitude", "n_obs"}
+    if not needed <= set(profiles.columns):
+        return pl.DataFrame()
+    present = set(profiles["dataset_id"].unique().to_list())
+    order = [d.id for d in config.datasets]
+    frames = []
+    for reference, other in _region_pairs(config, present):
+        if reference.data_mode is not None or other.data_mode is not None:
+            continue
+        if order.index(reference.id) > order.index(other.id):
+            continue
+        pairs = match_profiles(
+            _match_frame(profiles, reference.id),
+            _match_frame(profiles, other.id),
+            same_platform=False,
+        )
+        if pairs.height == 0:
+            continue
+        pairs = pairs.with_row_index("_gid").with_columns(
+            pl.col("platform_code").cast(pl.Utf8),
+            pl.col("platform_code_c").cast(pl.Utf8),
+            pl.col("profile_no").cast(pl.Int64),
+            pl.col("profile_no_c").cast(pl.Int64),
+            (pl.col("n_obs") == pl.col("n_obs_c")).alias("_same_levels"),
+            pl.lit(2, pl.UInt32).alias("_size"),
+        )
+        mine, theirs = _scan(reference, spec), _scan(other, spec)
+        variables = [
+            v for v in value_columns(mine) if v in theirs.collect_schema().names()
+        ]
+        compared = pairs.filter("_same_levels").with_columns(
+            ((pl.col("n_obs").cum_sum() - 1) // OVERLAP_CHUNK_LEVELS).alias("_chunk")
+        )
+        parts = []
+        for _, part in compared.group_by("_chunk", maintain_order=True):
+            levels = pl.concat(
+                [
+                    _pair_levels(
+                        mine,
+                        part.select(*PROFILE_KEYS, "_gid", "_size"),
+                        variables,
+                    ),
+                    _pair_levels(
+                        theirs,
+                        part.select(
+                            pl.col("platform_code_c").alias("platform_code"),
+                            pl.col("profile_no_c").alias("profile_no"),
+                            "_gid",
+                            "_size",
+                        ),
+                        variables,
+                    ),
+                ]
+            )
+            parts.append(value_classes(levels, variables))
+        values = (
+            pl.concat(parts)
+            if parts
+            else pl.DataFrame(schema={"_gid": pl.UInt32, "values": pl.Utf8})
+        )
+        frames.append(
+            pairs.join(values, on="_gid", how="left")
+            .select(
+                pl.when(pl.col("platform_code") == pl.col("platform_code_c"))
+                .then(pl.lit("same"))
+                .otherwise(pl.lit("other"))
+                .alias("platform"),
+                time_class(pl.col("_dt")).alias("time"),
+                pl.when(pl.col("_same_levels"))
+                .then(pl.lit("same"))
+                .otherwise(pl.lit("differ"))
+                .alias("levels"),
+                pl.col("values").fill_null("not_compared"),
+                pl.when(
+                    (pl.col("_lon") == pl.col("_lon_c"))
+                    & (pl.col("_lat") == pl.col("_lat_c"))
+                )
+                .then(pl.lit("equal"))
+                .otherwise(pl.lit("within"))
+                .alias("position"),
+            )
+            .with_columns(match_class().alias("match"))
+            .group_by("platform", "time", "levels", "values", "position", "match")
+            .agg(pl.len().cast(pl.Int64).alias("n_pairs"))
+            .sort(
+                "platform",
+                pl.col("time").replace_strict(
+                    DUP_TIME_CLASSES, range(len(DUP_TIME_CLASSES))
+                ),
+                "levels",
+                pl.col("values").replace_strict(
+                    DUP_VALUE_CLASSES, range(len(DUP_VALUE_CLASSES))
+                ),
+                "position",
+            )
+            .select(_comparison_labels(reference, other) + [pl.all()])
+        )
+    return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame()
 
 
 def _unmatched(frame: pl.DataFrame, pairs: pl.DataFrame, side: str) -> pl.DataFrame:
@@ -2921,12 +3555,15 @@ def cora_tables(
     :param config: The build configuration.
     :param spec: The analyses section.
     :return: ``cora_flags``, the levels counted by variable, coverage,
-             pressure band and the four flags; and ``cora_pairs``, the pairs
-             counted through each condition.
+             pressure band and the four flags; ``cora_pairs``, the pairs
+             counted through each condition; and the same per NRT platform,
+             ``cora_flags_platforms`` without the pressure band and
+             ``cora_pairs_platforms``.
     """
     variables = list(config.variables)
     bands = {b["band"]: b["label"] for b in pres_band_labels()}
     flag_tables, pair_tables = [], []
+    flag_platform_tables, pair_platform_tables = [], []
     for comparison in comparisons:
         reference, other = comparison["reference"], comparison["other"]
         labels = _comparison_labels(reference, other)
@@ -3001,7 +3638,10 @@ def cora_tables(
             )
             levels = joined.join(good, on="_pair", how="semi").join(
                 pairs_part.select(
-                    "_pair", "coverage", *[f"_nrt_{v.name}" for v in variables]
+                    "_pair",
+                    "coverage",
+                    pl.col("platform_code").cast(pl.Utf8),
+                    *[f"_nrt_{v.name}" for v in variables],
                 ),
                 on="_pair",
             )
@@ -3011,6 +3651,7 @@ def cora_tables(
                     levels.filter(pl.col(f"_nrt_{v.name}"))
                     .group_by(
                         "coverage",
+                        "platform_code",
                         pres_band().alias("pres_band"),
                         pl.col(f"{v.name}_qc").cast(pl.Int64).alias("original_flag"),
                         pl.col(f"{v.name}_nrt").cast(pl.Int64).alias("nrtqclib_flag"),
@@ -3047,59 +3688,70 @@ def cora_tables(
             pl.concat(counts)
             if counts
             else pl.DataFrame(
-                schema={"coverage": pl.Utf8, "n_obs": pl.Int64, "variable": pl.Utf8}
+                schema={
+                    "coverage": pl.Utf8,
+                    "platform_code": pl.Utf8,
+                    "n_obs": pl.Int64,
+                    "variable": pl.Utf8,
+                }
             )
         )
+        status = status.with_columns(pl.col("platform_code").cast(pl.Utf8))
         for v in variables:
             nrt = pl.col("_same_obs") & pl.col(f"_nrt_{v.name}")
-            summary = (
-                status.group_by("coverage")
-                .agg(
-                    pl.len().cast(pl.Int64).alias("n_pairs"),
-                    pl.col("_same_obs").sum().cast(pl.Int64).alias("n_same_obs"),
-                    nrt.sum().cast(pl.Int64).alias("n_nrt"),
-                    (nrt & pl.col("_aligned")).sum().cast(pl.Int64).alias("n_aligned"),
-                    (nrt & pl.col("_aligned") & pl.col("_exact").fill_null(False))
-                    .sum()
-                    .cast(pl.Int64)
-                    .alias("n_pres_exact"),
+            for keys, tables in (
+                (["coverage"], pair_tables),
+                (["coverage", "platform_code"], pair_platform_tables),
+            ):
+                summary = (
+                    status.group_by(keys)
+                    .agg(
+                        pl.len().cast(pl.Int64).alias("n_pairs"),
+                        pl.col("_same_obs").sum().cast(pl.Int64).alias("n_same_obs"),
+                        nrt.sum().cast(pl.Int64).alias("n_nrt"),
+                        (nrt & pl.col("_aligned"))
+                        .sum()
+                        .cast(pl.Int64)
+                        .alias("n_aligned"),
+                        (nrt & pl.col("_aligned") & pl.col("_exact").fill_null(False))
+                        .sum()
+                        .cast(pl.Int64)
+                        .alias("n_pres_exact"),
+                    )
+                    .join(
+                        observed.filter(pl.col("variable") == v.name)
+                        .group_by(keys)
+                        .agg(pl.col("n_obs").sum()),
+                        on=keys,
+                        how="left",
+                    )
+                    .with_columns(
+                        pl.col("n_obs").fill_null(0),
+                        pl.lit(v.name).alias("variable"),
+                    )
                 )
-                .join(
-                    observed.filter(pl.col("variable") == v.name)
-                    .group_by("coverage")
-                    .agg(pl.col("n_obs").sum()),
-                    on="coverage",
-                    how="left",
+                tables.append(
+                    summary.select(
+                        *labels,
+                        "variable",
+                        *keys,
+                        "n_pairs",
+                        "n_same_obs",
+                        "n_nrt",
+                        "n_aligned",
+                        "n_pres_exact",
+                        "n_obs",
+                    )
                 )
-                .with_columns(
-                    pl.col("n_obs").fill_null(0),
-                    pl.lit(v.name).alias("variable"),
-                )
-            )
-            pair_tables.append(
-                summary.select(
-                    *labels,
-                    "variable",
-                    "coverage",
-                    "n_pairs",
-                    "n_same_obs",
-                    "n_nrt",
-                    "n_aligned",
-                    "n_pres_exact",
-                    "n_obs",
-                )
-            )
         if counts:
+            flags = [
+                "original_flag",
+                "nrtqclib_flag",
+                "cora_flag",
+                "cora_nrtqclib_flag",
+            ]
             flag_tables.append(
-                observed.group_by(
-                    "variable",
-                    "coverage",
-                    "pres_band",
-                    "original_flag",
-                    "nrtqclib_flag",
-                    "cora_flag",
-                    "cora_nrtqclib_flag",
-                )
+                observed.group_by("variable", "coverage", "pres_band", *flags)
                 .agg(pl.col("n_obs").sum())
                 .with_columns(
                     pl.col("pres_band")
@@ -3112,11 +3764,15 @@ def cora_tables(
                     "coverage",
                     "pres_band",
                     "pres_label",
-                    "original_flag",
-                    "nrtqclib_flag",
-                    "cora_flag",
-                    "cora_nrtqclib_flag",
+                    *flags,
                     "n_obs",
+                )
+            )
+            flag_platform_tables.append(
+                observed.group_by("variable", "coverage", "platform_code", *flags)
+                .agg(pl.col("n_obs").sum())
+                .select(
+                    *labels, "variable", "coverage", "platform_code", *flags, "n_obs"
                 )
             )
 
@@ -3132,18 +3788,12 @@ def cora_tables(
             .drop("_c")
         )
 
+    flags = ["original_flag", "nrtqclib_flag", "cora_flag", "cora_nrtqclib_flag"]
     tables = {
         "cora_pairs": stack(pair_tables, []),
-        "cora_flags": stack(
-            flag_tables,
-            [
-                "pres_band",
-                "original_flag",
-                "nrtqclib_flag",
-                "cora_flag",
-                "cora_nrtqclib_flag",
-            ],
-        ),
+        "cora_flags": stack(flag_tables, ["pres_band", *flags]),
+        "cora_pairs_platforms": stack(pair_platform_tables, ["platform_code"]),
+        "cora_flags_platforms": stack(flag_platform_tables, ["platform_code", *flags]),
     }
     return {name: table for name, table in tables.items() if table.height}
 
@@ -3242,18 +3892,126 @@ def provenance_meta(config: BuildConfig) -> Optional[Dict[str, Any]]:
     return entry
 
 
+def nrtqclib_parameters(config: BuildConfig) -> Optional[Dict[str, Any]]:
+    """
+    The tests and parameters nrtqclib ran, from the batch's configuration.
+
+    Only the parameters are published, not the file: each ``qc_item_set``
+    some dataset ran, its tests in order with their ``params`` (an empty
+    mapping for a test without any), and the set each dataset ran. A
+    dataset is matched to an ``nrt_qc_sets`` entry by its ``source`` and
+    the entry's input file name, or else by the entry's dataset folder
+    among the parts of the dataset's path.
+
+    :param config: The build configuration.
+    :return: ``qc_item_sets`` and ``datasets``, or None when the
+             configuration names no nrtqclib configuration.
+    """
+    spec = config.provenance
+    if spec is None or not spec.nrtqclib_config:
+        return None
+    with open(spec.nrtqclib_config, encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    sets = {
+        str(entry["name"]): {
+            str(item["name"]): item.get("params") or {}
+            for item in entry.get("items") or []
+        }
+        for entry in raw.get("qc_item_sets") or []
+    }
+    runs = raw.get("nrt_qc_sets") or []
+    ran: Dict[str, str] = {}
+    for dataset in config.datasets:
+        parts = os.path.normpath(dataset.path).split(os.sep)
+        for run in runs:
+            stem = os.path.splitext(str(run.get("input_file_name", "")))[0]
+            if (dataset.source and stem == dataset.source) or (
+                run.get("dataset_folder_name") in parts
+            ):
+                ran[dataset.id] = str(run.get("qc_item_set"))
+                break
+    used = [name for name in sets if name in ran.values()]
+    return {
+        "qc_item_sets": {name: sets[name] for name in used},
+        "datasets": ran,
+    }
+
+
+def region_inside(region: Dict[str, Any]) -> pl.Expr:
+    """
+    Whether a profile's ``longitude`` and ``latitude`` fall in a region as
+    ctddump's ``filter`` keeps it: inside an ``include`` box and no
+    ``exclude`` box, edges included, a missing position outside. Positions
+    and edges are compared in single precision, as the positions are
+    stored: widened to double, a latitude stored at 45.755 reads as
+    45.755001, just past the Mediterranean box's edge.
+    """
+
+    def edge(value: float) -> pl.Expr:
+        return pl.lit(value, dtype=pl.Float32)
+
+    def within(box: Dict[str, float]) -> pl.Expr:
+        lon = pl.col("longitude").cast(pl.Float32)
+        lat = pl.col("latitude").cast(pl.Float32)
+        return lon.is_between(edge(box["min_lon"]), edge(box["max_lon"])) & (
+            lat.is_between(edge(box["min_lat"]), edge(box["max_lat"]))
+        )
+
+    inside = pl.any_horizontal([within(b) for b in region["include"]])
+    if region["exclude"]:
+        inside = inside & ~pl.any_horizontal([within(b) for b in region["exclude"]])
+    # A NaN coordinate is outside every box: Polars sorts NaN above any
+    # number, so ``is_between`` is false for it.
+    return inside.fill_null(False)
+
+
+def region_parameters(
+    config: BuildConfig, profiles: pl.DataFrame
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    ctddump's regions as configured, each with the profiles of each of its
+    datasets that lie outside it, which should be none.
+
+    :param config: The build configuration.
+    :param profiles: One row per profile with ``dataset_id``, ``longitude``
+                     and ``latitude``.
+    :return: One mapping per region, or None when none is configured.
+    """
+    spec = config.provenance
+    if spec is None or not spec.regions:
+        return None
+    entries = []
+    for region in spec.regions:
+        ids = [d.id for d in config.datasets if d.region == region["region"]]
+        outside: Dict[str, int] = {}
+        if {"longitude", "latitude"} <= set(profiles.columns):
+            counted = dict(
+                profiles.filter(pl.col("dataset_id").is_in(ids))
+                .group_by("dataset_id")
+                .agg((~region_inside(region)).sum().cast(pl.Int64))
+                .rows()
+            )
+            outside = {i: int(counted.get(i, 0)) for i in ids if i in counted}
+        entries.append({**region, "outside": outside})
+    return entries
+
+
 def _write(
     tables: Dict[str, pl.DataFrame],
     config: BuildConfig,
     spec: AnalysesSpec,
     coverage: Optional[Dict[str, Dict[str, str]]] = None,
+    regions: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Write the tables as CSV and ``meta.json`` beside them.
 
     ``meta.json`` gains a ``provenance`` entry when the configuration has the
-    section (see :func:`provenance_meta`), and each dataset its first and
-    last profile date when ``coverage`` has them.
+    section (see :func:`provenance_meta`), an ``nrtqc_parameters`` entry
+    with nrtqclib's tests and parameters (:func:`nrtqclib_parameters`) and
+    ctddump's ``regions`` (:func:`region_parameters`) when it names them,
+    and each dataset its first and last profile date when ``coverage`` has
+    them.
 
     A table directory left over from an earlier run is emptied first, so a
     table that is no longer made cannot linger and be published.
@@ -3329,6 +4087,14 @@ def _write(
                 "coverage": CORA_COVERAGE,
                 "pres_tolerance_dbar": CORA_PRES_TOLERANCE_DBAR,
             },
+            "pres_order": {
+                "orders": PRES_ORDERS,
+                "labels": PRES_ORDER_LABELS,
+                "position_tolerance_deg": PRES_ORDER_POSITION_TOLERANCE,
+                "repeat_kinds": REPEAT_KINDS,
+            },
+            "duplicates": duplicate_rules(),
+            "set_aside": SET_ASIDE_ITEMS,
             "density": {
                 "edges": DENSITY_EDGES,
                 "clear_above": DENSITY_CLEAR,
@@ -3339,6 +4105,14 @@ def _write(
     provenance = provenance_meta(config)
     if provenance is not None:
         meta["provenance"] = provenance
+    parameters: Dict[str, Any] = {}
+    nrtqclib = nrtqclib_parameters(config)
+    if nrtqclib is not None:
+        parameters["nrtqclib"] = nrtqclib
+    if regions is not None:
+        parameters["ctddump_regions"] = regions
+    if parameters:
+        meta["nrtqc_parameters"] = parameters
     with open(os.path.join(spec.out_dir, "meta.json"), "w", encoding="utf-8") as handle:
         json.dump(meta, handle, indent=2)
         handle.write("\n")

@@ -11,6 +11,8 @@ import yaml
 
 from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
+    RESPONSE_TESTS,
+    SET_ASIDE_ITEMS,
     check_conversion_steps,
     classify,
     cora_tables,
@@ -19,7 +21,9 @@ from nrtqc_diff.analyse import (
     input_flag_table,
     land_causes,
     match_tables,
+    only_set_aside,
     overlap_table,
+    pressure_orders,
     probable_flag_table,
     profile_coverage,
     response_table,
@@ -27,7 +31,7 @@ from nrtqc_diff.analyse import (
     run_analyses,
     shape_table,
 )
-from nrtqc_diff.config import read_config
+from nrtqc_diff.config import VariableSpec, read_config
 from nrtqc_diff.reports import dropped_platform_table
 
 #: ``platform: (temp_dm, [(temp_qc, temp_nrt_flag, spike, date, elevation)])``.
@@ -88,6 +92,8 @@ def analysed(tmp_path):
                     "position_qc": 1,
                     "longitude": 20.0,
                     "latitude": 58.0,
+                    "filename": f"PR_CT_{platform}",
+                    "profile_time": 25000.25,
                 }
             )
     pl.DataFrame(rows).write_parquet(tmp_path / "input.parquet")
@@ -113,6 +119,16 @@ def analysed(tmp_path):
         "n_files\tn_platforms\tn_profiles\tn_no_pres\tn_bad_profiles\tpct_bad"
         "\tn_reversed\tn_non_monotonic\tn_bad_platforms\tn_bad_files\n"
         "3\t2\t9\t1\t3\t33.3\t1\t2\t1\t2\n",
+        encoding="utf-8",
+    )
+    # NRT was stored down and up again; the other two listed profiles were
+    # dropped before nrtqclib ran, so they match nothing.
+    (checkpres / "src.profiles.tsv").write_text(
+        "filename\tplatform_code\tprofile_no\tprofile_time\tlongitude\tlatitude"
+        "\tkind\tn_obs\n"
+        "PR_CT_NRT\tNRT\t7\t25000.25\t20.0000001\t58.0\tnon_monotonic\t6\n"
+        "PR_CT_NRT\tNRT\t8\t25001.25\t20.0\t58.0\tnon_monotonic\t6\n"
+        "PR_CT_GONE\tGONE\t1\t25000.25\t20.0\t58.0\treversed\t3\n",
         encoding="utf-8",
     )
     headers = tmp_path / "ctddump" / "header"
@@ -362,6 +378,20 @@ def test_the_reports_are_read(analysed):
         "": 1,
     }
     assert table(analysed, "depth_stamp")["item"].to_list() == ["land"]
+    records = table(analysed, "conversion_records").row(0, named=True)
+    assert (
+        records["n_checked"],
+        records["n_converted"],
+        records["n_merged_records"],
+    ) == (
+        9,
+        9,
+        0,
+    )
+    assert records["n_records"] is None
+    dates = table(analysed, "conversion_dates").row(0, named=True)
+    assert (dates["n_files"], dates["n_files_dated"]) == (2, 0)
+    assert dates["declared_first"] is None
     extra = table(analysed, "conversion_extra_parameters")
     assert dict(zip(extra["parameter"], extra["n_files"])) == {"DOX1": 2, "CNDC": 1}
     files = table(analysed, "conversion_files")
@@ -374,6 +404,113 @@ def test_the_reports_are_read(analysed):
         2,
     )
     assert "pct_bad" not in order
+    assert (
+        order["n_reversed_matched"],
+        order["n_non_monotonic_matched"],
+        order["n_merged"],
+    ) == (0, 1, 0)
+
+
+def test_the_cube_keeps_the_stored_pressure_order(analysed):
+    cube = table(analysed, "items_cube")
+    orders = cube.group_by("pres_order").agg(pl.col("n_obs").sum())
+    # NRT's six observations, and FEW's three, which nothing lists.
+    assert dict(zip(orders["pres_order"], orders["n_obs"])) == {
+        "non_monotonic": 6,
+        "monotonic": 3,
+    }
+    # Summed over the order, the status counts are those of items_status.
+    status = table(analysed, "items_status")
+    summed = cube.group_by("status").agg(pl.col("n_obs").sum())
+    assert dict(zip(summed["status"], summed["n_obs"])) == dict(
+        zip(status["status"], status["n_obs"])
+    )
+    # Per platform, split by the order too; summed, items_status again.
+    platforms = table(analysed, "items_platforms")
+    assert set(platforms["pres_order"]) == {"non_monotonic", "monotonic"}
+    for row in status.iter_rows(named=True):
+        mine = platforms.filter(pl.col("variable") == row["variable"])
+        assert mine[f"n_{row['status']}"].sum() == row["n_obs"]
+    assert {"n_agree_bad_set_aside", "n_nrtqclib_only_set_aside"} <= set(
+        platforms.columns
+    )
+    meta = json.loads((analysed / "meta.json").read_text(encoding="utf-8"))
+    assert meta["rules"]["set_aside"] == SET_ASIDE_ITEMS
+    assert meta["rules"]["pres_order"]["orders"] == [
+        "monotonic",
+        "reversed",
+        "non_monotonic",
+        "merged",
+    ]
+
+
+def _listed(rows):
+    return pl.DataFrame(
+        rows,
+        schema={
+            "filename": pl.Utf8,
+            "platform_code": pl.Utf8,
+            "profile_time": pl.Float64,
+            "longitude": pl.Float64,
+            "latitude": pl.Float64,
+            "kind": pl.Utf8,
+            "n_obs": pl.Int64,
+        },
+        orient="row",
+    )
+
+
+def test_a_listed_profile_is_told_by_its_file_time_and_position():
+    profiles = pl.DataFrame(
+        {
+            "platform_code": ["A", "A", "A", "B", "C", "D"],
+            "profile_no": [1, 2, 3, 1, 1, 1],
+            "filename": ["F", "F", "F", "G", "G", "G"],
+            "profile_time": [10.5, 10.5, 11.0, 10.5, 12.0, 13.0],
+            # Profiles 1 and 2 share a file, platform and time, and only
+            # their positions tell them apart.
+            "longitude": [5.0, 6.0, 5.0, 5.0, 5.0, 5.0],
+            "latitude": [60.0] * 6,
+            "n_obs": [10, 10, 10, 10, 30, 25],
+        }
+    )
+    listed = _listed(
+        [
+            ("F", "A", 10.5, 6.00005, 60.0, "reversed", 10),
+            ("G", "B", 10.5, 5.0, 60.0, "non_monotonic", 10),
+            # Another file: dropped by a later step, matches nothing.
+            ("H", "B", 10.5, 5.0, 60.0, "non_monotonic", 10),
+            # C: a downcast and an upcast stored as two profiles, merged.
+            ("G", "C", 12.0, 5.0, 60.0, "non_monotonic", 10),
+            ("G", "C", 12.0, 5.0, 60.0, "reversed", 20),
+            # D: one listed profile, merged with one the list does not hold.
+            ("G", "D", 13.0, 5.0, 60.0, "reversed", 20),
+        ]
+    )
+    orders, counts = pressure_orders(profiles, listed)
+    by_key = {
+        (r["platform_code"], r["profile_no"]): r["pres_order"]
+        for r in orders.iter_rows(named=True)
+    }
+    assert by_key == {
+        ("A", 1): "monotonic",
+        ("A", 2): "reversed",
+        ("A", 3): "monotonic",
+        ("B", 1): "non_monotonic",
+        ("C", 1): "merged",
+        ("D", 1): "merged",
+    }
+    assert counts == {"reversed": 3, "non_monotonic": 2, "merged": 2}
+
+    unlisted, none = pressure_orders(profiles, None)
+    assert unlisted["pres_order"].null_count() == 6 and none == {}
+
+    # A position that cannot tell two profiles apart is refused.
+    same = profiles.with_columns(pl.lit(5.0).alias("longitude"))
+    with pytest.raises(ValueError, match="more than one"):
+        pressure_orders(same, _listed([("F", "A", 10.5, 5.0, 60.0, "reversed", 10)]))
+    with pytest.raises(ValueError, match="kinds"):
+        pressure_orders(profiles, _listed([("F", "A", 10.5, 5.0, 60.0, "odd", 1)]))
 
 
 def test_duplicates_are_split_within_and_across_platforms(analysed):
@@ -680,6 +817,23 @@ def test_paired_casts_are_compared_level_by_level_with_cora(tmp_path):
     assert other.select(four).unique().rows() == [(3, 4, 4, 4)]
     assert other["compared_id"].unique().to_list() == ["b"]
 
+    # Per NRT platform: P under its own code, Q under another; summed over
+    # the platforms, the tables above.
+    by_platform = {
+        (r["platform_code"], r["coverage"]): [r[c] for c in counts]
+        for r in tables["cora_pairs_platforms"].iter_rows(named=True)
+    }
+    assert by_platform == {
+        ("P", "same_platform"): [5, 4, 3, 2, 1, 6],
+        ("Q", "other_platform"): [1, 1, 1, 1, 1, 2],
+    }
+    flag_platforms = tables["cora_flags_platforms"]
+    assert "pres_band" not in flag_platforms.columns
+    assert _summed(flag_platforms, ["coverage", *four]).equals(
+        _summed(flags, ["coverage", *four])
+    )
+    assert flag_platforms.filter(pl.col("platform_code") == "Q")["n_obs"].sum() == 2
+
 
 def _two_dataset_config(tmp_path, delayed=None):
     path = tmp_path / "c.yaml"
@@ -714,6 +868,10 @@ def test_meta_records_the_provenance_with_the_config_checksum(analysed):
         "sha256": hashlib.sha256(b"qc: {}\n").hexdigest(),
     }
     assert meta["provenance"]["products"] == []
+    # The batch configuration defines no sets, and no region is configured.
+    assert meta["nrtqc_parameters"] == {
+        "nrtqclib": {"qc_item_sets": {}, "datasets": {}}
+    }
 
 
 def test_coverage_is_the_first_and_last_profile_date():
@@ -911,6 +1069,7 @@ def test_failures_are_banded_by_how_far_past_the_threshold(tmp_path, monkeypatch
         for name in ["temp", "psal"]
     }
     table = response_table(scan, keep, spec.datasets[0], spec)
+    assert table["pres_order"].null_count() == table.height
     rows = {
         (r["test"], r["variable"], r["band"]): (r["n"], r["n_flagged"])
         for r in table.iter_rows(named=True)
@@ -926,6 +1085,96 @@ def test_failures_are_banded_by_how_far_past_the_threshold(tmp_path, monkeypatch
     assert rows[("density_inversion", "density", 0)] == (3, 1)
     assert rows[("pressure_increasing", "pres", 1)] == (1, 1)
     assert rows[("pressure_increasing", "temp", 1)] == (1, 0)
+
+
+def test_repeated_pressures_are_split_by_order_and_by_what_they_carry(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"},
+                    {"name": "psal", "flag": "psal_qc", "nrt_flag": "psal_nrt_flag"},
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    # A (stored monotonic): level 3 copies level 2 whole, unflagged. B
+    # (stored down and up): level 2 repeats level 1's pressure with another
+    # temperature, flagged in the pressure flag; level 4 copies level 3,
+    # missing salinity included. C (monotonic): no repeat.
+    scan = pl.LazyFrame(
+        {
+            "platform_code": ["A"] * 3 + ["B"] * 4 + ["C"] * 2,
+            "profile_no": [1] * 9,
+            "observation_no": [1, 2, 3, 1, 2, 3, 4, 1, 2],
+            "pres": [1.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0, 1.0, 2.0],
+            "temp": [10.0, 9.0, 9.0, 10.0, 9.5, 8.0, 8.0, 10.0, 9.0],
+            "psal": [35.0, 35.0, 35.0, 35.0, 35.0, None, None, 35.0, 35.0],
+            "temp_qc": ["1"] * 9,
+            "psal_qc": ["1"] * 9,
+            "pres_qc": ["1", "1", "1", "1", "4", "1", "1", "1", "1"],
+        }
+    )
+    order = pl.DataFrame(
+        {
+            "platform_code": ["A", "B", "C"],
+            "profile_no": [1, 1, 1],
+            "pres_order": ["monotonic", "non_monotonic", "monotonic"],
+        }
+    )
+    tables = response_tables(
+        scan, {"temp": order, "psal": order}, spec.datasets[0], spec
+    )
+    response = {
+        (r["variable"], r["pres_order"], r["band"]): (r["n"], r["n_flagged"])
+        for r in tables["items_response"]
+        .filter(pl.col("test") == "pressure_increasing")
+        .iter_rows(named=True)
+    }
+    assert response[("pres", "monotonic", 1)] == (1, 0)
+    assert response[("pres", "non_monotonic", 1)] == (2, 1)
+    repeats = {
+        (r["variable"], r["pres_order"], r["kind"]): r
+        for r in tables["pressure_repeats"].iter_rows(named=True)
+    }
+    # Each order's repeats add up to its band 1 in items_response.
+    assert repeats[("pres", "monotonic", "copied")]["n"] == 1
+    assert repeats[("pres", "non_monotonic", "copied")]["n"] == 1
+    other = repeats[("pres", "non_monotonic", "other")]
+    assert (other["n"], other["n_flagged"], other["n_profiles"]) == (1, 1, 1)
+    assert ("pres", "monotonic", "other") not in repeats
+    assert repeats[("temp", "non_monotonic", "other")]["n_flagged"] == 0
+    platforms = {
+        (r["variable"], r["platform_code"]): r
+        for r in tables["pressure_repeat_platforms"].iter_rows(named=True)
+    }
+    b = platforms[("pres", "B")]
+    assert (b["pres_order"], b["n"], b["n_copied"], b["n_flagged"]) == (
+        "non_monotonic",
+        2,
+        1,
+        1,
+    )
+    # Per platform, the clear bands only; summed, those of items_response.
+    by_platform = tables["items_response_platforms"]
+    clear = by_platform.filter(pl.col("test") == "pressure_increasing")
+    assert set(clear["band"]) <= set(_clear_bands("pressure_increasing"))
+    assert dict(
+        zip(
+            clear.filter(pl.col("variable") == "pres")["platform_code"],
+            clear.filter(pl.col("variable") == "pres")["n"],
+        )
+    ) == {"A": 1, "B": 2}
+    _assert_platforms_sum_to_response(tables)
+    assert ("pres", "C") not in platforms
 
 
 def test_density_inversions_are_counted_by_platform_and_finer_band(
@@ -1021,6 +1270,7 @@ def test_density_inversions_are_counted_by_platform_and_finer_band(
         ("other", "level", 0.06, 0.08): (1, 0, 0),
         ("other", "dbar", 0.1, 0.2): (1, 0, 0),
     }
+    _assert_platforms_sum_to_response(tables)
     # The response table is as before.
     assert tables["items_response"].equals(
         response_table(pl.LazyFrame(rows), keep, spec.datasets[0], spec)
@@ -1191,3 +1441,57 @@ def test_a_profile_is_set_against_the_platform_s_previous_one(tmp_path, monkeypa
         ("temp", 2): (1, 1),
         ("psal", 0): (7, 0),
     }
+
+
+def _summed(frame, keys):
+    return frame.group_by(keys).agg(pl.col("n_obs").sum()).sort(keys)
+
+
+def _clear_bands(test):
+    return next(t["clear"] for t in RESPONSE_TESTS if t["key"] == test)
+
+
+def _assert_platforms_sum_to_response(tables):
+    keys = ["test", "variable", "pres_order", "band"]
+    clear = pl.DataFrame(
+        [(t["key"], b) for t in RESPONSE_TESTS for b in t["clear"]],
+        schema=["test", "band"],
+        orient="row",
+    )
+    response = (
+        tables["items_response"]
+        .with_columns(pl.col("band").cast(pl.Int64))
+        .join(clear, on=["test", "band"], how="semi")
+        .select(*keys, "n", "n_flagged")
+        .sort(keys, nulls_last=True)
+    )
+    summed = (
+        tables["items_response_platforms"]
+        .with_columns(pl.col("band").cast(pl.Int64))
+        .group_by(keys)
+        .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
+        .sort(keys, nulls_last=True)
+    )
+    assert response.height > 0
+    assert summed.equals(response)
+
+
+def test_only_the_set_aside_checks_failing_sets_an_observation_aside():
+    """
+    Set aside: a density inversion alone, or with the temperature flag
+    carried over. Kept: a spike with it, and no failing check at all.
+    """
+    variable = VariableSpec(
+        name="psal", label="Salinity", flag="psal_qc", nrt_flag="psal_nrt"
+    )
+    frame = pl.DataFrame(
+        {
+            "psal_qc_density_inversion": ["4", "4", "4", "1", "1"],
+            "psal_qc_temp_to_psal": ["1", "4", "1", "1", "1"],
+            "psal_qc_spike": ["1", "1", "4", "4", "1"],
+        }
+    )
+    columns = list(frame.columns)
+    assert set(SET_ASIDE_ITEMS) >= {"density_inversion", "temp_to_psal"}
+    found = frame.select(only_set_aside(columns, variable).alias("x"))["x"]
+    assert found.to_list() == [True, True, False, False, False]
