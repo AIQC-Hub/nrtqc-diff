@@ -171,3 +171,24 @@ meta ? table((overlap ?? []).filter((r) => !isCora(r.dataset_id) && !isCora(r.co
   { key: "n_matched_any_platform", label: "On date and place", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_profiles)})` }
 ]) : html``
 ```
+
+The casts the two share, checked as the duplicate groups on the
+Conversion page are: confirmed when under a minute apart with the same
+values at every level in nrtqclib's output, same time when under a minute
+apart otherwise, and a candidate when further apart.
+
+```{ojs}
+overlapChecks = meta ? app.loadAnalysisTable("conversion_overlap_checks") : null
+overlapCheckRows = overlapChecks
+  ? app.widen(overlapChecks, { index: ["dataset_id", "compared_id"], column: "match", value: "n_pairs" })
+      .map((r) => ({ ...r, key: `${r.dataset_id}|${r.compared_id}`, n_pairs: (r.confirmed ?? 0) + (r.same_time ?? 0) + (r.candidate ?? 0) }))
+  : []
+meta && overlapCheckRows.length ? table(overlapCheckRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "compared_id", label: "Also in", align: "left", format: name },
+  { key: "n_pairs", label: "Shared casts" },
+  { key: "confirmed", label: "Confirmed", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_pairs)})` },
+  { key: "same_time", label: "Same time", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_pairs)})` },
+  { key: "candidate", label: "Candidate", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_pairs)})` }
+]) : html``
+```

@@ -85,7 +85,10 @@ kind_label <- function(kind) {
 kinds <- read_table("conversion_dup_kinds")
 before <- read_table("conversion_duplicates")
 if (!is.null(kinds) && !is.null(before)) {
+  # Checked groups come split by match; the figure shows the kind only.
   removed <- kinds |>
+    group_by(dataset_id, kind) |>
+    summarise(n_removed = sum(n_removed), .groups = "drop") |>
     left_join(select(before, dataset_id, n_before = n_profiles), by = "dataset_id") |>
     with_datasets() |>
     mutate(share = n_removed / n_before, kind = kind_label(kind))

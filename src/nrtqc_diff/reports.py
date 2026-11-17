@@ -367,6 +367,274 @@ DUP_KINDS: List[str] = ["within", "across", "both"]
 #: first. The rest are summed into a row of their own.
 DUP_PLATFORM_SETS: int = 15
 
+#: How far apart in time the members of a group (or the two profiles of a
+#: pair) are, in order: the same second; under a minute; under an hour; and
+#: more, which still means the same date, since ctddump groups by date.
+DUP_TIME_CLASSES: List[str] = [
+    "same_second",
+    "within_minute",
+    "within_hour",
+    "same_date",
+]
+
+#: The upper ends of the time classes but the last, in seconds, exclusive.
+DUP_TIME_LIMITS_S: List[float] = [1.0, 60.0, 3600.0]
+
+#: The time classes that count as the same time for :data:`DUP_MATCHES`.
+DUP_SAME_TIME: List[str] = ["same_second", "within_minute"]
+
+#: Whether every member has the same number of levels.
+DUP_LEVEL_CLASSES: List[str] = ["same", "differ"]
+
+#: How the values of members with the same number of levels compare, level
+#: by level in stored order: all equal (missing equal to missing); all
+#: within :data:`DUP_VALUE_TOLERANCES`; or not. ``not_compared`` is a group
+#: whose members differ in their number of levels.
+DUP_VALUE_CLASSES: List[str] = ["identical", "close", "different", "not_compared"]
+
+#: The largest spread across members at one level that still counts as
+#: ``close``, per variable, in the variable's unit. A variable missing from
+#: the data is left out of the comparison.
+DUP_VALUE_TOLERANCES: Dict[str, float] = {"pres": 0.1, "temp": 0.001, "psal": 0.001}
+
+#: The values are stored in single precision, so a spread of exactly the
+#: tolerance can come out a little above it. A spread up to this factor of
+#: the tolerance is still ``close``.
+DUP_TOLERANCE_SLACK: float = 1.01
+
+#: How many observations of duplicate groups :func:`duplicate_checks` reads
+#: at a time. All of CORA Arctic's at once peaked at 3.4 GB; each chunk scans
+#: the file again, which takes a few seconds.
+DUP_CHUNK_LEVELS: int = 5_000_000
+
+#: Whether the members sit at exactly one position, or only within the
+#: 0.001 degree that ctddump groups by.
+DUP_POSITION_CLASSES: List[str] = ["equal", "within"]
+
+#: A position counts as whole degrees when both coordinates are this close
+#: to an integer.
+DUP_WHOLE_DEGREE_TOLERANCE: float = 1e-6
+
+#: What a group or pair is taken to be: ``confirmed``, the same time and
+#: values ``identical`` or ``close``; ``same_time``, the same time but not
+#: those values; ``candidate``, everything else.
+DUP_MATCHES: List[str] = ["confirmed", "same_time", "candidate"]
+
+
+def _order(column: str, values: List[str]) -> pl.Expr:
+    """A text column as its position in ``values``, for sorting."""
+    return pl.col(column).replace_strict(values, range(len(values)))
+
+
+def time_class(seconds: pl.Expr) -> pl.Expr:
+    """The :data:`DUP_TIME_CLASSES` entry for a time apart in seconds."""
+    expr = pl.when(seconds < DUP_TIME_LIMITS_S[0]).then(pl.lit(DUP_TIME_CLASSES[0]))
+    for limit, name in zip(DUP_TIME_LIMITS_S[1:], DUP_TIME_CLASSES[1:]):
+        expr = expr.when(seconds < limit).then(pl.lit(name))
+    return expr.otherwise(pl.lit(DUP_TIME_CLASSES[-1]))
+
+
+def match_class() -> pl.Expr:
+    """The :data:`DUP_MATCHES` entry from the ``time`` and ``values`` columns."""
+    same_time = pl.col("time").is_in(DUP_SAME_TIME)
+    return (
+        pl.when(same_time & pl.col("values").is_in(["identical", "close"]))
+        .then(pl.lit("confirmed"))
+        .when(same_time)
+        .then(pl.lit("same_time"))
+        .otherwise(pl.lit("candidate"))
+    )
+
+
+def value_classes(levels: pl.LazyFrame, variables: List[str]) -> pl.DataFrame:
+    """
+    Compare the members of each group level by level.
+
+    A level is ``identical`` when every member has the same value of every
+    variable, or every member lacks it; ``close`` when the spread (largest
+    minus smallest) stays within :data:`DUP_VALUE_TOLERANCES`. A value
+    missing in one member and present in another, or a level some member
+    lacks, makes the level ``different``. A group takes the worst class of
+    its levels.
+
+    Two aggregations, one per level and one per group, so that no member is
+    joined against another: the observations are read once.
+
+    :param levels: ``_gid`` (the group), ``_size`` (its number of members),
+                   ``_level`` (the level number, the same in every member)
+                   and the variables, as floats.
+    :param variables: The variables to compare, each in
+                      :data:`DUP_VALUE_TOLERANCES`.
+    :return: ``_gid`` and ``values``, one row per group.
+    """
+    per_level = levels.group_by("_gid", "_level").agg(
+        pl.len().alias("_n"),
+        pl.col("_size").first(),
+        *[pl.col(v).max().alias(f"_max_{v}") for v in variables],
+        *[pl.col(v).min().alias(f"_min_{v}") for v in variables],
+        *[pl.col(v).null_count().alias(f"_nulls_{v}") for v in variables],
+    )
+    missing = pl.col("_n") != pl.col("_size")
+    for v in variables:
+        nulls = pl.col(f"_nulls_{v}")
+        missing = missing | ((nulls > 0) & (nulls < pl.col("_n")))
+    per_group = per_level.group_by("_gid").agg(
+        missing.any().alias("_missing"),
+        *[
+            (pl.col(f"_max_{v}").cast(pl.Float64) - pl.col(f"_min_{v}"))
+            .max()
+            .alias(f"_spread_{v}")
+            for v in variables
+        ],
+    )
+    spreads = [pl.col(f"_spread_{v}").fill_null(0.0) for v in variables]
+    identical = (
+        pl.all_horizontal([s == 0 for s in spreads]) if spreads else pl.lit(True)
+    )
+    close = (
+        pl.all_horizontal(
+            [
+                s <= DUP_VALUE_TOLERANCES[v] * DUP_TOLERANCE_SLACK
+                for s, v in zip(spreads, variables)
+            ]
+        )
+        if spreads
+        else pl.lit(True)
+    )
+    return (
+        per_group.select(
+            "_gid",
+            pl.when(pl.col("_missing"))
+            .then(pl.lit("different"))
+            .when(identical)
+            .then(pl.lit("identical"))
+            .when(close)
+            .then(pl.lit("close"))
+            .otherwise(pl.lit("different"))
+            .alias("values"),
+        )
+    ).collect(engine="streaming")
+
+
+def value_columns(scan: pl.LazyFrame) -> List[str]:
+    """The variables of :data:`DUP_VALUE_TOLERANCES` that ``scan`` holds."""
+    present = scan.collect_schema().names()
+    return [v for v in DUP_VALUE_TOLERANCES if v in present]
+
+
+def value_floats(variables: List[str]) -> List[pl.Expr]:
+    """
+    The variables as ``Float32``, NaN as missing. Single precision is how
+    they are stored, and halves what the per-level aggregation holds.
+    """
+    return [pl.col(v).cast(pl.Float32).fill_nan(None).alias(v) for v in variables]
+
+
+def duplicate_checks(path: str, observations: str) -> Optional[pl.DataFrame]:
+    """
+    Check each duplicate group of one ctddump list against time and values.
+
+    :param path: The duplicates list ``markdup`` wrote, ``<stem>.dups.tsv``.
+    :param observations: ``markdup``'s parquet beside it, whose ``is_dup``
+                         marks every member of every group.
+    :return: One row per group: ``dup_group``, ``n_profiles``,
+             ``n_platforms``, ``platforms``, ``kind`` as
+             :func:`_duplicate_groups` gives them, and ``time``, ``levels``,
+             ``values``, ``position``, ``whole_degree`` and ``match``. None
+             when the list lacks the time or position columns or the parquet
+             is missing.
+    """
+    listed = _read_tsv(path)
+    needed = {"profile_timestamp", "longitude", "latitude", "n_obs"}
+    if not needed <= set(listed.columns) or not os.path.isfile(observations):
+        return None
+    lon, lat = _number("longitude"), _number("latitude")
+
+    def whole(column: pl.Expr) -> pl.Expr:
+        return (column - column.round(0)).abs() <= DUP_WHOLE_DEGREE_TOLERANCE
+
+    stamp = pl.col("profile_timestamp").str.to_datetime(
+        "%Y-%m-%d %H:%M:%S", strict=False
+    )
+    groups = listed.group_by("dup_group").agg(
+        (stamp.max() - stamp.min()).dt.total_seconds().alias("_spread_s"),
+        (_number("n_obs").n_unique() == 1).alias("_same_levels"),
+        ((lon.n_unique() == 1) & (lat.n_unique() == 1)).alias("_equal"),
+        (whole(lon) & whole(lat)).all().alias("whole_degree"),
+    )
+
+    # The groups whose members have the same number of levels, numbered
+    # into chunks of about DUP_CHUNK_LEVELS observations.
+    keys = (
+        listed.select(
+            pl.col("dup_group").cast(pl.UInt32).alias("_gid"),
+            pl.col("platform_code"),
+            pl.col("profile_no").cast(pl.UInt32),
+            _number("n_obs"),
+        )
+        .join(
+            groups.filter("_same_levels").select(
+                pl.col("dup_group").cast(pl.UInt32).alias("_gid")
+            ),
+            on="_gid",
+        )
+        .sort("_gid", "platform_code", "profile_no")
+        .with_columns((pl.col("n_obs").cum_sum() // DUP_CHUNK_LEVELS).alias("_chunk"))
+        .with_columns(
+            pl.len().over("_gid").cast(pl.UInt32).alias("_size"),
+            pl.col("_chunk").first().over("_gid"),
+        )
+    )
+    scan = pl.scan_parquet(observations)
+    variables = value_columns(scan)
+    parts = []
+    for _, chunk in keys.group_by("_chunk", maintain_order=True):
+        levels = (
+            scan.filter(pl.col("is_dup"))
+            .select(
+                pl.col("platform_code").cast(pl.Utf8),
+                pl.col("profile_no").cast(pl.UInt32),
+                pl.col("observation_no").cast(pl.UInt32).alias("_level"),
+                *value_floats(variables),
+            )
+            .join(
+                chunk.select("platform_code", "profile_no", "_gid", "_size").lazy(),
+                on=["platform_code", "profile_no"],
+            )
+            .drop("platform_code", "profile_no")
+        )
+        parts.append(value_classes(levels, variables))
+    values = (
+        pl.concat(parts)
+        if parts
+        else pl.DataFrame(schema={"_gid": pl.UInt32, "values": pl.Utf8})
+    ).select(pl.col("_gid").cast(pl.Utf8).alias("dup_group"), "values")
+
+    return (
+        _duplicate_groups(path)
+        .join(groups, on="dup_group", how="left")
+        .join(values, on="dup_group", how="left")
+        .select(
+            "dup_group",
+            "n_profiles",
+            "n_platforms",
+            "platforms",
+            "kind",
+            time_class(pl.col("_spread_s")).alias("time"),
+            pl.when(pl.col("_same_levels"))
+            .then(pl.lit("same"))
+            .otherwise(pl.lit("differ"))
+            .alias("levels"),
+            pl.col("values").fill_null("not_compared"),
+            pl.when(pl.col("_equal"))
+            .then(pl.lit("equal"))
+            .otherwise(pl.lit("within"))
+            .alias("position"),
+            "whole_degree",
+        )
+        .with_columns(match_class().alias("match"))
+    )
+
 
 def _duplicate_groups(path: str) -> pl.DataFrame:
     """
@@ -405,37 +673,47 @@ def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFr
     """
     Duplicates within one platform and across platforms, from ctddump's lists.
 
+    When ``markdup``'s parquet sits beside a list, each group is also
+    checked against time and values (:func:`duplicate_checks`): the kinds
+    and sizes tables gain ``match``, and summed over it give the same
+    counts as without.
+
     :param config: The build configuration.
-    :param dups: The directory holding ``<stem>.dups.tsv``.
-    :return: ``conversion_dup_kinds`` (one row per dataset and kind),
-             ``conversion_dup_sizes`` (per dataset, kind and group size, the
-             sizes above :data:`DUP_SIZE_CAP` pooled) and
-             ``conversion_dup_platforms`` (the commonest platform sets behind
-             the groups spanning two or more platforms, ``across`` and
-             ``both``).
+    :param dups: The directory holding ``<stem>.dups.tsv`` and, for the
+                 checks, ``<stem>.parquet``.
+    :return: ``conversion_dup_kinds`` (one row per dataset and kind, and
+             ``match`` when checked), ``conversion_dup_sizes`` (per dataset,
+             kind, ``match`` when checked, and group size, the sizes above
+             :data:`DUP_SIZE_CAP` pooled), ``conversion_dup_platforms`` (the
+             commonest platform sets behind the groups spanning two or more
+             platforms, ``across`` and ``both``) and, when checked,
+             ``conversion_dup_checks`` (per dataset, kind and every check).
     """
-    kinds, sizes, sets = [], [], []
+    kinds, sizes, sets, checks = [], [], [], []
     for spec in _sourced(config):
         path = os.path.join(dups, f"{spec.source}.dups.tsv")
         if not os.path.isfile(path):
             continue
-        groups = _duplicate_groups(path)
+        checked = duplicate_checks(path, os.path.join(dups, f"{spec.source}.parquet"))
+        groups = _duplicate_groups(path) if checked is None else checked
+        by = ["kind"] if checked is None else ["kind", "match"]
+        order = [_order("kind", DUP_KINDS)]
+        if checked is not None:
+            order.append(_order("match", DUP_MATCHES))
         labels = _label_columns(spec)
+        counts = [
+            pl.len().cast(pl.Int64).alias("n_groups"),
+            pl.col("n_profiles").sum().alias("n_profiles"),
+            (pl.col("n_profiles") - 1).sum().alias("n_removed"),
+        ]
         kinds.append(
-            groups.group_by("kind")
-            .agg(
-                pl.len().cast(pl.Int64).alias("n_groups"),
-                pl.col("n_profiles").sum().alias("n_profiles"),
-                (pl.col("n_profiles") - 1).sum().alias("n_removed"),
-            )
-            .sort(pl.col("kind").replace_strict(DUP_KINDS, range(len(DUP_KINDS))))
-            .select(labels + [pl.all()])
+            groups.group_by(by).agg(counts).sort(order).select(labels + [pl.all()])
         )
         sizes.append(
             groups.with_columns(
                 pl.col("n_profiles").clip(upper_bound=DUP_SIZE_CAP + 1).alias("size")
             )
-            .group_by("kind", "size")
+            .group_by(*by, "size")
             .agg(
                 pl.len().cast(pl.Int64).alias("n_groups"),
                 pl.col("n_profiles").sum().alias("n_profiles"),
@@ -446,12 +724,24 @@ def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFr
                 .otherwise(pl.col("size").cast(pl.Utf8))
                 .alias("size_label")
             )
-            .sort(
-                pl.col("kind").replace_strict(DUP_KINDS, range(len(DUP_KINDS))),
-                "size",
-            )
+            .sort(*order, "size")
             .select(labels + [pl.all()])
         )
+        if checked is not None:
+            keys = ["time", "levels", "values", "position", "whole_degree"]
+            checks.append(
+                checked.group_by("kind", *keys, "match")
+                .agg(counts)
+                .sort(
+                    _order("kind", DUP_KINDS),
+                    _order("time", DUP_TIME_CLASSES),
+                    _order("levels", DUP_LEVEL_CLASSES),
+                    _order("values", DUP_VALUE_CLASSES),
+                    _order("position", DUP_POSITION_CLASSES),
+                    "whole_degree",
+                )
+                .select(labels + [pl.all()])
+            )
         across = (
             groups.filter(pl.col("n_platforms") > 1)
             .group_by("platforms")
@@ -486,6 +776,23 @@ def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFr
         "conversion_dup_kinds": _concat(kinds),
         "conversion_dup_sizes": _concat(sizes),
         "conversion_dup_platforms": _concat(sets),
+        "conversion_dup_checks": _concat(checks),
+    }
+
+
+def duplicate_rules() -> Dict[str, object]:
+    """The classes and cuts of the duplicate checks, for ``meta.json``."""
+    return {
+        "time_classes": DUP_TIME_CLASSES,
+        "time_limits_s": DUP_TIME_LIMITS_S,
+        "same_time": DUP_SAME_TIME,
+        "level_classes": DUP_LEVEL_CLASSES,
+        "value_classes": DUP_VALUE_CLASSES,
+        "value_tolerances": DUP_VALUE_TOLERANCES,
+        "tolerance_slack": DUP_TOLERANCE_SLACK,
+        "position_classes": DUP_POSITION_CLASSES,
+        "whole_degree_tolerance": DUP_WHOLE_DEGREE_TOLERANCE,
+        "matches": DUP_MATCHES,
     }
 
 

@@ -91,6 +91,9 @@ variable is estimated, while the analyses keep the variables apart.
 `ctddump_dups` holds the duplicate lists ctddump's `markdup` writes beside
 its data (`output/dedup/markdup/<stem>.dups.tsv`), not under `report/`: they
 are what tells a duplicate within one platform from one across platforms.
+When `markdup`'s parquet (`<stem>.parquet`) is beside a list, each group is
+also checked against time and values (see
+[Checking the duplicate groups](#checking-the-duplicate-groups)).
 
 The report folders are resolved through symbolic links before `..`: they sit
 next to the batch, which is reached through the `data` link, so
@@ -179,8 +182,9 @@ name or columns.
 | `conversion_steps` | dataset, ctddump step | platforms, profiles and observations left. The last step is what nrtqclib checked: `analyse` warns if an output holds anything else |
 | `conversion_data_mode` | dataset, step, variable, mode | observations per data mode, as converted and as kept; the mode is empty where ctddump found none, missing levels included |
 | `conversion_duplicates` | dataset | profiles ctddump marked as duplicates (every member of a group, the one kept too), and the platforms they are on |
-| `conversion_dup_kinds` | dataset, kind | duplicate groups `within` one platform, `across` platforms (one profile each), or `both` (several platforms, one repeating the cast): groups, profiles in them, profiles removed |
-| `conversion_dup_sizes` | dataset, kind, group size | groups of that many profiles; above 10 pooled as `11+` |
+| `conversion_dup_kinds` | dataset, kind, match | duplicate groups `within` one platform, `across` platforms (one profile each), or `both` (several platforms, one repeating the cast): groups, profiles in them, profiles removed. `match` (`confirmed`, `same_time`, `candidate`) only when the groups were checked; summed over it the counts are the same |
+| `conversion_dup_sizes` | dataset, kind, match, group size | groups of that many profiles; above 10 pooled as `11+`. `match` as above |
+| `conversion_dup_checks` | dataset, kind, time, levels, values, position, whole degree, match | duplicate groups, the profiles in them and the profiles removed, by every check (see [Checking the duplicate groups](#checking-the-duplicate-groups)) |
 | `conversion_dup_platforms` | dataset, platform set | the 15 commonest sets of platform codes sharing casts, over groups `across` and `both`, then the rest in one row |
 | `conversion_files` | dataset, variable | source files carrying it |
 | `conversion_pressure_order` | dataset | ctddump's `checkpres` summary (`convert/checkpres/<stem>.summary.tsv`, ctddump 0.37 or later): profiles, platforms and files checked before the merge sorts by pressure, profiles without pressure, and those whose pressure steps down, `reversed` and `non_monotonic`, with the platforms and files holding them. Then from the profile list beside it (see [The stored pressure order](#the-stored-pressure-order)): the listed profiles found in nrtqclib's output (`n_reversed_matched`, `n_non_monotonic_matched`) and the output's profiles merged from several source profiles (`n_merged`) |
@@ -190,6 +194,7 @@ name or columns.
 | `conversion_extra_parameters` | dataset, parameter | source files carrying a parameter ctddump does not read |
 | `conversion_compare` | reference, compared dataset | ctddump's profile matching between products of one region, with the platform code in the key |
 | `conversion_overlap` | dataset, compared dataset of its region | its profiles the other also has, matched on the date and positions within 0.001° (see below), with the platform code and without. The page shows the NRT products' rows |
+| `conversion_overlap_checks` | NRT dataset, the NRT dataset of its region after it in the configuration, platform (`same` or `other`), time, levels, values, position, match | pairs of `n_matched_any_platform`, checked as a duplicate group of two would be, from nrtqclib's output |
 | `conversion_coverage` | NRT dataset, CORA dataset of its region | CORA's period (first and last date) and the NRT profiles in each coverage class (see below) |
 | `conversion_coverage_years` | NRT dataset, CORA dataset, year, coverage class | NRT profiles |
 | `conversion_match` | NRT dataset, CORA dataset, coverage class | pairs of the same cast (`same_platform` or `other_platform`): how many, how many with the same number of observations, and on which side there are more |
@@ -341,6 +346,32 @@ side of a rounding boundary is missed: the tolerance finds 4% to 11% more
 pairs than the rounding on this batch. Each profile is paired at most once,
 closest in time first, and when the platform code is not part of the match
 a partner on the same platform is preferred.
+
+### Checking the duplicate groups
+
+ctddump's `markdup` groups profiles on the date and positions within
+0.001° alone. Each group is checked further, from the list and from the
+observations in `markdup`'s parquet, where `is_dup` marks every member:
+
+| Check | Values | Rule |
+| --- | --- | --- |
+| `time` | `same_second`, `within_minute`, `within_hour`, `same_date` | the spread of the members' `profile_timestamp`: 0 s, under 60 s, under 3600 s, more |
+| `levels` | `same`, `differ` | whether every member has the same number of observations |
+| `values` | `identical`, `close`, `different`, `not_compared` | members with the same number of levels, level by level in stored order (ctddump's sort by pressure): the spread (largest minus smallest) of pressure, temperature and salinity at each level. `identical`: every spread 0, a value missing in every member counting as equal; `close`: within 0.1 dbar, 0.001 °C and 0.001, allowing 1% for single precision; `different`: more, or a value missing in some members only. `not_compared` when the levels differ |
+| `position` | `equal`, `within` | whether every member has the same longitude and latitude |
+| `whole_degree` | true, false | every member at whole degrees in both coordinates |
+| `match` | `confirmed`, `same_time`, `candidate` | `confirmed`: `time` is `same_second` or `within_minute`, `values` `identical` or `close`; `same_time`: the rest at those times; `candidate`: the rest |
+
+A group of three or more counts as `identical` or `close` only if all its
+members agree. The classes and cuts are in `meta.json` under
+`rules.duplicates`. The groups are read in chunks of about 5 million
+observations, which keeps CORA Arctic's near 1.7 GB.
+
+`conversion_overlap_checks` applies the same checks to the casts two NRT
+products of one region share (`n_matched_any_platform` of
+`conversion_overlap`), each pair of products once: `time` from the time
+between the two, `values` from nrtqclib's output, and `platform` whether
+the two carry the same code.
 
 ### NRT and CORA
 

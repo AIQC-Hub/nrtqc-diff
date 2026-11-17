@@ -75,9 +75,17 @@ from nrtqc_diff.flags import (
     usable_flag,
 )
 from nrtqc_diff.reports import (
+    DUP_TIME_CLASSES,
+    DUP_VALUE_CLASSES,
     dropped_platform_table,
+    duplicate_rules,
+    match_class,
     pressure_order_profiles,
     report_tables,
+    time_class,
+    value_classes,
+    value_columns,
+    value_floats,
 )
 
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
@@ -231,6 +239,11 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
         )
 
     tables: Dict[str, pl.DataFrame] = {}
+    # The reports first: the duplicate checks scan ctddump's observations,
+    # and done here they do not add to what the profiles and items hold.
+    if verbose:
+        print("[nrtqc-diff] reading the ctddump and seastamp reports")
+    reports = report_tables(config)
     summaries: List[pl.DataFrame] = []
     for dataset in config.datasets:
         if verbose:
@@ -288,7 +301,6 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     for name, frames in item_tables.items():
         tables[name] = pl.concat(frames, how="diagonal_relaxed")
 
-    reports = report_tables(config)
     if "conversion_steps" in reports:
         for message in check_conversion_steps(reports["conversion_steps"], profiles):
             print(f"[nrtqc-diff] warning: {message}", file=sys.stderr)
@@ -304,6 +316,11 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
     overlap = overlap_table(profiles, config)
     if overlap.height:
         tables["conversion_overlap"] = overlap
+    if verbose:
+        print("[nrtqc-diff] checking the casts NRT products of a region share")
+    overlap_checked = overlap_checks(profiles, config, spec)
+    if overlap_checked.height:
+        tables["conversion_overlap_checks"] = overlap_checked
     comparisons = delayed_comparisons(profiles, config)
     tables.update(match_tables(profiles, config, comparisons))
     if comparisons:
@@ -2991,6 +3008,157 @@ def overlap_table(profiles: pl.DataFrame, config: BuildConfig) -> pl.DataFrame:
     return pl.DataFrame(rows) if rows else pl.DataFrame()
 
 
+#: How many levels of paired profiles :func:`overlap_checks` reads at a
+#: time, on each side, for the same reason as
+#: :data:`~nrtqc_diff.reports.DUP_CHUNK_LEVELS`.
+OVERLAP_CHUNK_LEVELS: int = 5_000_000
+
+
+def _pair_levels(
+    scan: pl.LazyFrame, keys: pl.DataFrame, variables: List[str]
+) -> pl.LazyFrame:
+    """
+    The levels of one side's paired profiles, as :func:`value_classes` reads
+    them.
+
+    :param scan: The product.
+    :param keys: ``platform_code``, ``profile_no``, ``_gid`` (the pair) and
+                 ``_size`` (2).
+    :param variables: The variables to compare.
+    """
+    return (
+        scan.select(
+            pl.col("platform_code").cast(pl.Utf8),
+            pl.col("profile_no").cast(pl.Int64),
+            pl.col("observation_no").cast(pl.UInt32).alias("_level"),
+            *value_floats(variables),
+        )
+        .join(keys.lazy(), on=PROFILE_KEYS)
+        .drop(PROFILE_KEYS)
+    )
+
+
+def overlap_checks(
+    profiles: pl.DataFrame, config: BuildConfig, spec: AnalysesSpec
+) -> pl.DataFrame:
+    """
+    The casts two NRT products of one region share, checked as duplicates.
+
+    The pairs are those :func:`overlap_table` counts on date and position
+    alone (``n_matched_any_platform``), between NRT products only, each pair
+    of products once, the first in configuration order as the reference.
+    Each pair is classed as a duplicate group of two would be
+    (:func:`~nrtqc_diff.reports.duplicate_checks`): by the time between the
+    two, whether they hold the same number of levels, how their values
+    compare level by level in nrtqclib's output, and whether the positions
+    are equal; and by whether the platform code is the same.
+
+    :param profiles: One row per profile of every dataset.
+    :param config: The build configuration.
+    :param spec: The analyses section.
+    :return: One row per pair of products and combination of classes, with
+             ``n_pairs``. Empty without the columns to match on.
+    """
+    needed = {"profile_timestamp", "longitude", "latitude", "n_obs"}
+    if not needed <= set(profiles.columns):
+        return pl.DataFrame()
+    present = set(profiles["dataset_id"].unique().to_list())
+    order = [d.id for d in config.datasets]
+    frames = []
+    for reference, other in _region_pairs(config, present):
+        if reference.data_mode is not None or other.data_mode is not None:
+            continue
+        if order.index(reference.id) > order.index(other.id):
+            continue
+        pairs = match_profiles(
+            _match_frame(profiles, reference.id),
+            _match_frame(profiles, other.id),
+            same_platform=False,
+        )
+        if pairs.height == 0:
+            continue
+        pairs = pairs.with_row_index("_gid").with_columns(
+            pl.col("platform_code").cast(pl.Utf8),
+            pl.col("platform_code_c").cast(pl.Utf8),
+            pl.col("profile_no").cast(pl.Int64),
+            pl.col("profile_no_c").cast(pl.Int64),
+            (pl.col("n_obs") == pl.col("n_obs_c")).alias("_same_levels"),
+            pl.lit(2, pl.UInt32).alias("_size"),
+        )
+        mine, theirs = _scan(reference, spec), _scan(other, spec)
+        variables = [
+            v for v in value_columns(mine) if v in theirs.collect_schema().names()
+        ]
+        compared = pairs.filter("_same_levels").with_columns(
+            ((pl.col("n_obs").cum_sum() - 1) // OVERLAP_CHUNK_LEVELS).alias("_chunk")
+        )
+        parts = []
+        for _, part in compared.group_by("_chunk", maintain_order=True):
+            levels = pl.concat(
+                [
+                    _pair_levels(
+                        mine,
+                        part.select(*PROFILE_KEYS, "_gid", "_size"),
+                        variables,
+                    ),
+                    _pair_levels(
+                        theirs,
+                        part.select(
+                            pl.col("platform_code_c").alias("platform_code"),
+                            pl.col("profile_no_c").alias("profile_no"),
+                            "_gid",
+                            "_size",
+                        ),
+                        variables,
+                    ),
+                ]
+            )
+            parts.append(value_classes(levels, variables))
+        values = (
+            pl.concat(parts)
+            if parts
+            else pl.DataFrame(schema={"_gid": pl.UInt32, "values": pl.Utf8})
+        )
+        frames.append(
+            pairs.join(values, on="_gid", how="left")
+            .select(
+                pl.when(pl.col("platform_code") == pl.col("platform_code_c"))
+                .then(pl.lit("same"))
+                .otherwise(pl.lit("other"))
+                .alias("platform"),
+                time_class(pl.col("_dt")).alias("time"),
+                pl.when(pl.col("_same_levels"))
+                .then(pl.lit("same"))
+                .otherwise(pl.lit("differ"))
+                .alias("levels"),
+                pl.col("values").fill_null("not_compared"),
+                pl.when(
+                    (pl.col("_lon") == pl.col("_lon_c"))
+                    & (pl.col("_lat") == pl.col("_lat_c"))
+                )
+                .then(pl.lit("equal"))
+                .otherwise(pl.lit("within"))
+                .alias("position"),
+            )
+            .with_columns(match_class().alias("match"))
+            .group_by("platform", "time", "levels", "values", "position", "match")
+            .agg(pl.len().cast(pl.Int64).alias("n_pairs"))
+            .sort(
+                "platform",
+                pl.col("time").replace_strict(
+                    DUP_TIME_CLASSES, range(len(DUP_TIME_CLASSES))
+                ),
+                "levels",
+                pl.col("values").replace_strict(
+                    DUP_VALUE_CLASSES, range(len(DUP_VALUE_CLASSES))
+                ),
+                "position",
+            )
+            .select(_comparison_labels(reference, other) + [pl.all()])
+        )
+    return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame()
+
+
 def _unmatched(frame: pl.DataFrame, pairs: pl.DataFrame, side: str) -> pl.DataFrame:
     """The profiles of ``frame`` that ``pairs`` has not used on ``side``."""
     suffix = "" if side == "mine" else "_c"
@@ -3710,6 +3878,7 @@ def _write(
                 "position_tolerance_deg": PRES_ORDER_POSITION_TOLERANCE,
                 "repeat_kinds": REPEAT_KINDS,
             },
+            "duplicates": duplicate_rules(),
             "density": {
                 "edges": DENSITY_EDGES,
                 "clear_above": DENSITY_CLEAR,
