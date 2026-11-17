@@ -386,6 +386,9 @@ def test_the_reports_are_read(analysed):
         0,
     )
     assert records["n_records"] is None
+    dates = table(analysed, "conversion_dates").row(0, named=True)
+    assert (dates["n_files"], dates["n_files_dated"]) == (2, 0)
+    assert dates["declared_first"] is None
     extra = table(analysed, "conversion_extra_parameters")
     assert dict(zip(extra["parameter"], extra["n_files"])) == {"DOX1": 2, "CNDC": 1}
     files = table(analysed, "conversion_files")

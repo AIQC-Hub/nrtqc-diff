@@ -1,4 +1,6 @@
-"""The two facts the Methods need: records merged, and the member kept."""
+"""The facts the Methods need: records merged, the member kept, the dates."""
+
+from datetime import datetime
 
 import polars as pl
 import yaml
@@ -6,6 +8,7 @@ import yaml
 from nrtqc_diff.config import read_config
 from nrtqc_diff.reports import (
     DUP_KEPT,
+    date_table,
     duplicate_kept,
     duplicate_kind_tables,
     record_table,
@@ -180,3 +183,76 @@ def test_the_kept_table_counts_groups_per_class(tmp_path):
         ("several", 1),
     ]
     assert kept["n_profiles"].sum() == sum(len(m) for m, _ in GROUPS.values())
+
+
+#: An NRT file dated by its attribute (a variable's attribute and a name
+#: that looks like a date must not count), and a CORA daily file by name.
+DATED_HEADER = """\
+GL_PR_CT_SHIP_20200101:
+  global_attributes:
+    title: x
+    time_coverage_start: '1919-04-10T01:06:00Z'
+  variables:
+    TEMP:
+      time_coverage_start: 1800-01-01T00:00:00Z
+GL_PR_CT_NODATE:
+  global_attributes:
+    title: y
+CO_DMQCGL01_19870324_PR_CT:
+  dimensions:
+    N_PROF: 3
+"""
+
+
+def _dated(tmp_path, header):
+    headers = tmp_path / "header"
+    headers.mkdir()
+    (headers / "src.yaml").write_text(header, encoding="utf-8")
+    dups = tmp_path / "dups"
+    dups.mkdir()
+    pl.DataFrame(
+        {
+            "profile_timestamp": [
+                datetime(1953, 4, 9, 10),
+                datetime(2024, 12, 31, 23, 59),
+                datetime(1990, 1, 1),
+            ]
+        }
+    ).write_parquet(dups / "src.parquet")
+    return str(headers), str(dups)
+
+
+def test_dates_are_declared_by_attribute_or_name_and_found_in_the_region(tmp_path):
+    headers, dups = _dated(tmp_path, DATED_HEADER)
+    row = date_table(_config(tmp_path), headers, dups).row(0, named=True)
+    assert row["date_source"] == "time_coverage_start+file_name"
+    assert (row["n_files"], row["n_files_dated"]) == (3, 2)
+    assert row["declared_first"] == "1919-04-10"
+    # An attribute says where a file starts, not where it ends.
+    assert row["declared_last"] is None
+    assert (row["region_first"], row["region_last"]) == ("1953-04-09", "2024-12-31")
+
+
+def test_daily_files_declare_both_ends(tmp_path):
+    names = "".join(
+        f"CO_DMQCGL01_{d}_PR_CT:\n  dimensions:\n    N_PROF: 1\n"
+        for d in ("19870324", "19530409", "20241231")
+    )
+    headers, dups = _dated(tmp_path, names)
+    row = date_table(_config(tmp_path), headers, dups).row(0, named=True)
+    assert row["date_source"] == "file_name"
+    assert (row["declared_first"], row["declared_last"]) == (
+        "1953-04-09",
+        "2024-12-31",
+    )
+
+
+def test_either_source_alone_fills_its_own_columns(tmp_path):
+    headers, dups = _dated(tmp_path, DATED_HEADER)
+    config = _config(tmp_path)
+    alone = date_table(config, None, dups).row(0, named=True)
+    assert alone["n_files"] is None and alone["declared_first"] is None
+    assert alone["region_first"] == "1953-04-09"
+    alone = date_table(config, headers, None).row(0, named=True)
+    assert alone["region_first"] is None and alone["declared_first"] == "1919-04-10"
+    assert date_table(config, None, None).height == 0

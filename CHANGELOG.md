@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `concat convert` joins the records of one platform, time and position;
   the table gives the records, those checked, the profiles after the merge
   and the records joined.
+- New table `conversion_dates`: the dates each product covers either side
+  of ctddump's `convert`, which records none: the first date the source
+  files declare (and the last, for CORA's daily files) and the first and
+  last profile in the region before `dedup`.
 - New table `conversion_dup_kept`: which member of each duplicate group
   reached nrtqclib's output, against ctddump's rule (most observations,
   then first to appear).

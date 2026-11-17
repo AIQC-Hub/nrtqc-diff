@@ -218,6 +218,7 @@ name or columns.
 | `conversion_files` | dataset, variable | source files carrying it |
 | `conversion_pressure_order` | dataset | ctddump's `checkpres` summary (`convert/checkpres/<stem>.summary.tsv`, ctddump 0.37 or later): profiles, platforms and files checked before the merge sorts by pressure, profiles without pressure, and those whose pressure steps down, `reversed` and `non_monotonic`, with the platforms and files holding them. Then from the profile list beside it (see [The stored pressure order](#the-stored-pressure-order)): the listed profiles found in nrtqclib's output (`n_reversed_matched`, `n_non_monotonic_matched`) and the output's profiles merged from several source profiles (`n_merged`) |
 | `conversion_records` | dataset | why `checkpres` counts more profiles than `convert` (see [Records and profiles](#records-and-profiles)): source files and their records from the header (`n_files`, `n_records`), records checked and without pressure from `checkpres` (`n_checked`, `n_no_pres`), profiles after the merge (`n_converted`), the records the merge joined to another (`n_merged_records`, checked less converted) and records neither checked nor without pressure (`n_unchecked`) |
+| `conversion_dates` | dataset | the dates each product covers either side of `convert`, which records none (see [Product dates](#product-dates)): the source files and those dated from the header (`n_files`, `n_files_dated`), how they are dated (`date_source`: `time_coverage_start`, `file_name` or both), the first date declared and, when every file is a daily file dated by its name, the last (`declared_first`, `declared_last`), and the first and last profile inside the region before `dedup` (`region_first`, `region_last`), as ISO dates |
 | `conversion_dropqc` | dataset | the profiles ctddump's `dropqc` dropped (time or position flag neither good nor missing), from the platform reports before and after it, and where they were as far as the reports tell: `n_moving` on a platform that moved, so unplaced; on a fixed platform (one point before the step) the batch stamped there, `n_sea` or `n_land`, the land ones by cause as on the Depth page; `n_not_stamped` on a fixed platform the batch holds nowhere at that point. seastamp runs after `dropqc`, so a dropped profile has no stamp of its own |
 | `conversion_dropqc_platforms` | dataset, platform that lost a profile | its profiles before the step and dropped, its status as above, and for a fixed platform its point, the elevation and distance to the coast stamped there, and the land cause |
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
@@ -383,6 +384,27 @@ step.
 (`header/<stem>.yaml`, `N_PROF` before `TIME`). A record the per-file
 conversion writes no row for (every observation missing) is in
 `n_records` but neither checked nor without pressure: `n_unchecked`.
+
+### Product dates
+
+No ctddump report records the dates of the profiles `concat convert`
+writes, and its parquet is not kept, so `conversion_dates` gives the dates
+either side of it.
+
+- **Declared** (`header/<stem>.yaml`). An NRT file states where it starts,
+  in its `time_coverage_start` global attribute, and nothing where it ends;
+  `declared_first` is the earliest. A CORA daily file is dated by its name
+  (`CO_DMQCGL01_<YYYYMMDD>_PR_CT`), which gives both ends. A file with the
+  attribute is dated by it, and a file with neither is not dated.
+- **In the region** (`markdup`'s `<stem>.parquet` in `ctddump_dups`). The
+  first and last profile after `clean` (`dropqc`, `dropna`, then the
+  region's boxes) and before `dedup`.
+
+The kept dates, `first_profile` and `last_profile` of each dataset in
+`meta.json`, come from nrtqclib's output. A declared start earlier than the
+region's first profile means the earliest profiles were dropped at
+`clean`: a global file reaches outside the region, or a file's earliest
+profiles fail `dropqc` or `dropna`.
 
 ### Matching profiles across products
 
