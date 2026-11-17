@@ -102,6 +102,30 @@ meta && records ? table(
 ) : html``
 ```
 
+No report gives the dates of the profiles converted. The source files
+declare where they start: an NRT file in an attribute, which gives no end,
+and a CORA daily file in its name, which gives both. A product's first
+profile in the region can be later than the start its files declare,
+because `clean` drops the earliest profiles: those of a global file outside
+the region, or those that fail its checks.
+
+```{ojs}
+dates = meta ? app.loadAnalysisTable("conversion_dates") : null
+kept = (id) => (meta?.datasets ?? []).find((d) => d.id === id) ?? {}
+span = (a, b) => (!a ? "" : b ? `${a} to ${b}` : `from ${a}`)
+meta && dates ? table(
+  dates.map((r) => ({ ...r, key: r.dataset_id, kept_first: kept(r.dataset_id).first_profile, kept_last: kept(r.dataset_id).last_profile })).sort(byDataset),
+  [
+    { key: "dataset_id", label: "Product", align: "left", format: name },
+    { key: "n_files", label: "Source files" },
+    { key: "date_source", label: "Dated by", align: "left", format: (v) => ({ time_coverage_start: "Start attribute", file_name: "File name" })[v] ?? (v ?? "") },
+    { key: "declared_first", label: "Declared", align: "left", title: "The first date the source files declare, and the last when every file is a daily file named by its date", format: (v, r) => span(v, r.declared_last) },
+    { key: "region_first", label: "In the region", align: "left", title: "The first and last profile after clean, before duplicates are removed", format: (v, r) => span(v, r.region_last) },
+    { key: "kept_first", label: "Kept", align: "left", title: "The first and last profile nrtqclib checked", format: (v, r) => span(v, r.kept_last) }
+  ]
+) : html``
+```
+
 ## The source files
 
 How many files each product has, how many carry each variable ctddump reads,

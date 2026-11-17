@@ -370,6 +370,155 @@ def record_table(config: BuildConfig, reports: str, headers: str) -> pl.DataFram
     return _concat(frames)
 
 
+#: The columns of ``conversion_dates``, after the dataset labels.
+DATE_COLUMNS = [
+    "date_source",
+    "n_files",
+    "n_files_dated",
+    "declared_first",
+    "declared_last",
+    "region_first",
+    "region_last",
+]
+
+_GLOBAL_ATTRIBUTES_LINE = re.compile(r"^  global_attributes:\s*$")
+_COVERAGE_START_LINE = re.compile(
+    r"^    time_coverage_start:\s*['\"]?(\d{4}-\d{2}-\d{2})"
+)
+#: A date in a file name, as CORA's daily files carry it:
+#: ``CO_DMQCGL01_19870324_PR_CT``.
+_NAME_DATE = re.compile(r"_(\d{4})(\d{2})(\d{2})(?:_|$)")
+
+
+def _header_dates(path: str) -> Tuple[int, List[str], List[str]]:
+    """
+    The dates a ctddump header YAML gives its files.
+
+    A file is dated by its ``time_coverage_start`` global attribute, the
+    first profile it says it holds, or failing that by a date in its name.
+    Neither says when the file ends, except a name date of a daily file.
+
+    :param path: ``header/<stem>.yaml``.
+    :return: The number of files, the ``time_coverage_start`` dates and the
+             name dates, as ISO dates; a file has one date at most.
+    """
+    files = 0
+    starts: List[str] = []
+    names: List[str] = []
+    name_date: Optional[str] = None
+    start: Optional[str] = None
+    in_attributes = False
+
+    def close() -> None:
+        if start is not None:
+            starts.append(start)
+        elif name_date is not None:
+            names.append(name_date)
+
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            found = _FILE_LINE.match(line)
+            if found:
+                if files:
+                    close()
+                files += 1
+                dated = _NAME_DATE.search(found.group(1))
+                name_date = "-".join(dated.groups()) if dated else None
+                start, in_attributes = None, False
+            elif _GLOBAL_ATTRIBUTES_LINE.match(line):
+                in_attributes = True
+            elif _SECTION_LINE.match(line):
+                in_attributes = False
+            elif in_attributes and start is None:
+                coverage = _COVERAGE_START_LINE.match(line)
+                if coverage:
+                    start = coverage.group(1)
+    if files:
+        close()
+    return files, starts, names
+
+
+def _region_dates(path: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    The first and last profile date in ``markdup``'s parquet.
+
+    :param path: ``<stem>.parquet``, written after ``clean`` cut the
+                 product to its region and before ``dedup`` removed a
+                 duplicate.
+    :return: The two ISO dates, None when the file has no timestamp.
+    """
+    dates = (
+        pl.scan_parquet(path)
+        .select(
+            pl.col("profile_timestamp").min().alias("first"),
+            pl.col("profile_timestamp").max().alias("last"),
+        )
+        .collect()
+        .row(0)
+    )
+    return tuple(None if d is None else d.date().isoformat() for d in dates)
+
+
+def date_table(
+    config: BuildConfig, headers: Optional[str], dups: Optional[str]
+) -> pl.DataFrame:
+    """
+    The dates each product covers, as declared and as found in the region.
+
+    No ctddump report records the profile dates ``concat convert`` wrote,
+    so this gives what can be had either side of it. Declared: from the
+    source files' header, the earliest ``time_coverage_start`` (an NRT file
+    states where it starts, not where it ends) or the first and last date
+    in the names of daily files (CORA). Found: the first and last profile
+    in ``markdup``'s parquet, inside the region and before ``dedup``.
+
+    :param config: The build configuration.
+    :param headers: The ctddump ``header`` directory, or None.
+    :param dups: The directory holding ``markdup``'s ``<stem>.parquet``,
+                 or None.
+    :return: One row per dataset with either source: ``date_source``
+             (``time_coverage_start``, ``file_name``, both joined by ``+``,
+             or null), ``n_files`` and ``n_files_dated``,
+             ``declared_first``, ``declared_last`` (null unless every file
+             is dated by its name), ``region_first`` and ``region_last``.
+    """
+    frames = []
+    for spec in _sourced(config):
+        header = os.path.join(headers, f"{spec.source}.yaml") if headers else None
+        parquet = os.path.join(dups, f"{spec.source}.parquet") if dups else None
+        has_header = header is not None and os.path.isfile(header)
+        has_parquet = parquet is not None and os.path.isfile(parquet)
+        if not (has_header or has_parquet):
+            continue
+        files, starts, names = _header_dates(header) if has_header else (0, [], [])
+        dated = starts + names
+        sources = [
+            name
+            for name, found in (("time_coverage_start", starts), ("file_name", names))
+            if found
+        ]
+        first, last = _region_dates(parquet) if has_parquet else (None, None)
+        frames.append(
+            pl.DataFrame(
+                {
+                    "date_source": ["+".join(sources) or None],
+                    "n_files": [files if has_header else None],
+                    "n_files_dated": [len(dated) if has_header else None],
+                    "declared_first": [min(dated) if dated else None],
+                    "declared_last": [
+                        max(names) if names and len(names) == files else None
+                    ],
+                    "region_first": [first],
+                    "region_last": [last],
+                },
+                schema={
+                    c: pl.Int64 if c.startswith("n_") else pl.Utf8 for c in DATE_COLUMNS
+                },
+            ).select(_label_columns(spec) + [pl.all()])
+        )
+    return _concat(frames)
+
+
 def pressure_order_profiles(spec: DatasetSpec, reports: str) -> Optional[pl.DataFrame]:
     """
     The profiles ctddump's ``checkpres`` found stepping down in pressure.
@@ -1241,6 +1390,10 @@ def report_tables(config: BuildConfig) -> Dict[str, pl.DataFrame]:
     if spec is not None and spec.ctddump_reports and spec.ctddump_headers:
         tables["conversion_records"] = record_table(
             config, spec.ctddump_reports, spec.ctddump_headers
+        )
+    if spec is not None and (spec.ctddump_headers or spec.ctddump_dups):
+        tables["conversion_dates"] = date_table(
+            config, spec.ctddump_headers, spec.ctddump_dups
         )
     if spec is not None and spec.ctddump_dups:
         tables.update(duplicate_kind_tables(config, spec.ctddump_dups))
