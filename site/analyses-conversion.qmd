@@ -80,6 +80,28 @@ meta ? table(stepRows, [
 ]) : html``
 ```
 
+Converted counts profiles after ctddump merges its per-file conversions.
+Before that, each record of a source file is a profile; the merge drops
+observations without a pressure and joins the records of one platform with
+the same time and position into one profile, from one file or several.
+Nothing else is dropped there, so the records joined are the whole
+difference between the profiles checked for their
+[pressure order](#pressure-order) and those converted.
+
+```{ojs}
+records = meta ? app.loadAnalysisTable("conversion_records") : null
+meta && records ? table(
+  records.map((r) => ({ ...r, key: r.dataset_id })).sort(byDataset),
+  [
+    { key: "dataset_id", label: "Product", align: "left", format: name },
+    { key: "n_files", label: "Source files" },
+    { key: "n_checked", label: "Records", title: "Records of the source files with a pressure, each a profile before the merge" },
+    { key: "n_merged_records", label: "Joined to another", title: "Records sharing platform, time and position with an earlier one", format: (v, r) => `${app.formatCount(v)} (${app.formatSmallShare(v, r.n_checked)})` },
+    { key: "n_converted", label: "Converted", title: "Profiles after the merge" }
+  ]
+) : html``
+```
+
 ## The source files
 
 How many files each product has, how many carry each variable ctddump reads,
@@ -267,8 +289,27 @@ a group of duplicates is one of three kinds:
 - **Both:** the group spans two or more platform codes, and at least one of
   them reports the cast more than once. The cast was repeated and renamed.
 
-Of each group ctddump keeps the profile with the most observations and
-removes the rest, so a group of two loses one profile.
+Of each group ctddump keeps the profile with the most observations, the
+first to appear when several have as many, and removes the rest, so a
+group of two loses one profile. nrtqclib's output holds exactly that
+member of every group.
+
+```{ojs}
+dupKept = meta ? app.loadAnalysisTable("conversion_dup_kept") : null
+keptRows = dupKept && dupKept.length
+  ? app.widen(dupKept, { index: ["dataset_id"], column: "kept_by", value: "n_groups" })
+      .map((r) => ({ ...r, key: r.dataset_id, n_groups: ["most_obs", "first_of_tied", "other", "none", "several"].reduce((s, k) => s + (r[k] ?? 0), 0) }))
+      .map((r) => ({ ...r, off: (r.other ?? 0) + (r.none ?? 0) + (r.several ?? 0) }))
+      .sort(byDataset)
+  : []
+meta && keptRows.length ? table(keptRows, [
+  { key: "dataset_id", label: "Product", align: "left", format: name },
+  { key: "n_groups", label: "Groups" },
+  { key: "most_obs", label: "Most observations", format: (v, r) => `${app.formatCount(v ?? 0)} (${app.formatShare(v ?? 0, r.n_groups)})`, title: "One member has more observations than any other" },
+  { key: "first_of_tied", label: "First of the tied", format: (v, r) => `${app.formatCount(v ?? 0)} (${app.formatShare(v ?? 0, r.n_groups)})`, title: "Several members share the most observations; the first in ctddump's order is kept" },
+  { key: "off", label: "Otherwise", title: "Another member, none or several reached the output" }
+]) : html``
+```
 
 The match is on the day, not the time. A platform that stays in one place,
 such as a fixed station or a profiler drifting slowly with the ice, can
