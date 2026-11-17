@@ -835,6 +835,10 @@ def test_meta_records_the_provenance_with_the_config_checksum(analysed):
         "sha256": hashlib.sha256(b"qc: {}\n").hexdigest(),
     }
     assert meta["provenance"]["products"] == []
+    # The batch configuration defines no sets, and no region is configured.
+    assert meta["nrtqc_parameters"] == {
+        "nrtqclib": {"qc_item_sets": {}, "datasets": {}}
+    }
 
 
 def test_coverage_is_the_first_and_last_profile_date():

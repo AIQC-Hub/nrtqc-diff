@@ -262,6 +262,12 @@ class ProvenanceSpec:
     :ivar nrtqclib_config: The nrtqclib configuration the batch ran with, or
                            None.
     :ivar note: A free text line about the batch, or None.
+    :ivar regions: ctddump's definition of each region (its ``filter``
+                   step), which no ctddump report records: one mapping per
+                   region with ``region``, ``include`` and ``exclude`` (lists
+                   of boxes, each ``min_lon``, ``max_lon``, ``min_lat`` and
+                   ``max_lat`` in degrees, edges included) and optionally
+                   ``source``.
     """
 
     tools: List[Dict[str, Any]] = field(default_factory=list)
@@ -269,6 +275,7 @@ class ProvenanceSpec:
     products: List[Dict[str, Any]] = field(default_factory=list)
     nrtqclib_config: Optional[str] = None
     note: Optional[str] = None
+    regions: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -428,7 +435,10 @@ def read_config(file_name: str) -> BuildConfig:
         row_group_size=row_group_size,
         analyses=_analyses(raw.get("analyses"), base_dir),
         provenance=_provenance(
-            raw.get("provenance"), base_dir, [d.id for d in datasets]
+            raw.get("provenance"),
+            base_dir,
+            [d.id for d in datasets],
+            sorted({d.region for d in datasets}),
         ),
     )
 
@@ -554,7 +564,10 @@ def _analyses(raw: Any, base_dir: str) -> Optional[AnalysesSpec]:
 
 
 def _provenance(
-    raw: Any, base_dir: str, dataset_ids: List[str]
+    raw: Any,
+    base_dir: str,
+    dataset_ids: List[str],
+    region_names: Optional[List[str]] = None,
 ) -> Optional[ProvenanceSpec]:
     """
     Read the optional ``provenance`` section.
@@ -568,6 +581,8 @@ def _provenance(
     :param raw: The section as parsed from YAML, or None.
     :param base_dir: The directory holding the configuration file.
     :param dataset_ids: The ids of the configured datasets.
+    :param region_names: The regions of the configured datasets; a
+                         ``regions`` entry must name one of them.
     :return: The parsed section, or None when there is none.
     :raises ValueError: If an entry lacks a required key, has an unknown
                         one, or names a dataset the configuration lacks.
@@ -576,7 +591,7 @@ def _provenance(
         return None
     if not isinstance(raw, dict):
         raise ValueError("The 'provenance' section must be a mapping.")
-    known = set(PROVENANCE_KEYS) | {"nrtqclib_config", "note"}
+    known = set(PROVENANCE_KEYS) | {"nrtqclib_config", "note", "regions"}
     unknown = sorted(set(raw) - known)
     if unknown:
         raise ValueError(f"provenance has an unknown key '{unknown[0]}'.")
@@ -627,7 +642,69 @@ def _provenance(
             else None
         ),
         note=str(note) if note is not None else None,
+        regions=_regions(raw.get("regions"), region_names),
     )
+
+
+#: The keys of one box of ``provenance.regions``.
+BOX_KEYS: List[str] = ["min_lon", "max_lon", "min_lat", "max_lat"]
+
+
+def _regions(raw: Any, region_names: Optional[List[str]]) -> List[Dict[str, Any]]:
+    """
+    Read ``provenance.regions``: ctddump's boxes per region.
+
+    :param raw: The list as parsed from YAML, or None.
+    :param region_names: The configured regions, or None to accept any.
+    :return: One mapping per region: ``region``, ``include``, ``exclude``
+             and ``source`` when given, the boxes as floats.
+    :raises ValueError: If an entry is malformed, names a region no dataset
+                        has, repeats one, or has a box whose minimum exceeds
+                        its maximum.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("provenance.regions must be a list.")
+    parsed: List[Dict[str, Any]] = []
+    for number, entry in enumerate(raw, 1):
+        where = f"provenance.regions entry {number}"
+        if not isinstance(entry, dict):
+            raise ValueError(f"{where} must be a mapping.")
+        extra = sorted(set(entry) - {"region", "include", "exclude", "source"})
+        if extra:
+            raise ValueError(f"{where} has an unknown key '{extra[0]}'.")
+        name = entry.get("region")
+        if not name:
+            raise ValueError(f"{where} has no 'region'.")
+        if region_names is not None and name not in region_names:
+            raise ValueError(f"{where} names region '{name}', which no dataset has.")
+        if any(p["region"] == name for p in parsed):
+            raise ValueError(f"{where} repeats region '{name}'.")
+        item: Dict[str, Any] = {"region": str(name)}
+        for kind in ("include", "exclude"):
+            boxes = entry.get(kind) or []
+            if not isinstance(boxes, list):
+                raise ValueError(f"{where}: '{kind}' must be a list of boxes.")
+            item[kind] = [
+                _box(box, f"{where} {kind} box {i}") for i, box in enumerate(boxes, 1)
+            ]
+        if not item["include"]:
+            raise ValueError(f"{where} has no 'include' box.")
+        if entry.get("source"):
+            item["source"] = str(entry["source"])
+        parsed.append(item)
+    return parsed
+
+
+def _box(raw: Any, where: str) -> Dict[str, float]:
+    """One box of ``provenance.regions``, its four edges as floats."""
+    if not isinstance(raw, dict) or set(raw) != set(BOX_KEYS):
+        raise ValueError(f"{where} must have exactly {', '.join(BOX_KEYS)}.")
+    box = {key: float(raw[key]) for key in BOX_KEYS}
+    if box["min_lon"] > box["max_lon"] or box["min_lat"] > box["max_lat"]:
+        raise ValueError(f"{where} has a minimum above its maximum.")
+    return box
 
 
 def _resolve(path: str, base_dir: str, textual: bool = True) -> str:

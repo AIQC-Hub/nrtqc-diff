@@ -119,6 +119,11 @@ provenance:
       dataset: cmems_obs-ins_bal_phybgcwav_mynrt_na_irr_202311
       doi: 10.48670/moi-00032
       datasets: [bo_bo]
+  regions:          # region, include; optional exclude, source
+    - region: Baltic Sea
+      source: ctddump 0.37.2, scripts/clean_data.sh
+      include: [{min_lon: 6, max_lon: 30, min_lat: 53, max_lat: 66}]
+      exclude: [{min_lon: 6, max_lon: 15, min_lat: 60, max_lat: 66}]
 ```
 
 Values are kept as text, as written. An unknown key, a missing required one,
@@ -131,6 +136,29 @@ which bound the download date when nothing else records it.
 
 Keep the section current whenever the batch is rerun: it is the only record
 of the versions behind the tables.
+
+### Test parameters and regions
+
+`meta.json` also gets `nrtqc_parameters`, the parameters a reader needs to
+know what ran, without the files they came from:
+
+- `nrtqclib.qc_item_sets`: each `qc_item_set` of the nrtqclib
+  configuration that some dataset ran, its tests in order, each with its
+  `params` as written there (an empty mapping when it has none): global
+  and regional range, spike and gradient (`shallow`, `deep` and the
+  `depth_threshold` between them), digit rollover, density inversion.
+- `nrtqclib.datasets`: the set each dataset ran. A dataset is matched to an
+  `nrt_qc_sets` entry by its `source` and the entry's input file name, or
+  else by the entry's dataset folder among the parts of its `path`.
+  Nothing else of the configuration is copied: no paths, folders or steps.
+- `ctddump_regions`: `provenance.regions` as configured, ctddump's boxes
+  per region (its step 4, `filter`), which no ctddump report records. A
+  profile is kept inside an `include` box and outside every `exclude` box,
+  edges included, a missing position outside. Each region gains `outside`,
+  the profiles of each of its datasets in nrtqclib's output that lie
+  outside it: there should be none, and `analyse` warns otherwise. A region
+  name must be one a dataset has, and a box needs all four edges, its
+  minimum at most its maximum.
 
 ## The groups
 
