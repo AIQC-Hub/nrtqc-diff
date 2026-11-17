@@ -41,6 +41,11 @@ GROUPS = {
     ],
     # Identical but 10 minutes apart: still a candidate.
     6: [("H", 1, 0, 6.5, 50.5, LEVELS), ("H", 2, 600, 6.5, 50.5, LEVELS)],
+    # The same second; one copy's temperature cut to two decimals.
+    7: [
+        ("I", 1, 0, 7.5, 50.5, [(5.0, 10.008, 35.0)] + LEVELS[1:]),
+        ("I", 2, 0, 7.5, 50.5, LEVELS),
+    ],
 }
 
 #: ``group: (kind, time, levels, values, position, whole_degree, match)``.
@@ -51,6 +56,7 @@ EXPECTED = {
     4: ("within", "same_date", "differ", "not_compared", "equal", True, "candidate"),
     5: ("within", "same_second", "same", "different", "equal", False, "same_time"),
     6: ("within", "within_hour", "same", "identical", "equal", False, "candidate"),
+    7: ("within", "same_second", "same", "near", "equal", False, "same_time"),
 }
 
 
@@ -163,11 +169,11 @@ def test_the_kind_tables_gain_match_and_sum_to_the_old_counts(tmp_path):
     ]
     totals = kinds.group_by("kind").agg(pl.col("n_groups", "n_removed").sum())
     assert dict(totals.select("kind", "n_groups").rows()) == {
-        "within": 4,
+        "within": 5,
         "across": 1,
         "both": 1,
     }
-    assert kinds["n_removed"].sum() == 7
+    assert kinds["n_removed"].sum() == 8
 
     checks = tables["conversion_dup_checks"]
     assert checks["n_groups"].sum() == len(GROUPS)
@@ -185,7 +191,7 @@ def test_the_kind_tables_gain_match_and_sum_to_the_old_counts(tmp_path):
     plain = duplicate_kind_tables(_one_dataset_config(tmp_path), str(tmp_path))
     assert "match" not in plain["conversion_dup_kinds"].columns
     assert plain["conversion_dup_checks"].height == 0
-    assert plain["conversion_dup_kinds"]["n_groups"].to_list() == [4, 1, 1]
+    assert plain["conversion_dup_kinds"]["n_groups"].to_list() == [5, 1, 1]
 
 
 def test_the_rules_name_every_class_and_cut():
@@ -193,6 +199,8 @@ def test_the_rules_name_every_class_and_cut():
     assert rules["same_time"] == ["same_second", "within_minute"]
     assert rules["time_limits_s"] == [1.0, 60.0, 3600.0]
     assert rules["value_tolerances"] == {"pres": 0.1, "temp": 0.001, "psal": 0.001}
+    assert rules["near_tolerances"] == {"pres": 0.1, "temp": 0.01, "psal": 0.01}
+    assert rules["value_classes"].index("near") == 2
     json.dumps(rules)
 
 
@@ -222,7 +230,8 @@ def test_shared_casts_of_two_nrt_products_are_checked_once(tmp_path):
     """
     The regional product's casts against the global one's: the same cast
     under another code, the same values; one 2 s apart, 0.01 degrees warmer
-    at one level; one with a level fewer. The delayed mode product is left
+    at one level (``near``); one 0.05 degrees warmer (``different``); one
+    with a level fewer. The delayed mode product is left
     out, and each pair of products is checked once.
     """
     when = datetime(2020, 1, 1, 6)
@@ -231,6 +240,7 @@ def test_shared_casts_of_two_nrt_products_are_checked_once(tmp_path):
         ("P", "GLO1", 1.0, 0, LEVELS),
         ("Q", "Q", 2.0, 2, [LEVELS[0], (20.0, 9.01, 35.1), LEVELS[2]]),
         ("R", "R", 3.0, 0, LEVELS[:2]),
+        ("S", "S", 4.0, 0, [LEVELS[0], (20.0, 9.05, 35.1), LEVELS[2]]),
     ]
     rows = {"reg": [], "glo": [], "dm": []}
     profiles = []
@@ -276,5 +286,6 @@ def test_shared_casts_of_two_nrt_products_are_checked_once(tmp_path):
     assert found == {
         ("other", "same_second", "same", "identical", "equal", "confirmed"): 1,
         ("same", "same_second", "differ", "not_compared", "equal", "same_time"): 1,
-        ("same", "within_minute", "same", "different", "equal", "same_time"): 1,
+        ("same", "within_minute", "same", "near", "equal", "same_time"): 1,
+        ("same", "same_second", "same", "different", "equal", "same_time"): 1,
     }

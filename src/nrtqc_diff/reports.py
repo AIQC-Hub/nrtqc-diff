@@ -388,18 +388,31 @@ DUP_LEVEL_CLASSES: List[str] = ["same", "differ"]
 
 #: How the values of members with the same number of levels compare, level
 #: by level in stored order: all equal (missing equal to missing); all
-#: within :data:`DUP_VALUE_TOLERANCES`; or not. ``not_compared`` is a group
-#: whose members differ in their number of levels.
-DUP_VALUE_CLASSES: List[str] = ["identical", "close", "different", "not_compared"]
+#: within :data:`DUP_VALUE_TOLERANCES`; all within the wider
+#: :data:`DUP_NEAR_TOLERANCES`; or not. ``not_compared`` is a group whose
+#: members differ in their number of levels.
+DUP_VALUE_CLASSES: List[str] = [
+    "identical",
+    "close",
+    "near",
+    "different",
+    "not_compared",
+]
 
 #: The largest spread across members at one level that still counts as
 #: ``close``, per variable, in the variable's unit. A variable missing from
 #: the data is left out of the comparison.
 DUP_VALUE_TOLERANCES: Dict[str, float] = {"pres": 0.1, "temp": 0.001, "psal": 0.001}
 
+#: The largest spread that still counts as ``near``: one copy holding
+#: temperature or salinity to two decimals where another holds three. Each
+#: product, region or CORA may round differently; ``near`` keeps those
+#: groups apart from both ``close`` and ``different``.
+DUP_NEAR_TOLERANCES: Dict[str, float] = {"pres": 0.1, "temp": 0.01, "psal": 0.01}
+
 #: The values are stored in single precision, so a spread of exactly the
 #: tolerance can come out a little above it. A spread up to this factor of
-#: the tolerance is still ``close``.
+#: the tolerance is still ``close`` (or ``near``).
 DUP_TOLERANCE_SLACK: float = 1.01
 
 #: How many observations of duplicate groups :func:`duplicate_checks` reads
@@ -417,7 +430,7 @@ DUP_WHOLE_DEGREE_TOLERANCE: float = 1e-6
 
 #: What a group or pair is taken to be: ``confirmed``, the same time and
 #: values ``identical`` or ``close``; ``same_time``, the same time but not
-#: those values; ``candidate``, everything else.
+#: those values (``near`` among them); ``candidate``, everything else.
 DUP_MATCHES: List[str] = ["confirmed", "same_time", "candidate"]
 
 
@@ -446,13 +459,25 @@ def match_class() -> pl.Expr:
     )
 
 
+def _within(
+    spreads: List[pl.Expr], variables: List[str], tolerances: Dict[str, float]
+) -> pl.Expr:
+    """Whether every spread stays within its variable's tolerance."""
+    if not spreads:
+        return pl.lit(True)
+    return pl.all_horizontal(
+        [s <= tolerances[v] * DUP_TOLERANCE_SLACK for s, v in zip(spreads, variables)]
+    )
+
+
 def value_classes(levels: pl.LazyFrame, variables: List[str]) -> pl.DataFrame:
     """
     Compare the members of each group level by level.
 
     A level is ``identical`` when every member has the same value of every
     variable, or every member lacks it; ``close`` when the spread (largest
-    minus smallest) stays within :data:`DUP_VALUE_TOLERANCES`. A value
+    minus smallest) stays within :data:`DUP_VALUE_TOLERANCES`; ``near``
+    when it stays within :data:`DUP_NEAR_TOLERANCES`. A value
     missing in one member and present in another, or a level some member
     lacks, makes the level ``different``. A group takes the worst class of
     its levels.
@@ -491,16 +516,8 @@ def value_classes(levels: pl.LazyFrame, variables: List[str]) -> pl.DataFrame:
     identical = (
         pl.all_horizontal([s == 0 for s in spreads]) if spreads else pl.lit(True)
     )
-    close = (
-        pl.all_horizontal(
-            [
-                s <= DUP_VALUE_TOLERANCES[v] * DUP_TOLERANCE_SLACK
-                for s, v in zip(spreads, variables)
-            ]
-        )
-        if spreads
-        else pl.lit(True)
-    )
+    close = _within(spreads, variables, DUP_VALUE_TOLERANCES)
+    near = _within(spreads, variables, DUP_NEAR_TOLERANCES)
     return (
         per_group.select(
             "_gid",
@@ -510,6 +527,8 @@ def value_classes(levels: pl.LazyFrame, variables: List[str]) -> pl.DataFrame:
             .then(pl.lit("identical"))
             .when(close)
             .then(pl.lit("close"))
+            .when(near)
+            .then(pl.lit("near"))
             .otherwise(pl.lit("different"))
             .alias("values"),
         )
@@ -789,6 +808,7 @@ def duplicate_rules() -> Dict[str, object]:
         "level_classes": DUP_LEVEL_CLASSES,
         "value_classes": DUP_VALUE_CLASSES,
         "value_tolerances": DUP_VALUE_TOLERANCES,
+        "near_tolerances": DUP_NEAR_TOLERANCES,
         "tolerance_slack": DUP_TOLERANCE_SLACK,
         "position_classes": DUP_POSITION_CLASSES,
         "whole_degree_tolerance": DUP_WHOLE_DEGREE_TOLERANCE,

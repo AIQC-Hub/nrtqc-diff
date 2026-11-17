@@ -317,7 +317,10 @@ checked further against the time and the values of its members: a group is
 confirmed when its members lie under a minute apart and hold the same
 values at every level (within 0.1 dbar, 0.001 °C and 0.001 in salinity);
 same time when they lie under a minute apart but their values differ or
-their numbers of levels do; and a candidate otherwise. Groups whose
+their numbers of levels do; and a candidate otherwise. Of the same time
+groups, those within 0.01 °C and 0.01 in salinity are counted as near:
+one copy holds the values to two decimals where another holds three, so
+they are likely the same cast rounded differently. Groups whose
 members all sit at whole degrees are counted on their own: such positions
 are often rounded, so the date and the position say less.
 
@@ -329,11 +332,13 @@ dupMatchRows = dupKinds && dupKinds.some((r) => "match" in r)
   : []
 dupChecks = meta ? app.loadAnalysisTable("conversion_dup_checks") : null
 wholeOf = (id) => (dupChecks ?? []).filter((r) => r.dataset_id === id && (r.whole_degree === true || r.whole_degree === "true")).reduce((s, r) => s + r.n_groups, 0)
-meta && dupMatchRows.length ? table(dupMatchRows.map((r) => ({ ...r, whole: wholeOf(r.dataset_id) })), [
+nearOf = (id) => (dupChecks ?? []).filter((r) => r.dataset_id === id && r.match === "same_time" && r.values === "near").reduce((s, r) => s + r.n_groups, 0)
+meta && dupMatchRows.length ? table(dupMatchRows.map((r) => ({ ...r, near: nearOf(r.dataset_id), whole: wholeOf(r.dataset_id) })), [
   { key: "dataset_id", label: "Product", align: "left", format: name },
   { key: "n_groups", label: "Groups" },
   { key: "confirmed", label: "Confirmed", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "Under a minute apart, the same values at every level" },
   { key: "same_time", label: "Same time", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "Under a minute apart, but other values or another number of levels" },
+  { key: "near", label: "Of which near", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "Same time, with values within 0.01 °C and 0.01 in salinity: rounded to two decimals in one copy" },
   { key: "candidate", label: "Candidate", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "A minute or more apart" },
   { key: "whole", label: "At whole degrees", format: (v, r) => `${app.formatCount(v)} (${app.formatShare(v, r.n_groups)})`, title: "Every member at whole degrees of longitude and latitude" }
 ]) : html``

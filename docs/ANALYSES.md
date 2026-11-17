@@ -357,10 +357,10 @@ observations in `markdup`'s parquet, where `is_dup` marks every member:
 | --- | --- | --- |
 | `time` | `same_second`, `within_minute`, `within_hour`, `same_date` | the spread of the members' `profile_timestamp`: 0 s, under 60 s, under 3600 s, more |
 | `levels` | `same`, `differ` | whether every member has the same number of observations |
-| `values` | `identical`, `close`, `different`, `not_compared` | members with the same number of levels, level by level in stored order (ctddump's sort by pressure): the spread (largest minus smallest) of pressure, temperature and salinity at each level. `identical`: every spread 0, a value missing in every member counting as equal; `close`: within 0.1 dbar, 0.001 °C and 0.001, allowing 1% for single precision; `different`: more, or a value missing in some members only. `not_compared` when the levels differ |
+| `values` | `identical`, `close`, `near`, `different`, `not_compared` | members with the same number of levels, level by level in stored order (ctddump's sort by pressure): the spread (largest minus smallest) of pressure, temperature and salinity at each level. `identical`: every spread 0, a value missing in every member counting as equal; `close`: within 0.1 dbar, 0.001 °C and 0.001, allowing 1% for single precision; `near`: within 0.1 dbar, 0.01 °C and 0.01, as when one copy holds temperature or salinity to two decimals and another to three (products, regions and CORA may each round differently); `different`: more, or a value missing in some members only. `not_compared` when the levels differ |
 | `position` | `equal`, `within` | whether every member has the same longitude and latitude |
 | `whole_degree` | true, false | every member at whole degrees in both coordinates |
-| `match` | `confirmed`, `same_time`, `candidate` | `confirmed`: `time` is `same_second` or `within_minute`, `values` `identical` or `close`; `same_time`: the rest at those times; `candidate`: the rest |
+| `match` | `confirmed`, `same_time`, `candidate` | `confirmed`: `time` is `same_second` or `within_minute`, `values` `identical` or `close`; `same_time`: the rest at those times, `near` among them; `candidate`: the rest |
 
 A group of three or more counts as `identical` or `close` only if all its
 members agree. The classes and cuts are in `meta.json` under

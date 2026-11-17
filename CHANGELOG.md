@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `conversion_dup_checks` classes each of ctddump's duplicate groups by the
   spread of its timestamps, whether its members hold the same number of
   levels, how their pressure, temperature and salinity compare level by
-  level (`identical`, `close`, `different`), whether their positions are
+  level (`identical`, `close`, `near`, `different`), whether their positions are
   equal, and whether they sit at whole degrees. `conversion_dup_kinds` and
   `conversion_dup_sizes` gain `match` (`confirmed`, `same_time`,
   `candidate`); summed over it they are unchanged. The cuts are in
