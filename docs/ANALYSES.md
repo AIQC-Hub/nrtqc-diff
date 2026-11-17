@@ -183,7 +183,7 @@ name or columns.
 | `conversion_dup_sizes` | dataset, kind, group size | groups of that many profiles; above 10 pooled as `11+` |
 | `conversion_dup_platforms` | dataset, platform set | the 15 commonest sets of platform codes sharing casts, over groups `across` and `both`, then the rest in one row |
 | `conversion_files` | dataset, variable | source files carrying it |
-| `conversion_pressure_order` | dataset | ctddump's `checkpres` summary (`convert/checkpres/<stem>.summary.tsv`, ctddump 0.37 or later): profiles, platforms and files checked before the merge sorts by pressure, profiles without pressure, and those whose pressure steps down, `reversed` and `non_monotonic`, with the platforms and files holding them |
+| `conversion_pressure_order` | dataset | ctddump's `checkpres` summary (`convert/checkpres/<stem>.summary.tsv`, ctddump 0.37 or later): profiles, platforms and files checked before the merge sorts by pressure, profiles without pressure, and those whose pressure steps down, `reversed` and `non_monotonic`, with the platforms and files holding them. Then from the profile list beside it (see [The stored pressure order](#the-stored-pressure-order)): the listed profiles found in nrtqclib's output (`n_reversed_matched`, `n_non_monotonic_matched`) and the output's profiles merged from several source profiles (`n_merged`) |
 | `conversion_dropqc` | dataset | the profiles ctddump's `dropqc` dropped (time or position flag neither good nor missing), from the platform reports before and after it, and where they were as far as the reports tell: `n_moving` on a platform that moved, so unplaced; on a fixed platform (one point before the step) the batch stamped there, `n_sea` or `n_land`, the land ones by cause as on the Depth page; `n_not_stamped` on a fixed platform the batch holds nowhere at that point. seastamp runs after `dropqc`, so a dropped profile has no stamp of its own |
 | `conversion_dropqc_platforms` | dataset, platform that lost a profile | its profiles before the step and dropped, its status as above, and for a fixed platform its point, the elevation and distance to the coast stamped there, and the land cause |
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
@@ -212,7 +212,7 @@ name or columns.
 | `dm_estimated_profiles` | profile estimated for either variable | its counts, and per variable its share and whether it is estimated |
 | `dm_probable_obs` | dataset, variable, input flag 2 or 3, the observation's own data mode, group, nrtqclib bad | observations at sea, and how many each nrtqclib check failed (`fail_{item}`) |
 | `dm_probable_profiles` | dataset, variable, input flag 2 or 3, group | profiles at sea carrying it, with it on one observation, and with it on most of the profile (the estimate's share and minimum) |
-| `items_cube` | dataset, variable, pressure band, input flag, nrtqclib flag, failing checks | observations: every `items_` table below is a sum over this |
+| `items_cube` | dataset, variable, stored pressure order (`pres_order`), pressure band, input flag, nrtqclib flag, failing checks | observations: every `items_` table below is a sum over this |
 | `items_status` | dataset, variable, category | observations of NRT profiles |
 | `items_by_item` | dataset, variable, check | failures, with the input too, only nrtqclib, and that check alone |
 | `items_combinations` | dataset, variable, category, set of failing checks | observations |
@@ -220,7 +220,9 @@ name or columns.
 | `items_original_flags` | dataset, variable, input flag, nrtqclib bad | observations |
 | `items_platforms` | dataset, variable, platform | profiles, observations and agreement counts, over the variable's NRT profiles |
 | `items_shape` | dataset, variable, category (original only or nrtqclib only), place in the profile, input flag, negative pressure | observations, and the profiles they are in |
-| `items_response` | dataset, test, flag it is set against (a variable, `density` for either variable's flag, `pres` for the pressure flag), band of how far past nrtqclib's threshold | failures (`n`, as observations, pairs of levels or profiles) and how many the input flags (`n_flagged`) |
+| `items_response` | dataset, test, flag it is set against (a variable, `density` for either variable's flag, `pres` for the pressure flag), stored pressure order (`pres_order`), band of how far past nrtqclib's threshold | failures (`n`, as observations, pairs of levels or profiles) and how many the input flags (`n_flagged`) |
+| `pressure_repeats` | dataset, flag it is set against (as in `items_response`), `pres_order`, kind (`copied`: the level above has the same pressure and values, both missing counting as equal; `other`) | the repeated pressures of `items_response`'s band 1 of `pressure_increasing` (`n`), how many the input flags, and the profiles and platforms holding them |
+| `pressure_repeat_platforms` | dataset, flag, `pres_order`, platform with a repeated pressure | its profiles with one, its repeats, the copied ones, and how many of each the input flags |
 | `density_threshold` | dataset, platform group (`ice_tethered` or `other`), measure (`level`: kg/m³ between levels; `dbar`: per dbar), band (`lower` exclusive, `upper` inclusive, empty for the last) | density inversions, and how many the input flags at either level (`n_flagged`), the deeper one (`n_flagged_deeper`) and the upper one (`n_flagged_upper`) |
 | `density_platforms` | dataset, platform, its group and median level spacing (`spacing_dbar`), for platforms with an inversion | pairs of levels, inversions, those up to 0.05 kg/m³ (`n_small`) and above it (`n_clear`), and how many the input flags |
 
@@ -294,6 +296,40 @@ so the pass reads 2 million rows at a time, carries a profile cut by the
 end of a slice over to the next, and numbers the profiles of a slice so
 that it compares and groups on integers. NaN values are read as missing.
 It adds about a minute to the run.
+
+### The stored pressure order
+
+ctddump's `concat convert` merges the source profiles of one file,
+platform, time and position into one profile and sorts its levels by
+pressure before nrtqclib runs. A cast stored down and up again, or a
+downcast and an upcast stored as two profiles, is then interleaved, and its
+spikes, gradients and density inversions may come from the sort rather than
+the water. `pres_order` in `items_cube`, `items_response` and the pressure
+repeat tables says how each profile was stored, so the results can be read
+with and without them. Summed over it, the tables are what they were
+without it.
+
+ctddump's `checkpres` lists each source profile whose pressure steps down
+(`convert/checkpres/<stem>.profiles.tsv`). Its profile number counts within
+one source file, so a listed profile is matched to nrtqclib's output on its
+file, platform and `profile_time` exactly and its position within 0.0001°
+(`rules.pres_order` in `meta.json`); one listed profile matching two of the
+output's is an error. Several listed profiles can match one: those are the
+merges.
+
+| `pres_order` | Rule |
+| --- | --- |
+| `reversed` | One listed source profile, stored bottom up, and all of the profile's levels are its own. |
+| `non_monotonic` | The same, stored down and up again. |
+| `merged` | Two or more listed source profiles, or one with fewer levels than the profile: the rest came from a source profile the list does not hold. |
+| `monotonic` | No listed source profile. It never steps down, though it may repeat a pressure, and it may still be a merge of parts each stored in order, which the list cannot show. |
+| empty | The dataset has no list (ctddump before 0.37). |
+
+A listed profile that matches nothing was dropped by a later ctddump step:
+outside the region, `dropqc`, `dropna`, `filter` or `dedup`. After the
+sort, `pressure_increasing` can only find repeated pressures (band 1);
+`pressure_repeats` tells a level written twice (`copied`) from a repeat with
+other values.
 
 ### Matching profiles across products
 

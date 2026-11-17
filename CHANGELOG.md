@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **The stored pressure order** (`analyses_format` 13): `items_cube` and
+  `items_response` gain `pres_order`, how each profile nrtqclib tested was
+  stored in its source files before ctddump merged and sorted it by
+  pressure (`monotonic`, `reversed`, `non_monotonic`, or `merged` from
+  several source profiles). It comes from matching ctddump's `checkpres`
+  profile list to nrtqclib's output on file, platform, time and position.
+  Summed over `pres_order`, both tables are unchanged.
+- `conversion_pressure_order` gains `n_reversed_matched`,
+  `n_non_monotonic_matched` and `n_merged`.
+- New tables `pressure_repeats` and `pressure_repeat_platforms`: the
+  repeated pressures behind band 1 of `pressure_increasing`, split into
+  copied levels and repeats with other values, by stored order, with the
+  profiles and platforms holding them.
+- The bands table of the Flag differences page shows how each row's
+  profiles were stored.
+
 ## [0.16.0] - 2026-11-12
 
 ### Added
