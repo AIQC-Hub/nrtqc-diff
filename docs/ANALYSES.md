@@ -231,6 +231,8 @@ name or columns.
 | `conversion_match` | NRT dataset, CORA dataset, coverage class | pairs of the same cast (`same_platform` or `other_platform`): how many, how many with the same number of observations, and on which side there are more |
 | `cora_pairs` | NRT dataset, CORA dataset, variable, coverage class | the pairs counted through each condition of the level by level comparison (see below): `n_pairs`, `n_same_obs`, `n_nrt` (the NRT profile is `nrt` for the variable), `n_aligned` (the levels line up), `n_pres_exact` (at the same pressures exactly), and the observations compared (`n_obs`) |
 | `cora_flags` | NRT dataset, CORA dataset, variable, coverage class, pressure band, the four flags | observations of the aligned pairs: the producer's NRT flag (`original_flag`), nrtqclib's on the NRT copy (`nrtqclib_flag`), CORA's (`cora_flag`) and nrtqclib's on the CORA copy (`cora_nrtqclib_flag`), as raw values, empty where missing |
+| `cora_pairs_platforms` | as `cora_pairs`, and NRT platform | `cora_pairs` per platform of the NRT profile (see [By platform](#by-platform)) |
+| `cora_flags_platforms` | as `cora_flags` without the pressure band, and NRT platform | `cora_flags` per platform of the NRT profile, summed over the pressure bands |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
 | `depth_summary` | dataset | profiles, land profiles, and what the input flagged on them |
 | `depth_land_margin` | dataset, margin | land profiles at least that many metres up |
@@ -254,9 +256,10 @@ name or columns.
 | `items_combinations` | dataset, variable, category, set of failing checks | observations |
 | `items_depth` | dataset, variable, pressure band, category | observations |
 | `items_original_flags` | dataset, variable, input flag, nrtqclib bad | observations |
-| `items_platforms` | dataset, variable, platform | profiles, observations and agreement counts, over the variable's NRT profiles |
+| `items_platforms` | dataset, variable, platform, stored pressure order (`pres_order`) | profiles, observations and agreement counts, over the variable's NRT profiles, and the observations of `agree_bad` and `nrtqclib_only` that nrtqclib flags only through the checks set aside (`n_agree_bad_set_aside`, `n_nrtqclib_only_set_aside`; see [By platform](#by-platform)) |
 | `items_shape` | dataset, variable, category (original only or nrtqclib only), place in the profile, input flag, negative pressure | observations, and the profiles they are in |
 | `items_response` | dataset, test, flag it is set against (a variable, `density` for either variable's flag, `pres` for the pressure flag), stored pressure order (`pres_order`), band of how far past nrtqclib's threshold | failures (`n`, as observations, pairs of levels or profiles) and how many the input flags (`n_flagged`) |
+| `items_response_platforms` | as `items_response`, the clear bands only, and platform | `items_response`'s clear failures per platform (see [By platform](#by-platform)) |
 | `pressure_repeats` | dataset, flag it is set against (as in `items_response`), `pres_order`, kind (`copied`: the level above has the same pressure and values, both missing counting as equal; `other`) | the repeated pressures of `items_response`'s band 1 of `pressure_increasing` (`n`), how many the input flags, and the profiles and platforms holding them |
 | `pressure_repeat_platforms` | dataset, flag, `pres_order`, platform with a repeated pressure | its profiles with one, its repeats, the copied ones, and how many of each the input flags |
 | `density_threshold` | dataset, platform group (`ice_tethered` or `other`), measure (`level`: kg/m³ between levels; `dbar`: per dbar), band (`lower` exclusive, `upper` inclusive, empty for the last) | density inversions, and how many the input flags at either level (`n_flagged`), the deeper one (`n_flagged_deeper`) and the upper one (`n_flagged_upper`) |
@@ -499,6 +502,30 @@ observations compared can be traced back to the casts. The pairs are taken
 in platform order, about two million levels at a time, and both products are
 read for each chunk, keeping only its profiles' levels. The files are
 sorted by platform, so a chunk reads only the row groups of its platforms.
+
+### By platform
+
+A few platforms can carry a product's result, so the tables behind the
+agreement, the response to each test and the comparison with CORA are also
+given per platform. Summed over the platforms, each gives its table again
+(the response table over its clear bands).
+
+- **`items_platforms`** holds, per platform and stored pressure order, the
+  four agreement counts as run. A two by two table without nrtqclib's
+  design choices needs, besides, the observations nrtqclib flags only
+  through the checks in `rules.set_aside` of `meta.json` (density
+  inversion, the temperature flag carried over to salinity, pressure
+  increasing): at least one of them failed and no other check did. An
+  observation flagged with no failing check recorded is never set aside.
+  Leaving those out turns `n_agree_bad` into `n_agree_bad` less
+  `n_agree_bad_set_aside`, and `n_nrtqclib_only` likewise; the other
+  counts stay.
+- **`items_response_platforms`** gives the failures of the clear bands of
+  each test (`clear` in `response_tests` of `meta.json`) per platform,
+  stored pressure order and band, and how many the input flags.
+- **`cora_pairs_platforms` and `cora_flags_platforms`** split the CORA
+  comparison by the NRT profile's platform. The flags are summed over the
+  pressure bands to keep the table small.
 
 ## The figures
 

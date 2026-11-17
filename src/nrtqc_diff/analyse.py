@@ -1413,6 +1413,44 @@ def pres_band_labels() -> List[Dict[str, Any]]:
     return bands
 
 
+#: nrtqclib's checks behind most of what only nrtqclib flags, which the
+#: agreement can be measured without: its density inversion test, the
+#: temperature flag carried over to salinity, and pressure increasing.
+SET_ASIDE_ITEMS: List[str] = [
+    "density_inversion",
+    "temp_to_psal",
+    "pressure_increasing",
+]
+
+
+def only_set_aside(columns: List[str], variable: VariableSpec) -> pl.Expr:
+    """
+    Whether an observation failed only checks of :data:`SET_ASIDE_ITEMS`.
+
+    True when at least one of them failed and no other check did; an
+    observation with no failing check recorded is never set aside, so a
+    flag no check explains keeps counting.
+
+    :param columns: The variable's per-item columns (``temp_qc_spike``).
+    :param variable: The variable.
+    :return: A boolean expression, never null.
+    """
+    fails = {
+        item_name(c, variable): (
+            pl.col(c).cast(pl.Int64, strict=False) > FLAG_GOOD
+        ).fill_null(False)
+        for c in columns
+    }
+    aside = [f for name, f in fails.items() if name in SET_ASIDE_ITEMS]
+    other = [f for name, f in fails.items() if name not in SET_ASIDE_ITEMS]
+    if not aside:
+        return pl.lit(False)
+    expression = pl.any_horizontal(aside)
+    if other:
+        expression = expression & ~pl.any_horizontal(other)
+    return expression
+
+
 def _with_pres_order(keys: pl.DataFrame) -> pl.DataFrame:
     """
     ``keys`` as profile keys and ``pres_order``, the order null where the
@@ -1453,9 +1491,6 @@ def item_tables_for(
     names = scan.collect_schema().names()
     variable_names = [v.name for v in config.variables]
 
-    def kept_for(variable: VariableSpec) -> pl.LazyFrame:
-        return scan.join(keep[variable.name].lazy(), on=PROFILE_KEYS, how="semi")
-
     def ordered_for(variable: VariableSpec) -> pl.LazyFrame:
         """The profiles kept for ``variable``, each row with its ``pres_order``."""
         return scan.join(
@@ -1494,12 +1529,14 @@ def item_tables_for(
             .agg(pl.len().cast(pl.Int64).alias("n_obs"))
         )
 
-    # Per platform, each variable over its own profiles.
-    for variable in config.variables:
+    # Per platform and stored pressure order, each variable over its own
+    # profiles, with what nrtqclib flags only through the checks set aside.
+    for variable, columns in zip(config.variables, item_lists):
         predicates = status_predicates(variable)
+        set_aside = only_set_aside(columns, variable)
         queries.append(
-            kept_for(variable)
-            .group_by(pl.col("platform_code").cast(pl.Utf8))
+            ordered_for(variable)
+            .group_by(pl.col("platform_code").cast(pl.Utf8), "pres_order")
             .agg(
                 pl.col("profile_no").n_unique().cast(pl.Int64).alias("n_profiles"),
                 pl.len().cast(pl.Int64).alias("n_obs"),
@@ -1509,6 +1546,13 @@ def item_tables_for(
                     .cast(pl.Int64)
                     .alias(f"n_{status['key']}")
                     for status in STATUSES
+                ],
+                *[
+                    (predicates[key] & set_aside)
+                    .sum()
+                    .cast(pl.Int64)
+                    .alias(f"n_{key}_set_aside")
+                    for key in (AGREE_BAD, NRTQCLIB_ONLY)
                 ],
             )
             .with_columns(pl.lit(variable.name).alias("variable"))
@@ -1630,7 +1674,9 @@ def item_tables_for(
         ),
         "items_platforms": pl.concat(platform_results)
         .select(label + ["variable", pl.all().exclude("variable")])
-        .sort("variable", "platform_code"),
+        .with_columns(_pres_order_index().alias("_pres_order"))
+        .sort("variable", "platform_code", "_pres_order")
+        .drop("_pres_order"),
     }
     if by_item:
         tables["items_by_item"] = pl.concat(by_item)
@@ -2061,8 +2107,8 @@ def _response_chunk(
                   ``pres_order``, and ``bad_pres`` when the input has a
                   pressure flag.
     :return: One frame per test and variable: ``test``, ``variable``,
-             ``pres_order``, ``band``, how many fall in it (``n``) and how
-             many of those the input flags (``n_flagged``). Then the
+             ``pres_order``, ``band``, ``platform_code``, how many fall in it
+             (``n``) and how many of those the input flags (``n_flagged``). Then the
              repeated pressures (band 1 of ``pressure_increasing``) per
              variable it is set against, profile and :data:`REPEAT_KINDS`
              (``kind``), with ``n`` and ``n_flagged``, for
@@ -2083,9 +2129,10 @@ def _response_chunk(
                 _response_band(tests[test], margin).alias("band"),
                 flagged.fill_null(False).alias("flagged"),
                 pl.col("pres_order"),
+                pl.col("platform_code"),
             )
             .filter(pl.col("band").is_not_null())
-            .group_by("band", "pres_order")
+            .group_by("band", "pres_order", "platform_code")
             .agg(
                 pl.len().cast(pl.Int64).alias("n"),
                 pl.col("flagged").sum().cast(pl.Int64).alias("n_flagged"),
@@ -2137,6 +2184,7 @@ def _response_chunk(
                 in_range[name].all().alias("_in"),
                 bad.mean().alias("_bad"),
                 pl.col("pres_order").first(),
+                pl.col("platform_code").first(),
             )
             .filter((pl.col("_n") >= 2) & pl.col("_in"))
         )
@@ -2529,10 +2577,11 @@ def _frozen_chunk(
                 ).alias("band"),
                 (pl.col("_bad") >= RESPONSE_WHOLE_SHARE).alias("flagged"),
                 pl.col("pres_order"),
+                pl.col("platform_code"),
             )
         )
         out.append(
-            measured.group_by("band", "pres_order")
+            measured.group_by("band", "pres_order", "platform_code")
             .agg(
                 pl.len().cast(pl.Int64).alias("n"),
                 pl.col("flagged").sum().cast(pl.Int64).alias("n_flagged"),
@@ -2790,9 +2839,9 @@ def response_tables(
         pl.lit(dataset.label).alias("label"),
     ]
     order = {t["key"]: i for i, t in enumerate(RESPONSE_TESTS)}
+    counted = pl.concat(counts)
     response = (
-        pl.concat(counts)
-        .group_by("test", "variable", "pres_order", "band")
+        counted.group_by("test", "variable", "pres_order", "band")
         .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
         .with_columns(
             pl.col("test").replace_strict(order).alias("_order"),
@@ -2801,8 +2850,40 @@ def response_tables(
         .sort("_order", "variable", "_pres_order", "band", nulls_last=True)
         .select(label + ["test", "variable", "pres_order", "band", "n", "n_flagged"])
     )
+    clear = pl.concat(
+        [
+            pl.DataFrame(
+                {"test": t["key"], "band": t["clear"]},
+                schema={"test": pl.Utf8, "band": counted.schema["band"]},
+            )
+            for t in RESPONSE_TESTS
+        ]
+    )
+    platforms = (
+        counted.join(clear, on=["test", "band"], how="semi")
+        .group_by("test", "variable", "pres_order", "band", "platform_code")
+        .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
+        .with_columns(
+            pl.col("test").replace_strict(order).alias("_order"),
+            _pres_order_index().alias("_pres_order"),
+        )
+        .sort(
+            "_order",
+            "variable",
+            "platform_code",
+            "_pres_order",
+            "band",
+            nulls_last=True,
+        )
+        .select(
+            label
+            + ["test", "variable", "pres_order", "band", "platform_code"]
+            + ["n", "n_flagged"]
+        )
+    )
     return {
         "items_response": response,
+        "items_response_platforms": platforms,
         **_repeat_tables(repeats, variables, label),
         **_density_tables(density, label),
     }
@@ -3474,12 +3555,15 @@ def cora_tables(
     :param config: The build configuration.
     :param spec: The analyses section.
     :return: ``cora_flags``, the levels counted by variable, coverage,
-             pressure band and the four flags; and ``cora_pairs``, the pairs
-             counted through each condition.
+             pressure band and the four flags; ``cora_pairs``, the pairs
+             counted through each condition; and the same per NRT platform,
+             ``cora_flags_platforms`` without the pressure band and
+             ``cora_pairs_platforms``.
     """
     variables = list(config.variables)
     bands = {b["band"]: b["label"] for b in pres_band_labels()}
     flag_tables, pair_tables = [], []
+    flag_platform_tables, pair_platform_tables = [], []
     for comparison in comparisons:
         reference, other = comparison["reference"], comparison["other"]
         labels = _comparison_labels(reference, other)
@@ -3554,7 +3638,10 @@ def cora_tables(
             )
             levels = joined.join(good, on="_pair", how="semi").join(
                 pairs_part.select(
-                    "_pair", "coverage", *[f"_nrt_{v.name}" for v in variables]
+                    "_pair",
+                    "coverage",
+                    pl.col("platform_code").cast(pl.Utf8),
+                    *[f"_nrt_{v.name}" for v in variables],
                 ),
                 on="_pair",
             )
@@ -3564,6 +3651,7 @@ def cora_tables(
                     levels.filter(pl.col(f"_nrt_{v.name}"))
                     .group_by(
                         "coverage",
+                        "platform_code",
                         pres_band().alias("pres_band"),
                         pl.col(f"{v.name}_qc").cast(pl.Int64).alias("original_flag"),
                         pl.col(f"{v.name}_nrt").cast(pl.Int64).alias("nrtqclib_flag"),
@@ -3600,59 +3688,70 @@ def cora_tables(
             pl.concat(counts)
             if counts
             else pl.DataFrame(
-                schema={"coverage": pl.Utf8, "n_obs": pl.Int64, "variable": pl.Utf8}
+                schema={
+                    "coverage": pl.Utf8,
+                    "platform_code": pl.Utf8,
+                    "n_obs": pl.Int64,
+                    "variable": pl.Utf8,
+                }
             )
         )
+        status = status.with_columns(pl.col("platform_code").cast(pl.Utf8))
         for v in variables:
             nrt = pl.col("_same_obs") & pl.col(f"_nrt_{v.name}")
-            summary = (
-                status.group_by("coverage")
-                .agg(
-                    pl.len().cast(pl.Int64).alias("n_pairs"),
-                    pl.col("_same_obs").sum().cast(pl.Int64).alias("n_same_obs"),
-                    nrt.sum().cast(pl.Int64).alias("n_nrt"),
-                    (nrt & pl.col("_aligned")).sum().cast(pl.Int64).alias("n_aligned"),
-                    (nrt & pl.col("_aligned") & pl.col("_exact").fill_null(False))
-                    .sum()
-                    .cast(pl.Int64)
-                    .alias("n_pres_exact"),
+            for keys, tables in (
+                (["coverage"], pair_tables),
+                (["coverage", "platform_code"], pair_platform_tables),
+            ):
+                summary = (
+                    status.group_by(keys)
+                    .agg(
+                        pl.len().cast(pl.Int64).alias("n_pairs"),
+                        pl.col("_same_obs").sum().cast(pl.Int64).alias("n_same_obs"),
+                        nrt.sum().cast(pl.Int64).alias("n_nrt"),
+                        (nrt & pl.col("_aligned"))
+                        .sum()
+                        .cast(pl.Int64)
+                        .alias("n_aligned"),
+                        (nrt & pl.col("_aligned") & pl.col("_exact").fill_null(False))
+                        .sum()
+                        .cast(pl.Int64)
+                        .alias("n_pres_exact"),
+                    )
+                    .join(
+                        observed.filter(pl.col("variable") == v.name)
+                        .group_by(keys)
+                        .agg(pl.col("n_obs").sum()),
+                        on=keys,
+                        how="left",
+                    )
+                    .with_columns(
+                        pl.col("n_obs").fill_null(0),
+                        pl.lit(v.name).alias("variable"),
+                    )
                 )
-                .join(
-                    observed.filter(pl.col("variable") == v.name)
-                    .group_by("coverage")
-                    .agg(pl.col("n_obs").sum()),
-                    on="coverage",
-                    how="left",
+                tables.append(
+                    summary.select(
+                        *labels,
+                        "variable",
+                        *keys,
+                        "n_pairs",
+                        "n_same_obs",
+                        "n_nrt",
+                        "n_aligned",
+                        "n_pres_exact",
+                        "n_obs",
+                    )
                 )
-                .with_columns(
-                    pl.col("n_obs").fill_null(0),
-                    pl.lit(v.name).alias("variable"),
-                )
-            )
-            pair_tables.append(
-                summary.select(
-                    *labels,
-                    "variable",
-                    "coverage",
-                    "n_pairs",
-                    "n_same_obs",
-                    "n_nrt",
-                    "n_aligned",
-                    "n_pres_exact",
-                    "n_obs",
-                )
-            )
         if counts:
+            flags = [
+                "original_flag",
+                "nrtqclib_flag",
+                "cora_flag",
+                "cora_nrtqclib_flag",
+            ]
             flag_tables.append(
-                observed.group_by(
-                    "variable",
-                    "coverage",
-                    "pres_band",
-                    "original_flag",
-                    "nrtqclib_flag",
-                    "cora_flag",
-                    "cora_nrtqclib_flag",
-                )
+                observed.group_by("variable", "coverage", "pres_band", *flags)
                 .agg(pl.col("n_obs").sum())
                 .with_columns(
                     pl.col("pres_band")
@@ -3665,11 +3764,15 @@ def cora_tables(
                     "coverage",
                     "pres_band",
                     "pres_label",
-                    "original_flag",
-                    "nrtqclib_flag",
-                    "cora_flag",
-                    "cora_nrtqclib_flag",
+                    *flags,
                     "n_obs",
+                )
+            )
+            flag_platform_tables.append(
+                observed.group_by("variable", "coverage", "platform_code", *flags)
+                .agg(pl.col("n_obs").sum())
+                .select(
+                    *labels, "variable", "coverage", "platform_code", *flags, "n_obs"
                 )
             )
 
@@ -3685,18 +3788,12 @@ def cora_tables(
             .drop("_c")
         )
 
+    flags = ["original_flag", "nrtqclib_flag", "cora_flag", "cora_nrtqclib_flag"]
     tables = {
         "cora_pairs": stack(pair_tables, []),
-        "cora_flags": stack(
-            flag_tables,
-            [
-                "pres_band",
-                "original_flag",
-                "nrtqclib_flag",
-                "cora_flag",
-                "cora_nrtqclib_flag",
-            ],
-        ),
+        "cora_flags": stack(flag_tables, ["pres_band", *flags]),
+        "cora_pairs_platforms": stack(pair_platform_tables, ["platform_code"]),
+        "cora_flags_platforms": stack(flag_platform_tables, ["platform_code", *flags]),
     }
     return {name: table for name, table in tables.items() if table.height}
 
@@ -3997,6 +4094,7 @@ def _write(
                 "repeat_kinds": REPEAT_KINDS,
             },
             "duplicates": duplicate_rules(),
+            "set_aside": SET_ASIDE_ITEMS,
             "density": {
                 "edges": DENSITY_EDGES,
                 "clear_above": DENSITY_CLEAR,

@@ -160,16 +160,19 @@ viewof platformDataset = meta && platforms
 ```
 
 ```{ojs}
-// One row per platform; shares kept as percentages so they sort by value.
+// One row per platform, summed over the stored pressure orders; shares kept
+// as percentages so they sort by value.
 share = (part, whole) => (whole > 0 ? (100 * part) / whole : null)
 platformRows = platforms
   ? [...platforms
       .filter((r) => r.dataset_id === platformDataset)
       .reduce((m, r) => {
         const row = m.get(r.platform_code) ?? { key: r.platform_code, platform_code: r.platform_code };
-        row[`${r.variable}_profiles`] = r.n_profiles;
-        row[`${r.variable}_n`] = r.n_original_only;
-        row[`${r.variable}_share`] = share(r.n_original_only, r.n_obs);
+        const add = (k, v) => { row[`${r.variable}_${k}`] = (row[`${r.variable}_${k}`] ?? 0) + v; };
+        add("profiles", r.n_profiles);
+        add("obs", r.n_obs);
+        add("n", r.n_original_only);
+        row[`${r.variable}_share`] = share(row[`${r.variable}_n`], row[`${r.variable}_obs`]);
         m.set(r.platform_code, row);
         return m;
       }, new Map()).values()]
