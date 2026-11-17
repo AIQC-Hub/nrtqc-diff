@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `meta.json` under `rules.duplicates`.
 - New table `conversion_overlap_checks`: the casts two NRT products of one
   region share, checked the same way from nrtqclib's output.
+- New table `conversion_records`: why ctddump's `checkpres` counts more
+  profiles than `convert`. Each record of a source file is a profile until
+  `concat convert` joins the records of one platform, time and position;
+  the table gives the records, those checked, the profiles after the merge
+  and the records joined.
+- New table `conversion_dup_kept`: which member of each duplicate group
+  reached nrtqclib's output, against ctddump's rule (most observations,
+  then first to appear).
 
 ## [0.16.0] - 2026-11-12
 

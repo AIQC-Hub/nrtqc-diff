@@ -375,6 +375,17 @@ def test_the_reports_are_read(analysed):
         "": 1,
     }
     assert table(analysed, "depth_stamp")["item"].to_list() == ["land"]
+    records = table(analysed, "conversion_records").row(0, named=True)
+    assert (
+        records["n_checked"],
+        records["n_converted"],
+        records["n_merged_records"],
+    ) == (
+        9,
+        9,
+        0,
+    )
+    assert records["n_records"] is None
     extra = table(analysed, "conversion_extra_parameters")
     assert dict(zip(extra["parameter"], extra["n_files"])) == {"DOX1": 2, "CNDC": 1}
     files = table(analysed, "conversion_files")

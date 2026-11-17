@@ -16,7 +16,7 @@ product), is scanned line by line for the two things the analyses need.
 import os
 import re
 from collections import Counter
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import polars as pl
 
@@ -254,6 +254,122 @@ def pressure_order_table(config: BuildConfig, reports: str) -> pl.DataFrame:
     return _concat(frames)
 
 
+#: The dimension that numbers a source file's records (one profile each, as
+#: ``checkpres`` counts them): ``TIME`` in the NRT products, ``N_PROF`` in
+#: CORA. The first one a file's header lists is used.
+RECORD_DIMENSIONS: List[str] = ["N_PROF", "TIME"]
+
+
+#: The count columns of :func:`record_table`.
+RECORD_COLUMNS: List[str] = [
+    "n_files",
+    "n_records",
+    "n_checked",
+    "n_no_pres",
+    "n_converted",
+    "n_merged_records",
+    "n_unchecked",
+]
+
+_DIMENSIONS_LINE = re.compile(r"^  dimensions:\s*$")
+_SECTION_LINE = re.compile(r"^  \S")
+_DIMENSION_LINE = re.compile(r"^    (\w+):\s*(\d+)\s*$")
+
+
+def _header_records(path: str) -> Tuple[int, Optional[int]]:
+    """
+    The files a ctddump header YAML lists, and their records summed.
+
+    :param path: ``header/<stem>.yaml``.
+    :return: The number of files, and of records; None when no file lists
+             a :data:`RECORD_DIMENSIONS` entry among its dimensions.
+    """
+    files, records, seen = 0, 0, False
+    found: Dict[str, int] = {}
+    in_dimensions = False
+
+    def close() -> int:
+        nonlocal seen
+        for name in RECORD_DIMENSIONS:
+            if name in found:
+                seen = True
+                return found[name]
+        return 0
+
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            if _FILE_LINE.match(line):
+                records += close()
+                files += 1
+                found, in_dimensions = {}, False
+            elif _DIMENSIONS_LINE.match(line):
+                in_dimensions = True
+            elif _SECTION_LINE.match(line):
+                in_dimensions = False
+            elif in_dimensions:
+                dimension = _DIMENSION_LINE.match(line)
+                if dimension:
+                    found[dimension.group(1)] = int(dimension.group(2))
+    records += close()
+    return files, records if seen else None
+
+
+def record_table(config: BuildConfig, reports: str, headers: str) -> pl.DataFrame:
+    """
+    Why ``checkpres`` counts more profiles than ``concat convert`` keeps.
+
+    The per-file conversion keeps each record of a source file as a
+    profile, and ``checkpres`` counts those. ``concat convert`` then drops
+    the observations without a pressure and numbers the profiles by
+    ``platform_code``, ``profile_timestamp``, ``longitude`` and
+    ``latitude``: records of one platform with the same time and position
+    become one profile. ``n_merged_records`` counts the records that joined an
+    earlier one; nothing else is dropped while ``n_no_pres`` is 0.
+
+    :param config: The build configuration.
+    :param reports: The ctddump ``report`` directory.
+    :param headers: The ctddump ``header`` directory.
+    :return: One row per dataset with all three reports: ``n_files`` and
+             ``n_records`` from the header, ``n_checked`` and ``n_no_pres``
+             from ``checkpres``, ``n_converted`` from the step report,
+             ``n_merged_records`` (checked less converted) and ``n_unchecked``
+             (records neither checked nor counted as without pressure).
+    """
+    frames = []
+    for spec in _sourced(config):
+        header = os.path.join(headers, f"{spec.source}.yaml")
+        summary = os.path.join(
+            reports, "convert", "checkpres", f"{spec.source}.summary.tsv"
+        )
+        converted = os.path.join(reports, "convert", f"{spec.source}.parquet.tsv")
+        if not all(os.path.isfile(p) for p in (header, summary, converted)):
+            continue
+        files, records = _header_records(header)
+        checked = _read_tsv(summary).head(1)
+        n_checked = int(float(checked["n_profiles"][0]))
+        n_no_pres = int(float(checked["n_no_pres"][0]))
+        n_converted = int(
+            _read_tsv(converted).select(_number("n_profiles").sum()).item()
+        )
+        frames.append(
+            pl.DataFrame(
+                {
+                    "n_files": [files],
+                    "n_records": [records],
+                    "n_checked": [n_checked],
+                    "n_no_pres": [n_no_pres],
+                    "n_converted": [n_converted],
+                    "n_merged_records": [n_checked - n_converted],
+                    "n_unchecked": [
+                        None if records is None else records - n_checked - n_no_pres
+                    ],
+                },
+                schema={c: pl.Int64 for c in RECORD_COLUMNS},
+            ).select(_label_columns(spec) + [pl.all()])
+        )
+    return _concat(frames)
+
+
 def pressure_order_profiles(spec: DatasetSpec, reports: str) -> Optional[pl.DataFrame]:
     """
     The profiles ctddump's ``checkpres`` found stepping down in pressure.
@@ -432,6 +548,13 @@ DUP_WHOLE_DEGREE_TOLERANCE: float = 1e-6
 #: values ``identical`` or ``close``; ``same_time``, the same time but not
 #: those values (``near`` among them); ``candidate``, everything else.
 DUP_MATCHES: List[str] = ["confirmed", "same_time", "candidate"]
+
+#: Which member of a group survives ``dedup``, as found in nrtqclib's output:
+#: ``most_obs``, the one member with the most observations; ``first_of_tied``,
+#: of members tied on the most, the first in ``markdup``'s row order (the
+#: rule ctddump states); ``other``, any other member; ``none`` or
+#: ``several`` when no member, or more than one, reached the output.
+DUP_KEPT: List[str] = ["most_obs", "first_of_tied", "other", "none", "several"]
 
 
 def _order(column: str, values: List[str]) -> pl.Expr:
@@ -655,6 +778,83 @@ def duplicate_checks(path: str, observations: str) -> Optional[pl.DataFrame]:
     )
 
 
+def duplicate_kept(path: str, observations: str, output: str) -> Optional[pl.DataFrame]:
+    """
+    Which member of each duplicate group reached nrtqclib's output.
+
+    ``dedup`` keeps the member with the most observation rows in
+    ``markdup``'s parquet, ties going to the one that appears first there,
+    and keeps ``platform_code`` and ``profile_no``. Both are read here: the
+    rows and first row of each member from the parquet, and the members
+    found in the output.
+
+    :param path: The duplicates list ``markdup`` wrote, ``<stem>.dups.tsv``.
+    :param observations: ``markdup``'s parquet beside it.
+    :param output: nrtqclib's output for the dataset.
+    :return: ``dup_group`` and ``kept_by``, one of :data:`DUP_KEPT`, per
+             group. None when the parquet or the output is missing.
+    """
+    if not (os.path.isfile(observations) and os.path.isfile(output)):
+        return None
+    keys = ["platform_code", "profile_no"]
+    members = (
+        pl.scan_parquet(observations, row_index_name="_row")
+        .filter(pl.col("is_dup"))
+        .group_by(keys)
+        .agg(pl.len().alias("_rows"), pl.col("_row").min().alias("_first"))
+        .collect(engine="streaming")
+    )
+    out = pl.scan_parquet(output)
+    types = out.collect_schema()
+    members = members.with_columns(pl.col(k).cast(types[k]) for k in keys)
+    found = (
+        out.select(keys)
+        .join(members.lazy().select(keys), on=keys, how="semi")
+        .unique()
+        .with_columns(pl.lit(True).alias("_kept"))
+        .collect(engine="streaming")
+    )
+    listed = _read_tsv(path).select(
+        pl.col("dup_group"),
+        *[pl.col(k).cast(types[k]) for k in keys],
+    )
+    group = pl.col("dup_group")
+    most = pl.col("_rows") == pl.col("_rows").max().over(group)
+    first = pl.col("_first") == pl.col("_first").filter(most).min().over(group)
+    rows = (
+        listed.join(members, on=keys, how="left")
+        .join(found, on=keys, how="left")
+        .with_columns(
+            pl.col("_kept").fill_null(False),
+            (most.sum().over(group) > 1).alias("_tied"),
+            most.alias("_most"),
+            (most & first).alias("_first_of_most"),
+        )
+    )
+    return (
+        rows.group_by("dup_group")
+        .agg(
+            pl.col("_kept").sum().alias("_n_kept"),
+            pl.col("_tied").first(),
+            pl.col("_most").filter(pl.col("_kept")).first().alias("_most"),
+            pl.col("_first_of_most").filter(pl.col("_kept")).first().alias("_first"),
+        )
+        .select(
+            "dup_group",
+            pl.when(pl.col("_n_kept") == 0)
+            .then(pl.lit("none"))
+            .when(pl.col("_n_kept") > 1)
+            .then(pl.lit("several"))
+            .when(pl.col("_most") & ~pl.col("_tied"))
+            .then(pl.lit("most_obs"))
+            .when(pl.col("_first"))
+            .then(pl.lit("first_of_tied"))
+            .otherwise(pl.lit("other"))
+            .alias("kept_by"),
+        )
+    )
+
+
 def _duplicate_groups(path: str) -> pl.DataFrame:
     """
     The duplicate groups of one ctddump ``.dups.tsv``, one row per group.
@@ -708,18 +908,31 @@ def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFr
              platforms, ``across`` and ``both``) and, when checked,
              ``conversion_dup_checks`` (per dataset, kind and every check).
     """
-    kinds, sizes, sets, checks = [], [], [], []
+    kinds, sizes, sets, checks, kept = [], [], [], [], []
     for spec in _sourced(config):
         path = os.path.join(dups, f"{spec.source}.dups.tsv")
         if not os.path.isfile(path):
             continue
-        checked = duplicate_checks(path, os.path.join(dups, f"{spec.source}.parquet"))
+        observations = os.path.join(dups, f"{spec.source}.parquet")
+        checked = duplicate_checks(path, observations)
+        survivors = duplicate_kept(path, observations, spec.path)
         groups = _duplicate_groups(path) if checked is None else checked
         by = ["kind"] if checked is None else ["kind", "match"]
         order = [_order("kind", DUP_KINDS)]
         if checked is not None:
             order.append(_order("match", DUP_MATCHES))
         labels = _label_columns(spec)
+        if survivors is not None:
+            kept.append(
+                survivors.join(groups.select("dup_group", "n_profiles"), on="dup_group")
+                .group_by("kept_by")
+                .agg(
+                    pl.len().cast(pl.Int64).alias("n_groups"),
+                    pl.col("n_profiles").sum().alias("n_profiles"),
+                )
+                .sort(_order("kept_by", DUP_KEPT))
+                .select(labels + [pl.all()])
+            )
         counts = [
             pl.len().cast(pl.Int64).alias("n_groups"),
             pl.col("n_profiles").sum().alias("n_profiles"),
@@ -796,6 +1009,7 @@ def duplicate_kind_tables(config: BuildConfig, dups: str) -> Dict[str, pl.DataFr
         "conversion_dup_sizes": _concat(sizes),
         "conversion_dup_platforms": _concat(sets),
         "conversion_dup_checks": _concat(checks),
+        "conversion_dup_kept": _concat(kept),
     }
 
 
@@ -813,6 +1027,7 @@ def duplicate_rules() -> Dict[str, object]:
         "position_classes": DUP_POSITION_CLASSES,
         "whole_degree_tolerance": DUP_WHOLE_DEGREE_TOLERANCE,
         "matches": DUP_MATCHES,
+        "kept": DUP_KEPT,
     }
 
 
@@ -1022,6 +1237,10 @@ def report_tables(config: BuildConfig) -> Dict[str, pl.DataFrame]:
     if spec is not None and spec.ctddump_headers:
         tables["conversion_file_data_mode"] = header_data_mode_table(
             config, spec.ctddump_headers
+        )
+    if spec is not None and spec.ctddump_reports and spec.ctddump_headers:
+        tables["conversion_records"] = record_table(
+            config, spec.ctddump_reports, spec.ctddump_headers
         )
     if spec is not None and spec.ctddump_dups:
         tables.update(duplicate_kind_tables(config, spec.ctddump_dups))

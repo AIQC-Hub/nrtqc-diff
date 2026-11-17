@@ -185,9 +185,11 @@ name or columns.
 | `conversion_dup_kinds` | dataset, kind, match | duplicate groups `within` one platform, `across` platforms (one profile each), or `both` (several platforms, one repeating the cast): groups, profiles in them, profiles removed. `match` (`confirmed`, `same_time`, `candidate`) only when the groups were checked; summed over it the counts are the same |
 | `conversion_dup_sizes` | dataset, kind, match, group size | groups of that many profiles; above 10 pooled as `11+`. `match` as above |
 | `conversion_dup_checks` | dataset, kind, time, levels, values, position, whole degree, match | duplicate groups, the profiles in them and the profiles removed, by every check (see [Checking the duplicate groups](#checking-the-duplicate-groups)) |
+| `conversion_dup_kept` | dataset, kept by | duplicate groups and the profiles in them, by which member reached nrtqclib's output (see [Checking the duplicate groups](#checking-the-duplicate-groups)) |
 | `conversion_dup_platforms` | dataset, platform set | the 15 commonest sets of platform codes sharing casts, over groups `across` and `both`, then the rest in one row |
 | `conversion_files` | dataset, variable | source files carrying it |
 | `conversion_pressure_order` | dataset | ctddump's `checkpres` summary (`convert/checkpres/<stem>.summary.tsv`, ctddump 0.37 or later): profiles, platforms and files checked before the merge sorts by pressure, profiles without pressure, and those whose pressure steps down, `reversed` and `non_monotonic`, with the platforms and files holding them. Then from the profile list beside it (see [The stored pressure order](#the-stored-pressure-order)): the listed profiles found in nrtqclib's output (`n_reversed_matched`, `n_non_monotonic_matched`) and the output's profiles merged from several source profiles (`n_merged`) |
+| `conversion_records` | dataset | why `checkpres` counts more profiles than `convert` (see [Records and profiles](#records-and-profiles)): source files and their records from the header (`n_files`, `n_records`), records checked and without pressure from `checkpres` (`n_checked`, `n_no_pres`), profiles after the merge (`n_converted`), the records the merge joined to another (`n_merged_records`, checked less converted) and records neither checked nor without pressure (`n_unchecked`) |
 | `conversion_dropqc` | dataset | the profiles ctddump's `dropqc` dropped (time or position flag neither good nor missing), from the platform reports before and after it, and where they were as far as the reports tell: `n_moving` on a platform that moved, so unplaced; on a fixed platform (one point before the step) the batch stamped there, `n_sea` or `n_land`, the land ones by cause as on the Depth page; `n_not_stamped` on a fixed platform the batch holds nowhere at that point. seastamp runs after `dropqc`, so a dropped profile has no stamp of its own |
 | `conversion_dropqc_platforms` | dataset, platform that lost a profile | its profiles before the step and dropped, its status as above, and for a fixed platform its point, the elevation and distance to the coast stamped there, and the land cause |
 | `conversion_file_data_mode` | dataset, mode | source files declaring that global `data_mode` |
@@ -304,9 +306,9 @@ It adds about a minute to the run.
 
 ### The stored pressure order
 
-ctddump's `concat convert` merges the source profiles of one file,
-platform, time and position into one profile and sorts its levels by
-pressure before nrtqclib runs. A cast stored down and up again, or a
+ctddump's `concat convert` merges the source profiles of one platform,
+time and position into one profile, from one file or several, and sorts
+its levels by pressure before nrtqclib runs. A cast stored down and up again, or a
 downcast and an upcast stored as two profiles, is then interleaved, and its
 spikes, gradients and density inversions may come from the sort rather than
 the water. `pres_order` in `items_cube`, `items_response` and the pressure
@@ -335,6 +337,24 @@ outside the region, `dropqc`, `dropna`, `filter` or `dedup`. After the
 sort, `pressure_increasing` can only find repeated pressures (band 1);
 `pressure_repeats` tells a level written twice (`copied`) from a repeat with
 other values.
+
+### Records and profiles
+
+ctddump converts each source file to parquet keeping every record (one
+`TIME` index in the NRT products, one `N_PROF` index in CORA) as a profile,
+and `checkpres` counts those. `concat convert` then drops the observations
+without a pressure, and numbers profiles by the dense rank of
+`platform_code`, `profile_timestamp`, `longitude` and `latitude` within the
+platform (ctddump 0.37.2, `src/concat.rs`): records of one platform with the
+same time and position become one profile, whichever files they came from.
+So `n_checked` less `n_converted` is the number of records joined to an
+earlier one, as long as `n_no_pres` is 0. Nothing else is dropped at this
+step.
+
+`n_records` sums the record dimension each file's header lists
+(`header/<stem>.yaml`, `N_PROF` before `TIME`). A record the per-file
+conversion writes no row for (every observation missing) is in
+`n_records` but neither checked nor without pressure: `n_unchecked`.
 
 ### Matching profiles across products
 
@@ -366,6 +386,20 @@ A group of three or more counts as `identical` or `close` only if all its
 members agree. The classes and cuts are in `meta.json` under
 `rules.duplicates`. The groups are read in chunks of about 5 million
 observations, which keeps CORA Arctic's near 1.7 GB.
+
+`conversion_dup_kept` says which member of each group reached nrtqclib's
+output. ctddump states that `dedup` keeps the member with the most
+observation rows in `markdup`'s parquet, ties going to the first to appear
+there (ctddump 0.37.2, `src/dedup.rs`), and it keeps `platform_code` and
+`profile_no`. The member's rows and first row are read from the parquet:
+
+| `kept_by` | Rule |
+| --- | --- |
+| `most_obs` | The one member with the most observations. |
+| `first_of_tied` | Of members tied on the most, the first in `markdup`'s row order. |
+| `other` | Any other member: the stated rule did not hold. |
+| `none` | No member is in the output. |
+| `several` | More than one member is in the output. |
 
 `conversion_overlap_checks` applies the same checks to the casts two NRT
 products of one region share (`n_matched_any_platform` of
