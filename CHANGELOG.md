@@ -40,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `concat convert` joins the records of one platform, time and position;
   the table gives the records, those checked, the profiles after the merge
   and the records joined.
+- **Results by platform**: `items_platforms` gains `pres_order` and the
+  observations nrtqclib flags only through the checks set aside
+  (`n_agree_bad_set_aside`, `n_nrtqclib_only_set_aside`; the checks are in
+  `rules.set_aside` of `meta.json`); summed over `pres_order`, the other
+  columns are unchanged. New tables `items_response_platforms` (the clear
+  failures of each test per platform), `cora_pairs_platforms` and
+  `cora_flags_platforms` (the CORA comparison per NRT platform).
 - New table `conversion_dates`: the dates each product covers either side
   of ctddump's `convert`, which records none: the first date the source
   files declare (and the last, for CORA's daily files) and the first and

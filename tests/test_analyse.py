@@ -11,6 +11,8 @@ import yaml
 
 from nrtqc_diff.analyse import (
     COVERAGE_CLASSES,
+    RESPONSE_TESTS,
+    SET_ASIDE_ITEMS,
     check_conversion_steps,
     classify,
     cora_tables,
@@ -19,6 +21,7 @@ from nrtqc_diff.analyse import (
     input_flag_table,
     land_causes,
     match_tables,
+    only_set_aside,
     overlap_table,
     pressure_orders,
     probable_flag_table,
@@ -28,7 +31,7 @@ from nrtqc_diff.analyse import (
     run_analyses,
     shape_table,
 )
-from nrtqc_diff.config import read_config
+from nrtqc_diff.config import VariableSpec, read_config
 from nrtqc_diff.reports import dropped_platform_table
 
 #: ``platform: (temp_dm, [(temp_qc, temp_nrt_flag, spike, date, elevation)])``.
@@ -422,7 +425,17 @@ def test_the_cube_keeps_the_stored_pressure_order(analysed):
     assert dict(zip(summed["status"], summed["n_obs"])) == dict(
         zip(status["status"], status["n_obs"])
     )
+    # Per platform, split by the order too; summed, items_status again.
+    platforms = table(analysed, "items_platforms")
+    assert set(platforms["pres_order"]) == {"non_monotonic", "monotonic"}
+    for row in status.iter_rows(named=True):
+        mine = platforms.filter(pl.col("variable") == row["variable"])
+        assert mine[f"n_{row['status']}"].sum() == row["n_obs"]
+    assert {"n_agree_bad_set_aside", "n_nrtqclib_only_set_aside"} <= set(
+        platforms.columns
+    )
     meta = json.loads((analysed / "meta.json").read_text(encoding="utf-8"))
+    assert meta["rules"]["set_aside"] == SET_ASIDE_ITEMS
     assert meta["rules"]["pres_order"]["orders"] == [
         "monotonic",
         "reversed",
@@ -804,6 +817,23 @@ def test_paired_casts_are_compared_level_by_level_with_cora(tmp_path):
     assert other.select(four).unique().rows() == [(3, 4, 4, 4)]
     assert other["compared_id"].unique().to_list() == ["b"]
 
+    # Per NRT platform: P under its own code, Q under another; summed over
+    # the platforms, the tables above.
+    by_platform = {
+        (r["platform_code"], r["coverage"]): [r[c] for c in counts]
+        for r in tables["cora_pairs_platforms"].iter_rows(named=True)
+    }
+    assert by_platform == {
+        ("P", "same_platform"): [5, 4, 3, 2, 1, 6],
+        ("Q", "other_platform"): [1, 1, 1, 1, 1, 2],
+    }
+    flag_platforms = tables["cora_flags_platforms"]
+    assert "pres_band" not in flag_platforms.columns
+    assert _summed(flag_platforms, ["coverage", *four]).equals(
+        _summed(flags, ["coverage", *four])
+    )
+    assert flag_platforms.filter(pl.col("platform_code") == "Q")["n_obs"].sum() == 2
+
 
 def _two_dataset_config(tmp_path, delayed=None):
     path = tmp_path / "c.yaml"
@@ -1133,6 +1163,17 @@ def test_repeated_pressures_are_split_by_order_and_by_what_they_carry(tmp_path):
         1,
         1,
     )
+    # Per platform, the clear bands only; summed, those of items_response.
+    by_platform = tables["items_response_platforms"]
+    clear = by_platform.filter(pl.col("test") == "pressure_increasing")
+    assert set(clear["band"]) <= set(_clear_bands("pressure_increasing"))
+    assert dict(
+        zip(
+            clear.filter(pl.col("variable") == "pres")["platform_code"],
+            clear.filter(pl.col("variable") == "pres")["n"],
+        )
+    ) == {"A": 1, "B": 2}
+    _assert_platforms_sum_to_response(tables)
     assert ("pres", "C") not in platforms
 
 
@@ -1229,6 +1270,7 @@ def test_density_inversions_are_counted_by_platform_and_finer_band(
         ("other", "level", 0.06, 0.08): (1, 0, 0),
         ("other", "dbar", 0.1, 0.2): (1, 0, 0),
     }
+    _assert_platforms_sum_to_response(tables)
     # The response table is as before.
     assert tables["items_response"].equals(
         response_table(pl.LazyFrame(rows), keep, spec.datasets[0], spec)
@@ -1399,3 +1441,57 @@ def test_a_profile_is_set_against_the_platform_s_previous_one(tmp_path, monkeypa
         ("temp", 2): (1, 1),
         ("psal", 0): (7, 0),
     }
+
+
+def _summed(frame, keys):
+    return frame.group_by(keys).agg(pl.col("n_obs").sum()).sort(keys)
+
+
+def _clear_bands(test):
+    return next(t["clear"] for t in RESPONSE_TESTS if t["key"] == test)
+
+
+def _assert_platforms_sum_to_response(tables):
+    keys = ["test", "variable", "pres_order", "band"]
+    clear = pl.DataFrame(
+        [(t["key"], b) for t in RESPONSE_TESTS for b in t["clear"]],
+        schema=["test", "band"],
+        orient="row",
+    )
+    response = (
+        tables["items_response"]
+        .with_columns(pl.col("band").cast(pl.Int64))
+        .join(clear, on=["test", "band"], how="semi")
+        .select(*keys, "n", "n_flagged")
+        .sort(keys, nulls_last=True)
+    )
+    summed = (
+        tables["items_response_platforms"]
+        .with_columns(pl.col("band").cast(pl.Int64))
+        .group_by(keys)
+        .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
+        .sort(keys, nulls_last=True)
+    )
+    assert response.height > 0
+    assert summed.equals(response)
+
+
+def test_only_the_set_aside_checks_failing_sets_an_observation_aside():
+    """
+    Set aside: a density inversion alone, or with the temperature flag
+    carried over. Kept: a spike with it, and no failing check at all.
+    """
+    variable = VariableSpec(
+        name="psal", label="Salinity", flag="psal_qc", nrt_flag="psal_nrt"
+    )
+    frame = pl.DataFrame(
+        {
+            "psal_qc_density_inversion": ["4", "4", "4", "1", "1"],
+            "psal_qc_temp_to_psal": ["1", "4", "1", "1", "1"],
+            "psal_qc_spike": ["1", "1", "4", "4", "1"],
+        }
+    )
+    columns = list(frame.columns)
+    assert set(SET_ASIDE_ITEMS) >= {"density_inversion", "temp_to_psal"}
+    found = frame.select(only_set_aside(columns, variable).alias("x"))["x"]
+    assert found.to_list() == [True, True, False, False, False]
