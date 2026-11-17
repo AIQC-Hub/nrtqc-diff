@@ -24,6 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   profiles and platforms holding them.
 - The bands table of the Flag differences page shows how each row's
   profiles were stored.
+- **The duplicate groups checked against time and values**: new table
+  `conversion_dup_checks` classes each of ctddump's duplicate groups by the
+  spread of its timestamps, whether its members hold the same number of
+  levels, how their pressure, temperature and salinity compare level by
+  level (`identical`, `close`, `near`, `different`), whether their positions are
+  equal, and whether they sit at whole degrees. `conversion_dup_kinds` and
+  `conversion_dup_sizes` gain `match` (`confirmed`, `same_time`,
+  `candidate`); summed over it they are unchanged. The cuts are in
+  `meta.json` under `rules.duplicates`.
+- New table `conversion_overlap_checks`: the casts two NRT products of one
+  region share, checked the same way from nrtqclib's output.
 
 ## [0.16.0] - 2026-11-12
 
