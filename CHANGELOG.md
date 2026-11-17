@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - New table `conversion_dup_kept`: which member of each duplicate group
   reached nrtqclib's output, against ctddump's rule (most observations,
   then first to appear).
+- `meta.json` gains `nrtqc_parameters`: the tests and parameters of each
+  nrtqclib `qc_item_set` a dataset ran and which set each ran, read from
+  the batch's nrtqclib configuration without its paths; and ctddump's
+  region boxes, from the new `provenance.regions` section, with the
+  profiles of each dataset outside its region (none expected; `analyse`
+  warns otherwise).
 
 ## [0.16.0] - 2026-11-12
 

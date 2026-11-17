@@ -39,6 +39,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import polars as pl
+import yaml
 
 from nrtqc_diff.config import (
     DEFAULT_BAD_FLAG_VALUES,
@@ -328,7 +329,16 @@ def run_analyses(config: BuildConfig, verbose: bool = False) -> Dict[str, Any]:
             print("[nrtqc-diff] comparing the flags of the casts paired with CORA")
         tables.update(cora_tables(comparisons, profiles, config, spec))
 
-    meta = _write(tables, config, spec, profile_coverage(profiles))
+    regions = region_parameters(config, profiles)
+    for region in regions or []:
+        for dataset_id, count in region["outside"].items():
+            if count:
+                print(
+                    f"[nrtqc-diff] warning: {dataset_id}: {count} profiles lie "
+                    f"outside {region['region']} as configured",
+                    file=sys.stderr,
+                )
+    meta = _write(tables, config, spec, profile_coverage(profiles), regions)
     if verbose:
         print(f"[nrtqc-diff] wrote {len(tables)} tables to {spec.out_dir}")
     return meta
@@ -3785,18 +3795,126 @@ def provenance_meta(config: BuildConfig) -> Optional[Dict[str, Any]]:
     return entry
 
 
+def nrtqclib_parameters(config: BuildConfig) -> Optional[Dict[str, Any]]:
+    """
+    The tests and parameters nrtqclib ran, from the batch's configuration.
+
+    Only the parameters are published, not the file: each ``qc_item_set``
+    some dataset ran, its tests in order with their ``params`` (an empty
+    mapping for a test without any), and the set each dataset ran. A
+    dataset is matched to an ``nrt_qc_sets`` entry by its ``source`` and
+    the entry's input file name, or else by the entry's dataset folder
+    among the parts of the dataset's path.
+
+    :param config: The build configuration.
+    :return: ``qc_item_sets`` and ``datasets``, or None when the
+             configuration names no nrtqclib configuration.
+    """
+    spec = config.provenance
+    if spec is None or not spec.nrtqclib_config:
+        return None
+    with open(spec.nrtqclib_config, encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    sets = {
+        str(entry["name"]): {
+            str(item["name"]): item.get("params") or {}
+            for item in entry.get("items") or []
+        }
+        for entry in raw.get("qc_item_sets") or []
+    }
+    runs = raw.get("nrt_qc_sets") or []
+    ran: Dict[str, str] = {}
+    for dataset in config.datasets:
+        parts = os.path.normpath(dataset.path).split(os.sep)
+        for run in runs:
+            stem = os.path.splitext(str(run.get("input_file_name", "")))[0]
+            if (dataset.source and stem == dataset.source) or (
+                run.get("dataset_folder_name") in parts
+            ):
+                ran[dataset.id] = str(run.get("qc_item_set"))
+                break
+    used = [name for name in sets if name in ran.values()]
+    return {
+        "qc_item_sets": {name: sets[name] for name in used},
+        "datasets": ran,
+    }
+
+
+def region_inside(region: Dict[str, Any]) -> pl.Expr:
+    """
+    Whether a profile's ``longitude`` and ``latitude`` fall in a region as
+    ctddump's ``filter`` keeps it: inside an ``include`` box and no
+    ``exclude`` box, edges included, a missing position outside. Positions
+    and edges are compared in single precision, as the positions are
+    stored: widened to double, a latitude stored at 45.755 reads as
+    45.755001, just past the Mediterranean box's edge.
+    """
+
+    def edge(value: float) -> pl.Expr:
+        return pl.lit(value, dtype=pl.Float32)
+
+    def within(box: Dict[str, float]) -> pl.Expr:
+        lon = pl.col("longitude").cast(pl.Float32)
+        lat = pl.col("latitude").cast(pl.Float32)
+        return lon.is_between(edge(box["min_lon"]), edge(box["max_lon"])) & (
+            lat.is_between(edge(box["min_lat"]), edge(box["max_lat"]))
+        )
+
+    inside = pl.any_horizontal([within(b) for b in region["include"]])
+    if region["exclude"]:
+        inside = inside & ~pl.any_horizontal([within(b) for b in region["exclude"]])
+    # A NaN coordinate is outside every box: Polars sorts NaN above any
+    # number, so ``is_between`` is false for it.
+    return inside.fill_null(False)
+
+
+def region_parameters(
+    config: BuildConfig, profiles: pl.DataFrame
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    ctddump's regions as configured, each with the profiles of each of its
+    datasets that lie outside it, which should be none.
+
+    :param config: The build configuration.
+    :param profiles: One row per profile with ``dataset_id``, ``longitude``
+                     and ``latitude``.
+    :return: One mapping per region, or None when none is configured.
+    """
+    spec = config.provenance
+    if spec is None or not spec.regions:
+        return None
+    entries = []
+    for region in spec.regions:
+        ids = [d.id for d in config.datasets if d.region == region["region"]]
+        outside: Dict[str, int] = {}
+        if {"longitude", "latitude"} <= set(profiles.columns):
+            counted = dict(
+                profiles.filter(pl.col("dataset_id").is_in(ids))
+                .group_by("dataset_id")
+                .agg((~region_inside(region)).sum().cast(pl.Int64))
+                .rows()
+            )
+            outside = {i: int(counted.get(i, 0)) for i in ids if i in counted}
+        entries.append({**region, "outside": outside})
+    return entries
+
+
 def _write(
     tables: Dict[str, pl.DataFrame],
     config: BuildConfig,
     spec: AnalysesSpec,
     coverage: Optional[Dict[str, Dict[str, str]]] = None,
+    regions: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Write the tables as CSV and ``meta.json`` beside them.
 
     ``meta.json`` gains a ``provenance`` entry when the configuration has the
-    section (see :func:`provenance_meta`), and each dataset its first and
-    last profile date when ``coverage`` has them.
+    section (see :func:`provenance_meta`), an ``nrtqc_parameters`` entry
+    with nrtqclib's tests and parameters (:func:`nrtqclib_parameters`) and
+    ctddump's ``regions`` (:func:`region_parameters`) when it names them,
+    and each dataset its first and last profile date when ``coverage`` has
+    them.
 
     A table directory left over from an earlier run is emptied first, so a
     table that is no longer made cannot linger and be published.
@@ -3889,6 +4007,14 @@ def _write(
     provenance = provenance_meta(config)
     if provenance is not None:
         meta["provenance"] = provenance
+    parameters: Dict[str, Any] = {}
+    nrtqclib = nrtqclib_parameters(config)
+    if nrtqclib is not None:
+        parameters["nrtqclib"] = nrtqclib
+    if regions is not None:
+        parameters["ctddump_regions"] = regions
+    if parameters:
+        meta["nrtqc_parameters"] = parameters
     with open(os.path.join(spec.out_dir, "meta.json"), "w", encoding="utf-8") as handle:
         json.dump(meta, handle, indent=2)
         handle.write("\n")
