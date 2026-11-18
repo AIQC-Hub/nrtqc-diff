@@ -21,7 +21,7 @@ and seastamp reports beside it (see the `analyses` section of
 `config/test_nrt.yaml`):
 
 ```bash
-uv run nrtqc-diff analyse -c config/test_nrt.yaml   # about 4 minutes, 3.8 GB
+uv run nrtqc-diff analyse -c config/test_nrt.yaml   # about 8 minutes, 4.4 GB
 Rscript analysis/run_all.R                          # about 15 seconds
 quarto render site
 ```
@@ -52,7 +52,7 @@ The Python step is careful about memory in two ways, both measured:
   them one at a time instead, which took its peak on the Arctic NRT file
   from 5.9 GB to 2.7 GB.
 
-The full batch peaks at about 3.8 GB. To check a change against that, run it
+The full batch peaks at about 4.4 GB. To check a change against that, run it
 under a memory limit, for example `systemd-run --user --scope -p MemoryMax=8G`.
 
 ### R packages
@@ -230,7 +230,7 @@ name or columns.
 | `conversion_coverage_years` | NRT dataset, CORA dataset, year, coverage class | NRT profiles |
 | `conversion_match` | NRT dataset, CORA dataset, coverage class | pairs of the same cast (`same_platform` or `other_platform`): how many, how many with the same number of observations, and on which side there are more |
 | `cora_pairs` | NRT dataset, CORA dataset, variable, coverage class | the pairs counted through each condition of the level by level comparison (see below): `n_pairs`, `n_same_obs`, `n_nrt` (the NRT profile is `nrt` for the variable), `n_aligned` (the levels line up), `n_pres_exact` (at the same pressures exactly), and the observations compared (`n_obs`) |
-| `cora_flags` | NRT dataset, CORA dataset, variable, coverage class, pressure band, the four flags | observations of the aligned pairs: the producer's NRT flag (`original_flag`), nrtqclib's on the NRT copy (`nrtqclib_flag`), CORA's (`cora_flag`) and nrtqclib's on the CORA copy (`cora_nrtqclib_flag`), as raw values, empty where missing |
+| `cora_flags` | NRT dataset, CORA dataset, variable, coverage class, pressure band, the four flags | observations of the aligned pairs: the producer's NRT flag (`original_flag`), nrtqclib's on the NRT copy (`nrtqclib_flag`), CORA's (`cora_flag`) and nrtqclib's on the CORA copy (`cora_nrtqclib_flag`), as raw values, empty where missing; and `nrtqclib_three_only`, true where nrtqclib flags the NRT copy bad through the checks set aside alone (see [NRT flags against CORA's](#nrt-flags-against-coras)) |
 | `cora_pairs_platforms` | as `cora_pairs`, and NRT platform | `cora_pairs` per platform of the NRT profile (see [By platform](#by-platform)) |
 | `cora_flags_platforms` | as `cora_flags` without the pressure band, and NRT platform | `cora_flags` per platform of the NRT profile, summed over the pressure bands |
 | `depth_stamp` | dataset, report line | seastamp's own summary, by rows and locations |
@@ -293,8 +293,20 @@ observation.
 
 - **Thresholds** are those of the `test_nrt` batch, as constants in
   `analyse.py` (`RESPONSE_GLOBAL_RANGE`, `RESPONSE_SPIKE`,
-  `RESPONSE_GRADIENT`); change them with the batch's
-  `nrt_qc_config.yaml`.
+  `RESPONSE_GRADIENT`, `RESPONSE_DIGIT_ROLLOVER`); change them with the
+  batch's `nrt_qc_config.yaml`. The regional range differs by region, so
+  its limits are read from that file (`provenance.nrtqclib_config`, the
+  set each dataset ran); without it the regional range is not measured.
+- **Regional range** only on values inside the global range, so that the
+  global range's failures are not banded twice. Salinity's regional
+  maximum is 40 in every region and its global maximum 41, so a salinity
+  is at most 1 outside: the bands go down to 0.1, and a test can name
+  clear bands per variable (`clear_by_variable` in `response_tests`), here
+  0.5 to 1 for salinity and 2 or more for temperature. The Baltic's
+  temperature range is the global one, so it has no failures.
+- **Digit rollover** is the jump from the level recorded before (by
+  observation number, as nrtqclib takes it), over levels both inside the
+  global range, so that a fill value is left to the range test.
 - **Keeping the tests apart**: spike and gradient only on values inside
   the global range with both neighbours inside it, gradient only on
   levels that pass the spike test, and stuck value and density inversion
@@ -498,7 +510,15 @@ is compared level by level when:
    `meta.json`), both missing counting as agreeing.
 
 `cora_pairs` counts the pairs left after each condition, so the
-observations compared can be traced back to the casts. The pairs are taken
+observations compared can be traced back to the casts.
+
+`nrtqclib_three_only` splits the levels by whether nrtqclib flags the NRT
+copy bad and every check that failed on it is one of `rules.set_aside`
+(density inversion, `temp_to_psal`, pressure increasing), as in
+`n_agree_bad_set_aside` of `items_platforms`. Leaving those levels out of
+both sides gives nrtqclib's agreement with CORA with the three set aside,
+as the agreement with the producer is given; summed over the column, the
+counts are those without it. The pairs are taken
 in platform order, about two million levels at a time, and both products are
 read for each chunk, keeping only its profiles' levels. The files are
 sorted by platform, so a chunk reads only the row groups of its platforms.

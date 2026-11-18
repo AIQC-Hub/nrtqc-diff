@@ -15,6 +15,7 @@ from nrtqc_diff.analyse import (
     SET_ASIDE_ITEMS,
     check_conversion_steps,
     classify,
+    clear_bands,
     cora_tables,
     delayed_comparisons,
     dropped_tables,
@@ -26,6 +27,7 @@ from nrtqc_diff.analyse import (
     pressure_orders,
     probable_flag_table,
     profile_coverage,
+    regional_limits,
     response_table,
     response_tables,
     run_analyses,
@@ -765,6 +767,10 @@ def test_paired_casts_are_compared_level_by_level_with_cora(tmp_path):
             for level, value in enumerate(levels, 1):
                 flag = flags[level - 1]
                 t_qc, t_nrt = (flag[0], flag[1]) if name == "a" else (flag[2], flag[3])
+                # nrtqclib's checks: cast 1's bad third level fails density
+                # inversion alone; Q fails it with the spike test; cast 2's
+                # top level fails it but is not flagged bad.
+                alone = number == 1 and level == 3
                 rows[name].append(
                     {
                         "platform_code": platform,
@@ -773,6 +779,12 @@ def test_paired_casts_are_compared_level_by_level_with_cora(tmp_path):
                         "pres": float(value),
                         "t_qc": t_qc,
                         "t_nrt": t_nrt,
+                        "t_qc_density_inversion": (
+                            4
+                            if alone or code == "Q" or (number, level) == (2, 1)
+                            else 1
+                        ),
+                        "t_qc_spike": 4 if code == "Q" else 1,
                         "bathymetry": -100.0,
                     }
                 )
@@ -813,6 +825,12 @@ def test_paired_casts_are_compared_level_by_level_with_cora(tmp_path):
     assert same.group_by("pres_label").agg(pl.col("n_obs").sum()).sort(
         "pres_label"
     ).rows() == [("10-50", 2), ("50-100", 2), ("< 10", 2)]
+    # Set aside: only the level whose sole failing check is density
+    # inversion, nrtqclib flagging it bad.
+    aside = flags.filter(pl.col("nrtqclib_three_only"))
+    assert aside.select("coverage", *four, "n_obs").rows() == [
+        ("same_platform", 1, 4, 1, 4, 1)
+    ]
     other = flags.filter(pl.col("coverage") == "other_platform")
     assert other.select(four).unique().rows() == [(3, 4, 4, 4)]
     assert other["compared_id"].unique().to_list() == ["b"]
@@ -829,8 +847,9 @@ def test_paired_casts_are_compared_level_by_level_with_cora(tmp_path):
     }
     flag_platforms = tables["cora_flags_platforms"]
     assert "pres_band" not in flag_platforms.columns
-    assert _summed(flag_platforms, ["coverage", *four]).equals(
-        _summed(flags, ["coverage", *four])
+    five = [*four, "nrtqclib_three_only"]
+    assert _summed(flag_platforms, ["coverage", *five]).equals(
+        _summed(flags, ["coverage", *five])
     )
     assert flag_platforms.filter(pl.col("platform_code") == "Q")["n_obs"].sum() == 2
 
@@ -1447,21 +1466,26 @@ def _summed(frame, keys):
     return frame.group_by(keys).agg(pl.col("n_obs").sum()).sort(keys)
 
 
-def _clear_bands(test):
-    return next(t["clear"] for t in RESPONSE_TESTS if t["key"] == test)
+def _clear_bands(test, variable="temp"):
+    return clear_bands(next(t for t in RESPONSE_TESTS if t["key"] == test), variable)
 
 
 def _assert_platforms_sum_to_response(tables):
     keys = ["test", "variable", "pres_order", "band"]
     clear = pl.DataFrame(
-        [(t["key"], b) for t in RESPONSE_TESTS for b in t["clear"]],
-        schema=["test", "band"],
+        [
+            (t["key"], v, b)
+            for t in RESPONSE_TESTS
+            for v in ["temp", "psal", "density", "pres"]
+            for b in clear_bands(t, v)
+        ],
+        schema=["test", "variable", "band"],
         orient="row",
     )
     response = (
         tables["items_response"]
         .with_columns(pl.col("band").cast(pl.Int64))
-        .join(clear, on=["test", "band"], how="semi")
+        .join(clear, on=["test", "variable", "band"], how="semi")
         .select(*keys, "n", "n_flagged")
         .sort(keys, nulls_last=True)
     )
@@ -1495,3 +1519,138 @@ def test_only_the_set_aside_checks_failing_sets_an_observation_aside():
     assert set(SET_ASIDE_ITEMS) >= {"density_inversion", "temp_to_psal"}
     found = frame.select(only_set_aside(columns, variable).alias("x"))["x"]
     assert found.to_list() == [True, True, False, False, False]
+
+
+def test_regional_range_and_digit_rollover_are_banded(tmp_path):
+    """
+    The regional range over values inside the global range, by how far
+    outside nrtqclib's regional limits of the dataset's set; the digit
+    rollover over levels both inside the global range, by the jump from
+    the level before as a multiple of the threshold.
+    """
+    (tmp_path / "batch").mkdir()
+    (tmp_path / "batch" / "nrt_qc.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "qc_item_sets": [
+                    {
+                        "name": "set_a",
+                        "items": [
+                            {
+                                "name": "regional_range",
+                                "params": {
+                                    "temp": {"min": -1.92, "max": 25.0},
+                                    "psal": {"min": 2.0, "max": 40.0},
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "nrt_qc_sets": [
+                    {"name": "x", "dataset_folder_name": "run", "qc_item_set": "set_a"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"},
+                    {"name": "psal", "flag": "psal_qc", "nrt_flag": "psal_nrt_flag"},
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {
+                        "id": "one",
+                        "region": "R",
+                        "product": "P",
+                        "path": "run/x.parquet",
+                    }
+                ],
+                "provenance": {"nrtqclib_config": "batch/nrt_qc.yaml"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    assert regional_limits(spec, spec.datasets[0]) == {
+        "temp": (-1.92, 25.0),
+        "psal": (2.0, 40.0),
+    }
+    # A: 32 °C, 7 over the regional maximum and flagged, between levels of
+    # 10 °C (jumps of 2.2 times 10 °C); 50 °C is outside the global range,
+    # so it and the level after it are left to the global range test. The
+    # salinity of 40.7 is 0.7 over the regional maximum, a clear failure
+    # for salinity, and jumps 1.14 times 5 each way.
+    scan = pl.LazyFrame(
+        {
+            "platform_code": ["A"] * 5,
+            "profile_no": [1] * 5,
+            "observation_no": [1, 2, 3, 4, 5],
+            "pres": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "temp": [10.0, 32.0, 10.0, 50.0, 10.0],
+            "psal": [35.0, 40.7, 35.0, 35.0, 35.0],
+            "temp_qc": ["1", "4", "1", "4", "1"],
+            "psal_qc": ["1", "4", "1", "1", "1"],
+        }
+    )
+    keep = {
+        name: pl.DataFrame({"platform_code": ["A"], "profile_no": [1]})
+        for name in ["temp", "psal"]
+    }
+    tables = response_tables(scan, keep, spec.datasets[0], spec)
+    rows = {
+        (r["test"], r["variable"], r["band"]): (r["n"], r["n_flagged"])
+        for r in tables["items_response"].iter_rows(named=True)
+        if r["test"] in ("regional_range", "digit_rollover")
+    }
+    assert rows == {
+        ("regional_range", "temp", 0): (3, 0),
+        ("regional_range", "temp", 5): (1, 1),
+        ("regional_range", "psal", 0): (4, 0),
+        ("regional_range", "psal", 3): (1, 1),
+        ("digit_rollover", "temp", 3): (2, 1),
+        ("digit_rollover", "psal", 0): (2, 0),
+        ("digit_rollover", "psal", 2): (2, 1),
+    }
+    # Salinity's regional range is clear from 0.5 to 1, temperature's from 2.
+    assert _clear_bands("regional_range", "psal") == [3]
+    assert _clear_bands("regional_range", "temp") == [5, 6]
+    platforms = {
+        (r["test"], r["variable"], r["band"])
+        for r in tables["items_response_platforms"].iter_rows(named=True)
+        if r["test"] in ("regional_range", "digit_rollover")
+    }
+    assert platforms == {
+        ("regional_range", "temp", 5),
+        ("regional_range", "psal", 3),
+        ("digit_rollover", "temp", 3),
+    }
+    _assert_platforms_sum_to_response(tables)
+
+
+def test_without_an_nrtqclib_configuration_the_regional_range_is_not_banded(
+    tmp_path,
+):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "site": {"data_dir": "out"},
+                "variables": [
+                    {"name": "temp", "flag": "temp_qc", "nrt_flag": "temp_nrt_flag"}
+                ],
+                "data_mode": {"columns": ["temp_dm"]},
+                "datasets": [
+                    {"id": "one", "region": "R", "product": "P", "path": "x.parquet"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = read_config(str(config))
+    assert regional_limits(spec, spec.datasets[0]) is None
