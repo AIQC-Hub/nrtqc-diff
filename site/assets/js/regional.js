@@ -35,7 +35,7 @@ export const REGIONAL_TESTS = [
   },
   {
     key: "regional_range", label: "Regional range", item: "regional_range",
-    nrtqclib: "yes", claims: ALL("yes"), response: [],
+    nrtqclib: "yes", claims: ALL("yes"), response: ["regional_range"],
   },
   {
     key: "spike", label: "Spike", item: "spike",
@@ -69,7 +69,7 @@ export const REGIONAL_TESTS = [
   },
   {
     key: "digit_rollover", label: "Digit rollover", item: "digit_rollover",
-    nrtqclib: "yes", claims: ALL(NOT_ASKED), response: [],
+    nrtqclib: "yes", claims: ALL(NOT_ASKED), response: ["digit_rollover"],
   },
   {
     key: "temp_to_psal", label: "Temperature flag carried over to salinity", item: "temp_to_psal",
@@ -119,7 +119,7 @@ export function clearFailures(response, meta, datasetId, testKey) {
   for (const row of response) {
     if (row.dataset_id !== datasetId || row.test !== testKey) continue;
     const entry = byVariable.get(row.variable) ?? { variable: row.variable, n: 0, flagged: 0 };
-    if (test.clear.includes(row.band)) {
+    if (clearBands(test, row.variable).includes(row.band)) {
       entry.n += row.n;
       entry.flagged += row.n_flagged;
     }
@@ -129,6 +129,14 @@ export function clearFailures(response, meta, datasetId, testKey) {
   return [...byVariable.values()]
     .sort((a, b) => order.indexOf(a.variable) - order.indexOf(b.variable))
     .map((e) => ({ ...e, share: e.n >= MIN_CLEAR_FAILURES ? e.flagged / e.n : null }));
+}
+
+/**
+ * The clear bands of a test of `meta.response_tests` for one variable:
+ * `clear_by_variable` where it names the variable, else `clear`.
+ */
+export function clearBands(test, variable) {
+  return test.clear_by_variable?.[variable] ?? test.clear;
 }
 
 /** The flag a row of `items_response` is set against, in words. */

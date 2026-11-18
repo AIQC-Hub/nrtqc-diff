@@ -92,7 +92,7 @@ from nrtqc_diff.reports import (
 #: The version of the tables' shape, recorded in ``meta.json``. Raise it with
 #: any change to a table's name or columns, so that a page or an R script
 #: reading an older set can say so instead of drawing the wrong thing.
-ANALYSES_FORMAT: int = 13
+ANALYSES_FORMAT: int = 14
 
 #: The key identifying a profile.
 PROFILE_KEYS: List[str] = ["platform_code", "profile_no"]
@@ -1879,6 +1879,12 @@ RESPONSE_SPIKE: Dict[str, tuple] = {"temp": (6.0, 2.0), "psal": (0.9, 0.3)}
 RESPONSE_GRADIENT: Dict[str, tuple] = {"temp": (9.0, 3.0), "psal": (1.5, 0.5)}
 RESPONSE_DEEP_DBAR: float = 500.0
 
+#: nrtqclib's digit rollover thresholds in the ``test_nrt`` batch: the
+#: largest jump between a level and the one recorded before it. The
+#: regional range has no such constant; its limits differ by region and are
+#: read from the batch's configuration (:func:`regional_limits`).
+RESPONSE_DIGIT_ROLLOVER: Dict[str, float] = {"temp": 10.0, "psal": 5.0}
+
 #: Rows read at a time by :func:`response_table`. The tests compare a level
 #: with its neighbours, which the streaming engine cannot do, so the data is
 #: read in slices of this many rows instead, a profile cut by the edge of a
@@ -1906,7 +1912,9 @@ FROZEN_LIMITS: Dict[str, Dict[str, float]] = {
 #: threshold, ``uppers`` being the upper edge of each band (included) and
 #: None the last. ``clear`` names the bands of clear failures: a producer
 #: that runs the test flags nearly all of those, one that does not flags
-#: them about as often as anything else. ``unit`` is what the counts count.
+#: them about as often as anything else. ``clear_by_variable``, where given,
+#: replaces ``clear`` for the variables it names. ``unit`` is what the
+#: counts count.
 RESPONSE_TESTS: List[Dict[str, Any]] = [
     {
         "key": "global_range",
@@ -1916,6 +1924,31 @@ RESPONSE_TESTS: List[Dict[str, Any]] = [
         "bands": ["Inside", "Up to 0.5 outside", "0.5 to 2", "2 to 10", "More than 10"],
         "uppers": [0.0, 0.5, 2.0, 10.0, None],
         "clear": [3, 4],
+    },
+    {
+        # Salinity's regional maximum is 40 in every region and its global
+        # maximum 41, so a salinity inside the global range is at most 1
+        # outside the regional range: its clear failures are the outer half
+        # of that window. The bands sum to those of the global range.
+        "key": "regional_range",
+        "label": "Regional range",
+        "unit": "observations",
+        "measure": (
+            "How far outside nrtqclib's regional range, in the variable's "
+            "unit, over values inside the global range"
+        ),
+        "bands": [
+            "Inside",
+            "Up to 0.1 outside",
+            "0.1 to 0.5",
+            "0.5 to 1",
+            "1 to 2",
+            "2 to 10",
+            "More than 10",
+        ],
+        "uppers": [0.0, 0.1, 0.5, 1.0, 2.0, 10.0, None],
+        "clear": [5, 6],
+        "clear_by_variable": {"psal": [3]},
     },
     {
         "key": "spike",
@@ -1933,6 +1966,18 @@ RESPONSE_TESTS: List[Dict[str, Any]] = [
         "measure": (
             "The gradient test value, as a multiple of nrtqclib's threshold, "
             "over levels that pass the spike test"
+        ),
+        "bands": ["Under half", "Half to 1", "1 to 2", "2 to 5", "More than 5"],
+        "uppers": [0.5, 1.0, 2.0, 5.0, None],
+        "clear": [3, 4],
+    },
+    {
+        "key": "digit_rollover",
+        "label": "Digit rollover",
+        "unit": "observations",
+        "measure": (
+            "The jump from the level recorded before, as a multiple of "
+            "nrtqclib's threshold, over levels both inside the global range"
         ),
         "bands": ["Under half", "Half to 1", "1 to 2", "2 to 5", "More than 5"],
         "uppers": [0.5, 1.0, 2.0, 5.0, None],
@@ -2057,6 +2102,37 @@ def sigma0_eos80(temp: pl.Expr, psal: pl.Expr) -> pl.Expr:
     return water + a * s + b * s.abs().sqrt() * s + 4.8314e-4 * s**2 - 1000.0
 
 
+def clear_bands(test: Dict[str, Any], variable: str) -> List[int]:
+    """The clear bands of a :data:`RESPONSE_TESTS` entry for one variable."""
+    return list(test.get("clear_by_variable", {}).get(variable, test["clear"]))
+
+
+def regional_limits(
+    config: BuildConfig, dataset: DatasetSpec
+) -> Optional[Dict[str, Tuple[float, float]]]:
+    """
+    The regional range nrtqclib ran on a dataset, (min, max) per variable,
+    from the batch's configuration (:func:`nrtqclib_parameters`).
+
+    :param config: The build configuration.
+    :param dataset: The dataset.
+    :return: The limits, or None when the configuration names no nrtqclib
+             configuration or the dataset's set runs no regional range.
+    """
+    parameters = nrtqclib_parameters(config)
+    if parameters is None or dataset.id not in parameters["datasets"]:
+        return None
+    items = parameters["qc_item_sets"][parameters["datasets"][dataset.id]]
+    limits = items.get("regional_range")
+    if not limits:
+        return None
+    return {
+        name: (float(bounds["min"]), float(bounds["max"]))
+        for name, bounds in limits.items()
+        if isinstance(bounds, dict) and {"min", "max"} <= set(bounds)
+    }
+
+
 def _response_band(test: Dict[str, Any], margin: pl.Expr) -> pl.Expr:
     """The index of the band of ``test`` that ``margin`` falls in."""
     band = pl.when(margin.is_null()).then(pl.lit(None, pl.Int8))
@@ -2095,7 +2171,10 @@ def _with_profile_ids(frame: pl.DataFrame) -> pl.DataFrame:
 
 
 def _response_chunk(
-    frame: pl.DataFrame, variables: List[VariableSpec], has_pres_flag: bool
+    frame: pl.DataFrame,
+    variables: List[VariableSpec],
+    has_pres_flag: bool,
+    regional: Optional[Dict[str, Tuple[float, float]]] = None,
 ) -> Tuple[List[pl.DataFrame], List[pl.DataFrame]]:
     """
     The banded failures of one slice of whole profiles, per test.
@@ -2106,6 +2185,10 @@ def _response_chunk(
                   saying the profile is compared for that variable,
                   ``pres_order``, and ``bad_pres`` when the input has a
                   pressure flag.
+    :param regional: The dataset's regional range, (min, max) per variable
+                     (:func:`regional_limits`); without it, or for a
+                     variable it leaves out, the regional range test is not
+                     measured.
     :return: One frame per test and variable: ``test``, ``variable``,
              ``pres_order``, ``band``, ``platform_code``, how many fall in it
              (``n``) and how many of those the input flags (``n_flagged``). Then the
@@ -2154,6 +2237,18 @@ def _response_chunk(
         mine = frame.filter(pl.col(f"keep_{name}"))
         banded("global_range", name, mine, pl.max_horizontal(low - x, x - high), bad)
 
+        # Regional range on values inside the global range only, so that the
+        # global range's failures are not banded twice.
+        if regional and name in regional:
+            regional_low, regional_high = regional[name]
+            banded(
+                "regional_range",
+                name,
+                mine.filter(in_range[name]),
+                pl.max_horizontal(regional_low - x, x - regional_high),
+                bad,
+            )
+
         # Spike and gradient on values inside the range with both neighbours
         # inside it too, so that a range test is not taken for either.
         prev = pl.when(pl.col("_sp")).then(x.shift(1))
@@ -2172,6 +2267,16 @@ def _response_chunk(
             shallow
         )
         banded("gradient", name, neighbours.filter(spike < 1), gradient, bad)
+
+        # Digit rollover: the jump from the level recorded before, as
+        # nrtqclib takes it, with both levels inside the range, so that a
+        # value outside it (a fill value) is left to the range test.
+        if name in RESPONSE_DIGIT_ROLLOVER:
+            jumps = mine.with_columns(
+                (in_range[name] & prev.is_between(low, high)).alias("_in"),
+                ((x - prev).abs() / RESPONSE_DIGIT_ROLLOVER[name]).alias("_jump"),
+            ).filter(pl.col("_in"))
+            banded("digit_rollover", name, jumps, pl.col("_jump"), bad)
 
         # Stuck value: a profile all of whose values, inside the range, are
         # the same, banded by how many values it has.
@@ -2774,6 +2879,7 @@ def response_tables(
         PROFILE_KEYS
     )
 
+    regional = regional_limits(config, dataset)
     total = scan.select(pl.len()).collect().item()
     counts: List[pl.DataFrame] = []
     repeats: List[pl.DataFrame] = []
@@ -2826,7 +2932,7 @@ def response_tables(
         )
         if not part.height:
             continue
-        banded, repeated = _response_chunk(part, variables, has_pres_flag)
+        banded, repeated = _response_chunk(part, variables, has_pres_flag, regional)
         counts.extend(banded)
         repeats.extend(repeated)
         density.append(_density_chunk(part, variables))
@@ -2850,17 +2956,23 @@ def response_tables(
         .sort("_order", "variable", "_pres_order", "band", nulls_last=True)
         .select(label + ["test", "variable", "pres_order", "band", "n", "n_flagged"])
     )
-    clear = pl.concat(
+    tested = counted.select("test", "variable").unique().rows()
+    by_key = {t["key"]: t for t in RESPONSE_TESTS}
+    clear = pl.DataFrame(
         [
-            pl.DataFrame(
-                {"test": t["key"], "band": t["clear"]},
-                schema={"test": pl.Utf8, "band": counted.schema["band"]},
-            )
-            for t in RESPONSE_TESTS
-        ]
+            (test, variable, band)
+            for test, variable in tested
+            for band in clear_bands(by_key[test], variable)
+        ],
+        schema={
+            "test": pl.Utf8,
+            "variable": pl.Utf8,
+            "band": counted.schema["band"],
+        },
+        orient="row",
     )
     platforms = (
-        counted.join(clear, on=["test", "band"], how="semi")
+        counted.join(clear, on=["test", "variable", "band"], how="semi")
         .group_by("test", "variable", "pres_order", "band", "platform_code")
         .agg(pl.col("n").sum(), pl.col("n_flagged").sum())
         .with_columns(
@@ -3484,7 +3596,10 @@ def _comparison_labels(reference: DatasetSpec, other: DatasetSpec) -> List[pl.Ex
 
 
 def _paired_levels(
-    scan: pl.LazyFrame, keys: pl.DataFrame, variables: List[VariableSpec]
+    scan: pl.LazyFrame,
+    keys: pl.DataFrame,
+    variables: List[VariableSpec],
+    set_aside: bool = False,
 ) -> pl.DataFrame:
     """
     The observations of the paired profiles of one product, compactly.
@@ -3494,15 +3609,33 @@ def _paired_levels(
                  each profile belongs to. Only the platforms from the first
                  to the last of them, in code order, are read.
     :param variables: The variables whose flags are kept.
+    :param set_aside: Whether to add, per variable, ``{name}_three``: that
+                      nrtqclib flags the observation bad and every check
+                      that failed on it is one of :data:`SET_ASIDE_ITEMS`
+                      (:func:`only_set_aside`).
     :return: ``_pair``, ``observation_no``, ``pres`` and, per variable, the
              input's flag (``{name}_qc``) and nrtqclib's (``{name}_nrt``).
     """
+    names = scan.collect_schema().names()
+    variable_names = [v.name for v in variables]
     flags = []
     for v in variables:
         flags += [
             original_flag(v).cast(pl.Int8, strict=False).alias(f"{v.name}_qc"),
             computed_flag(v).cast(pl.Int8, strict=False).alias(f"{v.name}_nrt"),
         ]
+        if set_aside:
+            columns = [
+                c
+                for c in item_columns(names, variable_names)
+                if c.startswith((f"{v.name}_qc_", "qc_"))
+            ]
+            flags.append(
+                (
+                    (computed_flag(v) > FLAG_GOOD).fill_null(False)
+                    & only_set_aside(columns, v)
+                ).alias(f"{v.name}_three")
+            )
     # The files are written sorted by platform, so a range of platform codes
     # lets the reader skip the row groups outside it.
     codes = keys["platform_code"]
@@ -3555,8 +3688,11 @@ def cora_tables(
     :param config: The build configuration.
     :param spec: The analyses section.
     :return: ``cora_flags``, the levels counted by variable, coverage,
-             pressure band and the four flags; ``cora_pairs``, the pairs
-             counted through each condition; and the same per NRT platform,
+             pressure band, the four flags and ``nrtqclib_three_only``
+             (nrtqclib's flag on the NRT copy is bad through the checks of
+             :data:`SET_ASIDE_ITEMS` alone, :func:`only_set_aside`);
+             ``cora_pairs``, the pairs counted through each condition; and
+             the same per NRT platform,
              ``cora_flags_platforms`` without the pressure band and
              ``cora_pairs_platforms``.
     """
@@ -3602,7 +3738,10 @@ def cora_tables(
             "coverage", "_chunk", maintain_order=True
         ):
             mine = _paired_levels(
-                nrt_scan, pairs_part.select(*PROFILE_KEYS, "_pair"), variables
+                nrt_scan,
+                pairs_part.select(*PROFILE_KEYS, "_pair"),
+                variables,
+                set_aside=True,
             )
             theirs = _paired_levels(
                 cora_scan,
@@ -3659,6 +3798,7 @@ def cora_tables(
                         pl.col(f"{v.name}_nrt_c")
                         .cast(pl.Int64)
                         .alias("cora_nrtqclib_flag"),
+                        pl.col(f"{v.name}_three").alias("nrtqclib_three_only"),
                     )
                     .agg(pl.len().cast(pl.Int64).alias("n_obs"))
                     .with_columns(pl.lit(v.name).alias("variable"))
@@ -3749,6 +3889,7 @@ def cora_tables(
                 "nrtqclib_flag",
                 "cora_flag",
                 "cora_nrtqclib_flag",
+                "nrtqclib_three_only",
             ]
             flag_tables.append(
                 observed.group_by("variable", "coverage", "pres_band", *flags)
@@ -3788,7 +3929,13 @@ def cora_tables(
             .drop("_c")
         )
 
-    flags = ["original_flag", "nrtqclib_flag", "cora_flag", "cora_nrtqclib_flag"]
+    flags = [
+        "original_flag",
+        "nrtqclib_flag",
+        "cora_flag",
+        "cora_nrtqclib_flag",
+        "nrtqclib_three_only",
+    ]
     tables = {
         "cora_pairs": stack(pair_tables, []),
         "cora_flags": stack(flag_tables, ["pres_band", *flags]),
@@ -4065,6 +4212,11 @@ def _write(
                 "measure": t["measure"],
                 "bands": [{"band": i, "label": b} for i, b in enumerate(t["bands"])],
                 "clear": t["clear"],
+                **(
+                    {"clear_by_variable": t["clear_by_variable"]}
+                    if "clear_by_variable" in t
+                    else {}
+                ),
             }
             for t in RESPONSE_TESTS
         ],

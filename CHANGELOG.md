@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **nrtqclib against CORA with three checks set aside**
+  (`analyses_format` 14): `cora_flags` and `cora_flags_platforms` gain
+  `nrtqclib_three_only`, true where nrtqclib flags the NRT copy bad and
+  every check that failed on it is density inversion, `temp_to_psal` or
+  pressure increasing. Summed over it, both tables are unchanged.
+- **The regional range and digit rollover in `items_response`** and
+  `items_response_platforms`, for temperature and salinity. The regional
+  range is banded by how far outside the dataset's regional limits, read
+  from the nrtqclib configuration, over values inside the global range;
+  the digit rollover by the jump from the level before as a multiple of
+  nrtqclib's threshold, over levels both inside the global range.
+- `response_tests` in `meta.json` can give clear bands per variable
+  (`clear_by_variable`): the regional range's salinity failures are at
+  most 1 outside, so its clear band is 0.5 to 1.
+
 ## [0.17.0] - 2026-11-17
 
 ### Added

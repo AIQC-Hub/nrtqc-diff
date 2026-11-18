@@ -175,7 +175,7 @@ meta && response ? table(
         test_label: test.label,
         flag: app.responseFlagLabel(meta, r.variable),
         band_label: test.bands[r.band].label,
-        clear: test.clear.includes(r.band) ? "clear" : "",
+        clear: app.clearBands(test, r.variable).includes(r.band) ? "clear" : "",
         unit: test.unit
       };
     }),
